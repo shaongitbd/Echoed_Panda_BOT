@@ -29,6 +29,7 @@ const SECTIONS: SidebarSection[] = [
   { href: '/notifications', label: 'Notifications', icon: '◉' },
   { href: '/statcounters', label: 'Stats counters', icon: '#' },
   { href: '/schedules', label: 'Schedules', icon: '◷' },
+  { href: '/giveaways', label: 'Giveaways', icon: '🎉' },
   { href: '/music', label: 'Music', icon: '♪' },
 ];
 

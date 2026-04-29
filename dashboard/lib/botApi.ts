@@ -79,6 +79,49 @@ export async function getBotServers(): Promise<{ serverId: string }[]> {
     .filter((s) => s.serverId !== '');
 }
 
+// Embed shape — matches the bot's RichEmbed (see backend embeds.go).
+// Locally redeclared so the dashboard doesn't need to import from the
+// bot package.
+export interface BotEmbed {
+  type?: 'rich';
+  title?: string;
+  description?: string;
+  color?: number;
+  timestamp?: string;
+  fields?: { name: string; value: string; inline?: boolean }[];
+  footer?: { text: string };
+}
+
+// Post a message via the bot. Used by giveaway creation so the dashboard
+// can inherit the bot's sender identity (the giveaway must be authored
+// by the bot for reactions to count + winners to be picked).
+export async function botSendMessage(
+  serverId: string,
+  channelId: string,
+  body: { content?: string; embeds?: BotEmbed[] },
+): Promise<{ messageId: string } | null> {
+  const res = await fetch(`${config.botApi.base}/v1/bots/${serverId}/messages/send`, {
+    method: 'POST',
+    headers: HEADERS(),
+    body: JSON.stringify({ channelId, ...body, content: body.content ?? '' }),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { messageId?: string };
+  return json.messageId ? { messageId: json.messageId } : null;
+}
+
+export async function botAddReaction(
+  serverId: string,
+  messageId: string,
+  emoji: string,
+): Promise<boolean> {
+  const res = await fetch(
+    `${config.botApi.base}/v1/bots/${serverId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+    { method: 'PUT', headers: HEADERS() },
+  );
+  return res.ok;
+}
+
 export async function getServerRoles(serverId: string): Promise<BotRole[]> {
   const res = await fetch(`${config.botApi.base}/v1/bots/${serverId}/roles`, {
     method: 'GET',
