@@ -9,6 +9,7 @@
 import { spawn } from 'node:child_process';
 import { Readable, PassThrough } from 'node:stream';
 import play from 'play-dl';
+import { config } from '../config.js';
 import { log } from '../log.js';
 
 export type SourceKind = 'youtube' | 'soundcloud' | 'url' | 'search';
@@ -52,9 +53,13 @@ export async function resolveQuery(
     return [resolveDirectUrl(trimmed, requestedBy, requestedByName)];
   }
 
-  // Plain text → YouTube search, take the top 5.
-  const results = await play.search(trimmed, { source: { youtube: 'video' }, limit: 5 });
-  return results.map((v) => youtubeVideoToTrack(v, requestedBy, requestedByName));
+  // Plain text → yt-dlp search, take the top 5. We used to use
+  // play-dl for this, but YouTube's anti-scrape now blocks it ("Sign
+  // in to confirm you're not a bot"); yt-dlp actively maintains the
+  // signature workaround + supports cookies for accounts that hit
+  // the prompt anyway.
+  const metas = await ytDlpSearch(trimmed, 5);
+  return metas.map((m) => youtubeMetaToTrack(m, requestedBy, requestedByName));
 }
 
 async function resolveYoutubeUrl(
@@ -62,34 +67,40 @@ async function resolveYoutubeUrl(
   requestedBy: string,
   requestedByName: string,
 ): Promise<Track> {
-  const info = await play.video_basic_info(url);
-  return youtubeVideoToTrack(info.video_details, requestedBy, requestedByName);
+  const meta = await ytDlpMetadata(url);
+  return youtubeMetaToTrack(meta, requestedBy, requestedByName);
 }
 
-function youtubeVideoToTrack(
-  v: {
-    title?: string;
-    url: string;
-    durationInSec: number;
-    thumbnails?: { url: string }[];
-    channel?: { name?: string };
-  },
+interface YtDlpMeta {
+  title?: string;
+  duration?: number;
+  webpage_url?: string;
+  thumbnail?: string;
+  uploader?: string;
+  channel?: string;
+}
+
+function youtubeMetaToTrack(
+  m: YtDlpMeta,
   requestedBy: string,
   requestedByName: string,
 ): Track {
-  const url = v.url;
+  const url = m.webpage_url ?? '';
   return {
     kind: 'youtube',
-    title: v.title ?? '(untitled)',
+    title: m.title ?? '(untitled)',
     url,
-    durationSeconds: v.durationInSec,
-    thumbnailUrl: v.thumbnails?.[v.thumbnails.length - 1]?.url,
-    uploader: v.channel?.name,
+    durationSeconds: typeof m.duration === 'number' ? m.duration : 0,
+    thumbnailUrl: m.thumbnail,
+    uploader: m.uploader ?? m.channel,
     requestedBy,
     requestedByName,
     open: async () => {
-      const stream = await play.stream(url, { quality: 2 });
-      return openPcmFromCompressed(stream.stream);
+      // Resolve the direct stream URL just-in-time — these expire
+      // (~6h) so we can't cache them at queue-time. ffmpeg pulls the
+      // resolved URL with reconnect-on-error.
+      const directUrl = await ytDlpStreamUrl(url || (m.webpage_url ?? ''));
+      return openPcmFromUrl(directUrl);
     },
   };
 }
@@ -198,6 +209,98 @@ function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => v
       }
     },
   };
+}
+
+// =============================================================================
+// yt-dlp wrapper
+// =============================================================================
+//
+// Three entry points:
+//   - ytDlpMetadata(url)  → { title, duration, thumbnail, uploader, … }
+//   - ytDlpSearch(q, n)   → up to N metadata objects, ordered by relevance
+//   - ytDlpStreamUrl(url) → expiring direct audio URL ffmpeg can pull
+//
+// Cookies (config.ytDlpCookiesFile) bypass YouTube's "Sign in to
+// confirm you're not a bot" wall when the bot is hitting it. Without
+// cookies most public videos still work, but anything age-gated /
+// region-locked / spam-flagged will fail.
+
+function ytDlpBaseArgs(): string[] {
+  const args: string[] = ['--no-playlist', '--no-warnings'];
+  if (config.ytDlpCookiesFile) {
+    args.push('--cookies', config.ytDlpCookiesFile);
+  }
+  return args;
+}
+
+// Run yt-dlp and collect stdout. Rejects if the process exits non-zero
+// or outputs nothing on stdout. stderr is logged at debug level so we
+// can diagnose YouTube changes without spamming the console.
+function runYtDlp(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(config.ytDlpBinary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    proc.stdout.on('data', (chunk) => {
+      out += String(chunk);
+    });
+    proc.stderr.on('data', (chunk) => {
+      err += String(chunk);
+    });
+    proc.on('error', (e) => {
+      // ENOENT means yt-dlp isn't on PATH — surface a clear hint.
+      const message =
+        (e as NodeJS.ErrnoException).code === 'ENOENT'
+          ? `yt-dlp binary not found (looked for "${config.ytDlpBinary}"). Install it (apt: yt-dlp / pip: yt-dlp) or set YTDLP_BINARY.`
+          : e.message;
+      reject(new Error(message));
+    });
+    proc.on('close', (code) => {
+      if (code === 0 && out.trim()) {
+        resolve(out);
+      } else {
+        const stderrSummary = err.trim().split('\n').slice(-3).join(' | ');
+        reject(new Error(`yt-dlp exited ${code}: ${stderrSummary || 'no output'}`));
+      }
+    });
+  });
+}
+
+async function ytDlpMetadata(url: string): Promise<YtDlpMeta> {
+  const out = await runYtDlp([...ytDlpBaseArgs(), '-J', '--skip-download', url]);
+  return JSON.parse(out) as YtDlpMeta;
+}
+
+async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
+  // ytsearch5:<query> returns up to 5 hits. We deliberately don't use
+  // --flat-playlist here — flat entries are missing duration /
+  // thumbnail / uploader, which makes the queue card useless. The
+  // extra metadata fetch costs ~1s but fires once per !play.
+  const out = await runYtDlp([
+    ...ytDlpBaseArgs(),
+    '-J',
+    '--skip-download',
+    `ytsearch${limit}:${query}`,
+  ]);
+  const parsed = JSON.parse(out) as { entries?: YtDlpMeta[] };
+  return parsed.entries ?? [];
+}
+
+async function ytDlpStreamUrl(url: string): Promise<string> {
+  const out = await runYtDlp([
+    ...ytDlpBaseArgs(),
+    '-f',
+    'bestaudio[ext=webm]/bestaudio/best',
+    '-g',
+    url,
+  ]);
+  // -g prints the chosen format's direct URL; with multi-stream
+  // formats it can print 2 lines (audio + video) — we want the
+  // audio one, which is usually the last for our format selector.
+  const lines = out.trim().split('\n').filter(Boolean);
+  const last = lines[lines.length - 1];
+  if (!last) throw new Error('yt-dlp returned no stream URL');
+  return last;
 }
 
 // Same shape but ffmpeg fetches the URL itself.

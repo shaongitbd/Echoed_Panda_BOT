@@ -39,6 +39,15 @@ export const config = {
   // surface a "not configured" hint and the scheduler skips its tick.
   twitchClientId: optional('TWITCH_CLIENT_ID', ''),
   twitchClientSecret: optional('TWITCH_CLIENT_SECRET', ''),
+  // Music — yt-dlp is the YouTube/SoundCloud resolver. We assume
+  // `yt-dlp` is on PATH (apt: yt-dlp / pip: yt-dlp / brew: yt-dlp).
+  // Override the binary name if you've installed it under a different
+  // name (e.g. youtube-dl).
+  ytDlpBinary: optional('YTDLP_BINARY', 'yt-dlp'),
+  // Optional: Netscape-format cookies file to bypass YouTube's
+  // "Sign in to confirm you're not a bot" prompt. Generate with the
+  // "cookies.txt LOCALLY" browser extension while signed into YouTube.
+  ytDlpCookiesFile: optional('YTDLP_COOKIES_FILE', ''),
 } as const;
 
 export const twitchEnabled = (): boolean =>
