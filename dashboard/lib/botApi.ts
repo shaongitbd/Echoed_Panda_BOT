@@ -59,6 +59,12 @@ export async function getServerChannels(serverId: string): Promise<BotChannel[]>
 // where panda actually lives — anything else is just noise the user
 // can't act on (saving config would be a no-op since the bot won't
 // see the changes until invited).
+//
+// Backend returns `{ servers: [{ id, name, icon, ... }], total }` —
+// note `id` (not `serverId`). This matched a Python contract that
+// shipped before the bot dashboard existed; we map to a normalized
+// `serverId` field here so callers can match consistently against
+// userinfo.owned_servers, which uses `id`.
 export async function getBotServers(): Promise<{ serverId: string }[]> {
   const res = await fetch(`${config.botApi.base}/v1/bots/servers`, {
     method: 'GET',
@@ -66,11 +72,11 @@ export async function getBotServers(): Promise<{ serverId: string }[]> {
     cache: 'no-store',
   });
   if (!res.ok) return [];
-  const body = (await res.json()) as
-    | { servers?: { serverId: string }[]; count?: number }
-    | { serverId: string }[];
-  if (Array.isArray(body)) return body;
-  return body.servers ?? [];
+  const body = (await res.json()) as { servers?: Array<{ id?: string; serverId?: string }> };
+  const raw = body.servers ?? [];
+  return raw
+    .map((s) => ({ serverId: s.id ?? s.serverId ?? '' }))
+    .filter((s) => s.serverId !== '');
 }
 
 export async function getServerRoles(serverId: string): Promise<BotRole[]> {
