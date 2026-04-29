@@ -8,6 +8,10 @@
 
 import { spawn } from 'node:child_process';
 import { Readable, PassThrough } from 'node:stream';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import play from 'play-dl';
 import { config } from '../config.js';
 import { log } from '../log.js';
@@ -235,49 +239,82 @@ function ytDlpBaseArgs(): string[] {
   // doesn't need JS, so they keep working in headless containers.
   // Listing multiple clients lets yt-dlp fall back if YouTube blocks
   // any single one.
-  const args: string[] = [
+  return [
     '--no-playlist',
     '--no-warnings',
     '--extractor-args',
     'youtube:player-client=default,android_vr,tv,android,ios',
   ];
-  if (config.ytDlpCookiesFile) {
-    args.push('--cookies', config.ytDlpCookiesFile);
-  }
-  return args;
+  // NOTE: cookies are NOT added here — they're added per-call via a
+  // throwaway temp copy. See runYtDlp for why.
 }
 
 // Run yt-dlp and collect stdout. Rejects if the process exits non-zero
-// or outputs nothing on stdout. stderr is logged at debug level so we
-// can diagnose YouTube changes without spamming the console.
-function runYtDlp(args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(config.ytDlpBinary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    proc.stdout.on('data', (chunk) => {
-      out += String(chunk);
+// or outputs nothing on stdout.
+//
+// Cookies handling: yt-dlp writes back to its `--cookies` file by
+// default (Netscape spec — Set-Cookie headers from the server replace
+// the file on disk). When YouTube's anti-bot flags a datacenter IP
+// it nukes the session by responding with Set-Cookie: SID=; max-age=0
+// and we'd lose our authenticated state on the very first request.
+// The fix: copy the source cookies file to a temp path per call,
+// point yt-dlp at the temp copy, throw the temp copy away after.
+// Source file stays pristine; yt-dlp can scribble all it wants on
+// the disposable copy.
+async function runYtDlp(args: string[]): Promise<string> {
+  const cookiesTemp = await prepareCookiesFile();
+  const fullArgs = cookiesTemp ? [...args, '--cookies', cookiesTemp] : args;
+
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      const proc = spawn(config.ytDlpBinary, fullArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      proc.stdout.on('data', (chunk) => {
+        out += String(chunk);
+      });
+      proc.stderr.on('data', (chunk) => {
+        err += String(chunk);
+      });
+      proc.on('error', (e) => {
+        const message =
+          (e as NodeJS.ErrnoException).code === 'ENOENT'
+            ? `yt-dlp binary not found (looked for "${config.ytDlpBinary}"). Install it (apt: yt-dlp / pip: yt-dlp) or set YTDLP_BINARY.`
+            : e.message;
+        reject(new Error(message));
+      });
+      proc.on('close', (code) => {
+        if (code === 0 && out.trim()) {
+          resolve(out);
+        } else {
+          const stderrSummary = err.trim().split('\n').slice(-3).join(' | ');
+          reject(new Error(`yt-dlp exited ${code}: ${stderrSummary || 'no output'}`));
+        }
+      });
     });
-    proc.stderr.on('data', (chunk) => {
-      err += String(chunk);
-    });
-    proc.on('error', (e) => {
-      // ENOENT means yt-dlp isn't on PATH — surface a clear hint.
-      const message =
-        (e as NodeJS.ErrnoException).code === 'ENOENT'
-          ? `yt-dlp binary not found (looked for "${config.ytDlpBinary}"). Install it (apt: yt-dlp / pip: yt-dlp) or set YTDLP_BINARY.`
-          : e.message;
-      reject(new Error(message));
-    });
-    proc.on('close', (code) => {
-      if (code === 0 && out.trim()) {
-        resolve(out);
-      } else {
-        const stderrSummary = err.trim().split('\n').slice(-3).join(' | ');
-        reject(new Error(`yt-dlp exited ${code}: ${stderrSummary || 'no output'}`));
-      }
-    });
-  });
+  } finally {
+    if (cookiesTemp) {
+      // Best-effort cleanup. If the unlink fails (concurrent call,
+      // tmpfs full, whatever) we'd just leave a small file behind —
+      // not worth surfacing as an error.
+      void fs.unlink(cookiesTemp).catch(() => {});
+    }
+  }
+}
+
+// Build a throwaway copy of the cookies file. Returns null when no
+// cookies are configured.
+async function prepareCookiesFile(): Promise<string | null> {
+  const src = config.ytDlpCookiesFile;
+  if (!src) return null;
+  try {
+    const dest = join(tmpdir(), `panda-cookies-${randomBytes(6).toString('hex')}.txt`);
+    await fs.copyFile(src, dest);
+    return dest;
+  } catch (err) {
+    log.warn({ err, src }, 'Failed to copy cookies file to temp — running without cookies');
+    return null;
+  }
 }
 
 async function ytDlpMetadata(url: string): Promise<YtDlpMeta> {
