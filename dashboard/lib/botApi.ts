@@ -54,6 +54,25 @@ export async function getServerChannels(serverId: string): Promise<BotChannel[]>
   return channels;
 }
 
+// List the servers the bot has been invited into. Used by the
+// dashboard's server picker so we only render cards for servers
+// where panda actually lives — anything else is just noise the user
+// can't act on (saving config would be a no-op since the bot won't
+// see the changes until invited).
+export async function getBotServers(): Promise<{ serverId: string }[]> {
+  const res = await fetch(`${config.botApi.base}/v1/bots/servers`, {
+    method: 'GET',
+    headers: HEADERS(),
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  const body = (await res.json()) as
+    | { servers?: { serverId: string }[]; count?: number }
+    | { serverId: string }[];
+  if (Array.isArray(body)) return body;
+  return body.servers ?? [];
+}
+
 export async function getServerRoles(serverId: string): Promise<BotRole[]> {
   const res = await fetch(`${config.botApi.base}/v1/bots/${serverId}/roles`, {
     method: 'GET',
