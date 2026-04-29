@@ -20,6 +20,10 @@ export interface GuildConfig {
   antiRaidThreshold: number;
   antiRaidWindowSeconds: number;
   antiRaidLockdownUntil: Date | null;
+  // DJ role for music commands. When set, members holding it can run
+  // skip / pause / volume / loop without Manage Server. null → fall
+  // back to Manage Server only.
+  djRoleId: string | null;
 }
 
 interface Row {
@@ -34,6 +38,7 @@ interface Row {
   anti_raid_threshold: number;
   anti_raid_window_seconds: number;
   anti_raid_lockdown_until: Date | null;
+  dj_role_id: string | null;
 }
 
 const EMPTY = (serverId: string): GuildConfig => ({
@@ -48,6 +53,7 @@ const EMPTY = (serverId: string): GuildConfig => ({
   antiRaidThreshold: 10,
   antiRaidWindowSeconds: 30,
   antiRaidLockdownUntil: null,
+  djRoleId: null,
 });
 
 function rowToConfig(row: Row): GuildConfig {
@@ -63,6 +69,7 @@ function rowToConfig(row: Row): GuildConfig {
     antiRaidThreshold: row.anti_raid_threshold ?? 10,
     antiRaidWindowSeconds: row.anti_raid_window_seconds ?? 30,
     antiRaidLockdownUntil: row.anti_raid_lockdown_until,
+    djRoleId: row.dj_role_id,
   };
 }
 
@@ -70,7 +77,7 @@ const SELECT = `
   server_id, prefix, modlog_channel, welcome_channel, welcome_message,
   autorole_id, suggestions_channel,
   anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
-  anti_raid_lockdown_until
+  anti_raid_lockdown_until, dj_role_id
 `;
 
 export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
@@ -94,6 +101,7 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   antiRaidThreshold: 'anti_raid_threshold',
   antiRaidWindowSeconds: 'anti_raid_window_seconds',
   antiRaidLockdownUntil: 'anti_raid_lockdown_until',
+  djRoleId: 'dj_role_id',
 };
 
 // upsert with dynamic column list — only writes the fields the form
