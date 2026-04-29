@@ -159,14 +159,17 @@ function buildTrack(
       return openPcmFromFile(path);
     },
     cleanup: async () => {
-      // Nothing started — nothing to clean.
-      if (!downloadedPath && !downloadPromise) return;
-      // If the download is still in flight, wait for it so we can
-      // delete the file it produces. If it's already failed, there's
-      // nothing on disk to delete.
-      const path = downloadedPath ?? (await downloadPromise!.catch(() => null));
-      if (path) {
-        await fs.unlink(path).catch(() => {
+      // Snapshot then reset state so a follow-up open() (e.g.
+      // loop=track replaying the same Track) triggers a fresh
+      // download instead of pointing at a now-deleted file.
+      const promise = downloadPromise;
+      const path = downloadedPath;
+      downloadPromise = null;
+      downloadedPath = null;
+      if (!promise && !path) return;
+      const finalPath = path ?? (await promise!.catch(() => null));
+      if (finalPath) {
+        await fs.unlink(finalPath).catch(() => {
           /* best-effort: tmpfs cleared on reboot anyway */
         });
       }

@@ -11,27 +11,27 @@
 
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
-import { VoiceConnection, SAMPLES_PER_FRAME } from './connection.js';
+import { VoiceConnection } from './connection.js';
 import type { Track } from './source.js';
 import { log } from '../log.js';
 
+const SAMPLE_RATE = 48_000;
 const BYTES_PER_SAMPLE = 2; // s16le
 const CHANNELS = 2;
-const FRAME_BYTES = SAMPLES_PER_FRAME * CHANNELS * BYTES_PER_SAMPLE;
 
-// A pre-allocated silence frame. Used during pause + when the source
-// stream hasn't delivered its next chunk in time. Created once because
-// it's all zeros and we never mutate it; sharing the same Int16Array
-// across pushes is safe (LiveKit copies the data in captureFrame).
-const SILENT_FRAME: Int16Array = new Int16Array(FRAME_BYTES / BYTES_PER_SAMPLE);
+// 1-second frames. This matches LiveKit's official publish-wav example
+// and the `testTone` diagnostic command — both confirmed to play
+// cleanly. Earlier 100 ms frames + a queue-depth poll gate caused the
+// breakup the user kept hearing: the manual gate fights captureFrame's
+// own native backpressure, creating micro-stalls that surface as
+// bit-crushed audio. With 1-second frames we trust captureFrame's
+// await to block when LiveKit's queue is full; no manual pacing.
+const FRAME_BYTES_1S = SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE; // 192 000 bytes
 
-// Throttle thresholds for LiveKit's native AudioSource queue. The
-// native side caps at ~1 s (the queueSize default). We back off when
-// queued audio exceeds 700 ms to leave headroom; above the cap, frames
-// get silently dropped or compressed (manifesting as bit-crushed /
-// breaking audio).
-const QUEUE_TARGET_HIGH_MS = 700;
-const QUEUE_POLL_MS = 50;
+// Pre-allocated 1 s of silence — pushed during pause so LiveKit's
+// queue stays primed instead of underrunning (an underrun shows up
+// as clicks on resume).
+const SILENT_FRAME_1S: Int16Array = new Int16Array(FRAME_BYTES_1S / BYTES_PER_SAMPLE);
 
 
 export type LoopMode = 'off' | 'track' | 'queue';
@@ -51,7 +51,6 @@ export class MusicPlayer extends EventEmitter {
   private current: Track | null = null;
   private currentStream: Readable | null = null;
   private currentClose: (() => void) | null = null;
-  private leftover = Buffer.alloc(0);
 
   private playing = false;
   private paused = false;
@@ -139,7 +138,6 @@ export class MusicPlayer extends EventEmitter {
         this.startedAt = Date.now();
         this.accumulatedPause = 0;
         this.pausedAt = null;
-        this.leftover = Buffer.alloc(0);
         this.emit('trackStart', next);
 
         // Kick off the next track's download in the background while
@@ -298,23 +296,27 @@ export class MusicPlayer extends EventEmitter {
     });
   }
 
-  // Frame-driven push loop with two pacing layers:
+  // Decode-then-push push loop. Mirrors the working `testTone`
+  // diagnostic command exactly:
+  //   1. Drain ffmpeg's stdout fully into a Buffer (entire track PCM
+  //      in memory). For typical music tracks (3–10 min) this is
+  //      ~35–115 MB — fine on any reasonable host. ffmpeg decodes
+  //      faster than realtime, so this finishes in 1–3 s.
+  //   2. Push 1-second frames, awaiting captureFrame on each. The
+  //      native AudioSource has its own queue cap (1 s by default);
+  //      captureFrame blocks at the FFI level when the queue is full,
+  //      which is the only pacing we need. No manual gate / poll.
   //
-  //   1. Stream chunks arrive via `for await (chunk of stream)` —
-  //      proper async iteration over Node Readable. Iteration *waits*
-  //      when the internal buffer is empty, so we never accidentally
-  //      inject silence between real audio chunks.
+  // Why not stream-and-push? The previous design (100 ms frames,
+  // for-await over ffmpeg stdout, manual queue gate) caused the
+  // breakup the user kept hearing — small frames + bursty stdout +
+  // a polling gate fight each other and produce micro-stalls that
+  // surface as bit-crushed / robot audio. Buffering up front and
+  // pushing in 1 s slices is what LiveKit's own publish-wav example
+  // does, and what `testTone` proved works cleanly.
   //
-  //   2. Before pushing each frame we check LiveKit's queued duration.
-  //      The native AudioSource accepts frames eagerly without
-  //      backpressure — captureFrame's await returns the moment the
-  //      FFI ack arrives, NOT when audio plays out — so blasting
-  //      frames overflows the queue and surfaces as bit-crushed /
-  //      breaking audio. We sleep briefly when the queue is over the
-  //      target, keeping ~half a second of buffer.
-  //
-  // Pause handling: silence is pushed at the same rate so the source
-  // doesn't underrun (underrun = WebRTC packet loss = clicks).
+  // Pause handling: push 1 s of silence per frame instead of
+  // advancing the buffer, so the queue stays primed.
   private async runPushLoop(
     settle: (cause: 'natural' | 'skipped' | 'stopped') => void,
   ): Promise<void> {
@@ -325,36 +327,34 @@ export class MusicPlayer extends EventEmitter {
     }
 
     try {
+      const decodeStart = Date.now();
+      const chunks: Buffer[] = [];
       for await (const chunk of stream) {
         if (!this.trackComplete) return;
-        this.leftover = Buffer.concat([this.leftover, chunk as Buffer]);
-
-        while (this.leftover.length >= FRAME_BYTES && this.trackComplete) {
-          // Throttle: keep LiveKit's queue between 200-700 ms. Below
-          // 200 ms risks underrun on the next slow chunk; above 700 ms
-          // pushes us toward the 1 s cap where frames get dropped.
-          await this.gateOnQueueDepth();
-
-          if (this.paused) {
-            await this.connection.pushFrame(SILENT_FRAME);
-            continue; // don't consume from leftover while paused
-          }
-
-          const frameBuf = this.leftover.subarray(0, FRAME_BYTES);
-          this.leftover = this.leftover.subarray(FRAME_BYTES);
-          const scaled = applyVolume(frameBuf, this.volume);
-          await this.connection.pushFrame(bufToInt16(scaled));
-        }
+        chunks.push(chunk as Buffer);
       }
+      if (!this.trackComplete) return;
+      const pcm = Buffer.concat(chunks);
+      log.info(
+        {
+          bytes: pcm.length,
+          durationSec: pcm.length / (SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE),
+          decodeMs: Date.now() - decodeStart,
+        },
+        'PCM decoded — starting push',
+      );
 
-      // Stream ended naturally — push the trailing partial frame
-      // (zero-padded) so we don't lose the last fragment.
-      if (this.leftover.length > 0 && this.trackComplete) {
-        const tail = Buffer.alloc(FRAME_BYTES);
-        this.leftover.copy(tail);
-        this.leftover = Buffer.alloc(0);
-        await this.gateOnQueueDepth();
-        await this.connection.pushFrame(bufToInt16(tail));
+      let written = 0;
+      while (written < pcm.length && this.trackComplete) {
+        if (this.paused) {
+          await this.connection.pushFrame(SILENT_FRAME_1S);
+          continue; // don't advance written while paused
+        }
+        const frameEnd = Math.min(written + FRAME_BYTES_1S, pcm.length);
+        const frameBuf = pcm.subarray(written, frameEnd);
+        const scaled = applyVolume(frameBuf, this.volume);
+        await this.connection.pushFrame(bufToInt16(scaled));
+        written = frameEnd;
       }
 
       // Drain whatever's still in LiveKit's queue before advancing —
@@ -366,15 +366,6 @@ export class MusicPlayer extends EventEmitter {
     } catch (err) {
       log.warn({ err }, 'Push loop errored — ending track');
       settle('natural');
-    }
-  }
-
-  // Wait while LiveKit's native queue is over our target depth.
-  // Polls every 50 ms — coarse but good enough; we only care about
-  // staying under the queue cap, not millisecond precision.
-  private async gateOnQueueDepth(): Promise<void> {
-    while (this.trackComplete && this.connection.queuedDurationMs() > QUEUE_TARGET_HIGH_MS) {
-      await new Promise<void>((resolve) => setTimeout(resolve, QUEUE_POLL_MS));
     }
   }
 
