@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { log } from '../log.js';
 import type { EchoedClient } from '../client/echoedClient.js';
 import type { PermissionService } from '../auth/permissions.js';
+import type { VoiceManager } from '../voice/manager.js';
 import type { CommandContext } from '../types.js';
 import { getGuildConfig } from '../db/guildConfig.js';
 
@@ -54,10 +55,26 @@ import { handleAutoReact } from './autoReact.js';
 import { handleKeyword } from './keyword.js';
 import { handleSchedule } from './scheduleMsg.js';
 import { handleNick, handleResetNick } from './nick.js';
+import {
+  handlePlay,
+  handleSkip as handleMusicSkip,
+  handleStop as handleMusicStop,
+  handlePause,
+  handleResume,
+  handleQueue,
+  handleNowPlaying,
+  handleVolume,
+  handleLoop,
+  handleShuffle,
+  handleRemove,
+  handleClearQueue,
+  handleDjRole,
+} from './music.js';
 
 export interface Services {
   api: EchoedClient;
   perms: PermissionService;
+  voice: VoiceManager;
   startedAt: number;
 }
 
@@ -366,6 +383,86 @@ export const registry: readonly Registered[] = [
     aliases: ['joinrole'],
     handler: handleAutoRole,
     help: 'role to assign on join — `autorole <@role|none>`',
+  },
+
+  // ─── Music ────────────────────────────────────────────────────────
+  {
+    name: 'play',
+    aliases: ['p'],
+    handler: handlePlay,
+    help: 'play music — `play <#voice-channel> <url-or-search>`',
+  },
+  {
+    name: 'skip',
+    aliases: ['next'],
+    handler: handleMusicSkip,
+    help: 'skip the current track (DJ or original requester)',
+  },
+  {
+    name: 'stop',
+    aliases: ['leave', 'disconnect'],
+    handler: handleMusicStop,
+    help: 'stop playback and leave the voice channel (DJ)',
+  },
+  {
+    name: 'pause',
+    aliases: [],
+    handler: handlePause,
+    help: 'pause playback (DJ)',
+  },
+  {
+    name: 'resume',
+    aliases: ['unpause'],
+    handler: handleResume,
+    help: 'resume playback (DJ)',
+  },
+  {
+    name: 'queue',
+    aliases: ['q'],
+    handler: handleQueue,
+    help: 'show queue — `queue [page]`',
+  },
+  {
+    name: 'nowplaying',
+    aliases: ['np', 'current'],
+    handler: handleNowPlaying,
+    help: 'show currently playing track',
+  },
+  {
+    name: 'volume',
+    aliases: ['vol'],
+    handler: handleVolume,
+    help: 'show / set volume — `volume [0-150]` (DJ to set)',
+  },
+  {
+    name: 'loop',
+    aliases: ['repeat'],
+    handler: handleLoop,
+    help: 'loop mode — `loop <off|track|queue>` (DJ)',
+  },
+  {
+    name: 'shuffle',
+    aliases: [],
+    handler: handleShuffle,
+    help: 'shuffle the queue (DJ)',
+  },
+  {
+    name: 'remove',
+    aliases: ['unqueue'],
+    handler: handleRemove,
+    help: 'remove a track — `remove <queue-position>` (owner or DJ)',
+  },
+  {
+    name: 'clearqueue',
+    aliases: ['emptyqueue'],
+    handler: handleClearQueue,
+    help: 'clear the queue (DJ)',
+  },
+  {
+    name: 'djrole',
+    aliases: ['dj'],
+    handler: handleDjRole,
+    help: 'set the DJ role — `djrole <@role|none>` (Manage Server)',
   },
 
   // ─── Meta ─────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { listForServer } from '@/lib/queries/statCounters';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
 import { AddCounterForm } from './AddCounterForm';
 import { removeStatCounter } from './actions';
@@ -9,7 +10,11 @@ interface PageProps {
 
 export default async function StatCountersPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const counters = await listForServer(serverId);
+  const [counters, channels] = await Promise.all([
+    listForServer(serverId),
+    getServerChannels(serverId),
+  ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
 
   return (
     <div>
@@ -27,7 +32,7 @@ export default async function StatCountersPage({ params }: PageProps): Promise<J
         title="Add a counter"
         description="The bot renames the channel every minute (or when the value changes). Customize the format with the {count} placeholder."
       >
-        <AddCounterForm serverId={serverId} />
+        <AddCounterForm serverId={serverId} channels={channels} />
       </FormCard>
 
       <div className="mt-6 rounded-lg border border-[var(--border-subtle)] bg-bg-card">
@@ -50,8 +55,9 @@ export default async function StatCountersPage({ params }: PageProps): Promise<J
                 <li key={c.channelId} className="flex items-start justify-between gap-4 p-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className="font-mono text-sm text-text-primary">
-                        &lt;#{c.channelId}&gt;
+                      <span className="text-sm text-text-primary">
+                        <span className="text-text-muted">#</span>
+                        {channelById.get(c.channelId)?.name ?? c.channelId.slice(0, 8) + '…'}
                       </span>
                       <span className="rounded-sm bg-accent-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
                         {c.kind}

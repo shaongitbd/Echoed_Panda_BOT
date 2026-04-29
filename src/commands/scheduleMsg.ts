@@ -62,6 +62,11 @@ function nextDailyRun(hours: number, minutes: number): Date {
 }
 
 export const handleSchedule: Handler = async (ctx, svc) => {
+  // Schedules reveal exact post timing, which is strategically useful
+  // (e.g. drowning out a scheduled post). Gate every subcommand —
+  // including `list` — behind Manage Server.
+  if (!(await requireManageServer(ctx, svc))) return;
+
   const sub = ctx.args[0]?.toLowerCase();
 
   if (!sub || sub === 'list') {
@@ -99,8 +104,6 @@ export const handleSchedule: Handler = async (ctx, svc) => {
     });
     return;
   }
-
-  if (!(await requireManageServer(ctx, svc))) return;
 
   if (sub === 'remove' || sub === 'delete') {
     const id = ctx.args[1] ? parseInt(ctx.args[1], 10) : NaN;

@@ -3,8 +3,16 @@
 import { useState, useTransition } from 'react';
 import { addAutoReactRule, type AddResult } from './actions';
 import { inputClassName, Field } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
+import type { BotChannel } from '@/lib/botApi';
 
-export function AddAutoReactForm({ serverId }: { serverId: string }): JSX.Element {
+export function AddAutoReactForm({
+  serverId,
+  channels,
+}: {
+  serverId: string;
+  channels: BotChannel[];
+}): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -28,12 +36,11 @@ export function AddAutoReactForm({ serverId }: { serverId: string }): JSX.Elemen
     >
       <div className="grid gap-4 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
         <Field label="Channel" name="channelId">
-          <input
-            id="channelId"
+          <ChannelPicker
+            mode="single"
             name="channelId"
-            placeholder="<#channel>"
-            required
-            className={inputClassName}
+            channels={channels}
+            allowedTypes={['text']}
           />
         </Field>
         <Field label="Emoji" name="emoji" hint="Unicode 🐼 or :name:.">

@@ -3,11 +3,19 @@
 import { useState, useTransition } from 'react';
 import { addScheduledMessage, type AddResult } from './actions';
 import { inputClassName, textareaClassName, Field } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
+import type { BotChannel } from '@/lib/botApi';
 
 // Form swaps the cadence input based on the selected kind. Every-mode
 // shows an interval-in-seconds field; daily-mode shows an HH:MM
 // picker. Anything else stays the same.
-export function AddScheduleForm({ serverId }: { serverId: string }): JSX.Element {
+export function AddScheduleForm({
+  serverId,
+  channels,
+}: {
+  serverId: string;
+  channels: BotChannel[];
+}): JSX.Element {
   const [kind, setKind] = useState<'every' | 'daily'>('every');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -76,12 +84,11 @@ export function AddScheduleForm({ serverId }: { serverId: string }): JSX.Element
         )}
 
         <Field label="Channel" name="channelId">
-          <input
-            id="channelId"
+          <ChannelPicker
+            mode="single"
             name="channelId"
-            placeholder="<#channel>"
-            required
-            className={inputClassName}
+            channels={channels}
+            allowedTypes={['text']}
           />
         </Field>
       </div>

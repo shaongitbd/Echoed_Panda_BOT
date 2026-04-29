@@ -29,6 +29,14 @@ export const config = {
     base: trimTrailingSlash(optional('ECHOED_OAUTH_BASE', 'https://go.echoed.gg')),
   },
 
+  // Same bot token the bot process uses — needed for server-side
+  // channel/role lookups when rendering the dashboard. Stored only on
+  // the dashboard server, never sent to the browser.
+  botApi: {
+    base: trimTrailingSlash(optional('PANDA_API_BASE', 'https://go.echoed.gg')),
+    token: required('PANDA_BOT_TOKEN'),
+  },
+
   dashboardBaseUrl: trimTrailingSlash(optional('DASHBOARD_BASE_URL', 'http://localhost:3030')),
 };
 

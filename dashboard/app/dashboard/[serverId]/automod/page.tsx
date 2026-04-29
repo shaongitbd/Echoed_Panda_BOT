@@ -1,5 +1,7 @@
 import { getAutomodConfig } from '@/lib/queries/automodConfig';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
+import { ChannelScope } from '@/components/ChannelScope';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import { saveAutomod } from './actions';
@@ -10,7 +12,10 @@ interface PageProps {
 
 export default async function AutomodPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const config = await getAutomodConfig(serverId);
+  const [config, channels] = await Promise.all([
+    getAutomodConfig(serverId),
+    getServerChannels(serverId),
+  ]);
   const action = saveAutomod.bind(null, serverId);
 
   return (
@@ -244,17 +249,21 @@ export default async function AutomodPage({ params }: PageProps): Promise<JSX.El
           description="Channels and roles auto-mod ignores. Useful for #staff-only channels or trusted moderator roles."
         >
           <Field
-            label="Exempt channels"
+            label="Channel scope"
             name="exemptChannelIds"
-            hint="Channel IDs or <#channel> mentions, space- or comma-separated."
+            hint="Apply auto-mod to all channels, or skip a specific list."
           >
-            <textarea
-              id="exemptChannelIds"
+            <ChannelScope
               name="exemptChannelIds"
-              defaultValue={config.exemptChannelIds.map((id) => `<#${id}>`).join(' ')}
-              rows={2}
-              placeholder="<#staff-room> <#mod-chat>"
-              className={textareaClassName}
+              channels={channels}
+              allowedTypes={['text']}
+              modes={['all', 'except']}
+              initialMode={config.exemptChannelIds.length > 0 ? 'except' : 'all'}
+              initialChannels={config.exemptChannelIds}
+              labels={{
+                all: 'Apply auto-mod everywhere',
+                except: 'Skip these channels',
+              }}
             />
           </Field>
           <Field

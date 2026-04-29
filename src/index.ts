@@ -3,6 +3,7 @@ import { log } from './log.js';
 import { EchoedClient } from './client/echoedClient.js';
 import { EchoedSocket } from './client/echoedSocket.js';
 import { PermissionService } from './auth/permissions.js';
+import { VoiceManager } from './voice/manager.js';
 import { closeDb, pingDb } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
 import { dispatch, type Services } from './commands/index.js';
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
   const services: Services = {
     api,
     perms: new PermissionService(api),
+    voice: new VoiceManager(api),
     startedAt: Date.now(),
   };
 

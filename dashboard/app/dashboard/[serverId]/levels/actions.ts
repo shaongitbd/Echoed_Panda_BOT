@@ -8,7 +8,6 @@ import {
   parseBool,
   parseBoundedInt,
   parseChannelId,
-  parseChannelList,
   parseRoleId,
   parseTrimmedString,
 } from '@/lib/forms';
@@ -22,7 +21,16 @@ export async function saveLevels(serverId: string, formData: FormData): Promise<
   const enabled = parseBool(formData.get('enabled'));
   const stackRewards = parseBool(formData.get('stackRewards'));
   const levelUpChannel = parseChannelId(formData.get('levelUpChannel'));
-  const noXpChannelIds = parseChannelList(formData.get('noXpChannelIds'));
+  // ChannelScope (modes: all | except) — 'all' clears the list,
+  // 'except' stores the picked channels as the no-XP set.
+  const noXpMode = (formData.get('noXpChannelIds_mode') as string | null) ?? 'all';
+  const noXpChannelIds =
+    noXpMode === 'except'
+      ? formData
+          .getAll('noXpChannelIds')
+          .map((v) => parseChannelId(v))
+          .filter((v): v is string => v != null)
+      : [];
   const levelUpMessage = parseTrimmedString(formData.get('levelUpMessage'), 500);
 
   const xpPerMessageMin = parseBoundedInt(formData.get('xpPerMessageMin'), 15, 1, 200);

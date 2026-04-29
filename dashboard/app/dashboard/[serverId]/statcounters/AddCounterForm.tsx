@@ -3,8 +3,16 @@
 import { useState, useTransition } from 'react';
 import { addStatCounter, type AddResult } from './actions';
 import { inputClassName, Field } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
+import type { BotChannel } from '@/lib/botApi';
 
-export function AddCounterForm({ serverId }: { serverId: string }): JSX.Element {
+export function AddCounterForm({
+  serverId,
+  channels,
+}: {
+  serverId: string;
+  channels: BotChannel[];
+}): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -28,12 +36,10 @@ export function AddCounterForm({ serverId }: { serverId: string }): JSX.Element 
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label="Channel" name="channelId">
-          <input
-            id="channelId"
+          <ChannelPicker
+            mode="single"
             name="channelId"
-            placeholder="<#channel>"
-            required
-            className={inputClassName}
+            channels={channels}
           />
         </Field>
         <Field label="Tracks" name="kind">

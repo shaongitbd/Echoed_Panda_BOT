@@ -1,4 +1,5 @@
 import { listForServer } from '@/lib/queries/autoReact';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
 import { AddAutoReactForm } from './AddAutoReactForm';
 import { removeAutoReactRule } from './actions';
@@ -9,7 +10,11 @@ interface PageProps {
 
 export default async function AutoReactPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const rules = await listForServer(serverId);
+  const [rules, channels] = await Promise.all([
+    listForServer(serverId),
+    getServerChannels(serverId),
+  ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
 
   return (
     <div>
@@ -24,7 +29,7 @@ export default async function AutoReactPage({ params }: PageProps): Promise<JSX.
         title="Add a rule"
         description="One rule per (channel, emoji) pair. Re-adding the same combo replaces the previous one."
       >
-        <AddAutoReactForm serverId={serverId} />
+        <AddAutoReactForm serverId={serverId} channels={channels} />
       </FormCard>
 
       <div className="mt-6 rounded-lg border border-[var(--border-subtle)] bg-bg-card">
@@ -53,8 +58,9 @@ export default async function AutoReactPage({ params }: PageProps): Promise<JSX.
                   <div className="flex items-center gap-4">
                     <span className="text-2xl">{r.emoji}</span>
                     <span className="text-sm text-text-secondary">→</span>
-                    <span className="font-mono text-sm text-text-primary">
-                      &lt;#{r.channelId}&gt;
+                    <span className="text-sm text-text-primary">
+                      <span className="text-text-muted">#</span>
+                      {channelById.get(r.channelId)?.name ?? r.channelId.slice(0, 8) + '…'}
                     </span>
                   </div>
                   <form action={remove}>

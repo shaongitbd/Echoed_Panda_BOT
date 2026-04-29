@@ -51,6 +51,11 @@ function parseQuotedArgs(tail: string): { phrase: string; response: string; rest
 }
 
 export const handleKeyword: Handler = async (ctx, svc) => {
+  // Keyword rules reveal trigger phrases, which a non-admin could use
+  // to evade auto-moderation or intentionally spam triggers. Gate
+  // every subcommand — including `list` — behind Manage Server.
+  if (!(await requireManageServer(ctx, svc))) return;
+
   const sub = ctx.args[0]?.toLowerCase();
 
   if (!sub || sub === 'list') {
@@ -84,8 +89,6 @@ export const handleKeyword: Handler = async (ctx, svc) => {
     });
     return;
   }
-
-  if (!(await requireManageServer(ctx, svc))) return;
 
   if (sub === 'add') {
     // Pull everything after the `add` subcommand from the raw content.

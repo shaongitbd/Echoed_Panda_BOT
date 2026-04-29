@@ -539,6 +539,13 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ON panda.scheduled_messages (server_id)
     `,
   },
+  {
+    name: 'guild_config + dj_role_id',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS dj_role_id TEXT
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

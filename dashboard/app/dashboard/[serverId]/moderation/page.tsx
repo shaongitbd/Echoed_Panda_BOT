@@ -1,5 +1,7 @@
 import { getGuildConfig } from '@/lib/queries/guildConfig';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field, inputClassName } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import { saveModeration, clearLockdown } from './actions';
@@ -10,7 +12,10 @@ interface PageProps {
 
 export default async function ModerationPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const config = await getGuildConfig(serverId);
+  const [config, channels] = await Promise.all([
+    getGuildConfig(serverId),
+    getServerChannels(serverId),
+  ]);
   const action = saveModeration.bind(null, serverId);
   const clearAction = clearLockdown.bind(null, serverId);
 
@@ -62,14 +67,15 @@ export default async function ModerationPage({ params }: PageProps): Promise<JSX
           <Field
             label="Channel"
             name="modlogChannel"
-            hint="Channel ID or <#channel> mention. Type 'none' to clear."
+            hint="Pick the channel to log moderation actions in."
           >
-            <input
-              id="modlogChannel"
+            <ChannelPicker
+              mode="single"
               name="modlogChannel"
-              defaultValue={config.modlogChannel ?? ''}
-              placeholder="<#channel> or channel ID"
-              className={inputClassName}
+              channels={channels}
+              initial={config.modlogChannel}
+              allowedTypes={['text']}
+              clearable
             />
           </Field>
         </FormCard>

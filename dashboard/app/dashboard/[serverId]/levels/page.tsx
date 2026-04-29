@@ -1,6 +1,9 @@
 import { getLevelSettings } from '@/lib/queries/levelSettings';
 import { listRewards } from '@/lib/queries/levelRewards';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
+import { ChannelScope } from '@/components/ChannelScope';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import { saveLevels, removeLevelReward } from './actions';
@@ -12,9 +15,10 @@ interface PageProps {
 
 export default async function LevelsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [settings, rewards] = await Promise.all([
+  const [settings, rewards, channels] = await Promise.all([
     getLevelSettings(serverId),
     listRewards(serverId),
+    getServerChannels(serverId),
   ]);
 
   // Bind serverId into the action so the form can stay
@@ -56,14 +60,15 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
           <Field
             label="Level-up channel"
             name="levelUpChannel"
-            hint="Channel ID or <#channel> mention. Leave blank to use the source channel; type 'none' to clear."
+            hint="Where level-up messages post. Leave empty to announce in the channel where the level-up happened."
           >
-            <input
-              id="levelUpChannel"
+            <ChannelPicker
+              mode="single"
               name="levelUpChannel"
-              defaultValue={settings.levelUpChannel ?? ''}
-              placeholder="<#channel> or channel ID"
-              className={inputClassName}
+              channels={channels}
+              initial={settings.levelUpChannel}
+              allowedTypes={['text']}
+              clearable
             />
           </Field>
 
@@ -125,23 +130,21 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
         </FormCard>
 
         <FormCard
-          title="No-XP channels"
-          description="Channels where members never earn XP. Comma- or space-separated."
+          title="XP channel scope"
+          description="Where members can earn XP. Use 'All except' to mute XP in spam / bot channels, or 'Only' to restrict XP to active chat channels."
         >
-          <Field
-            label="Excluded channels"
+          <ChannelScope
             name="noXpChannelIds"
-            hint="Channel IDs or <#channel> mentions, space- or comma-separated."
-          >
-            <textarea
-              id="noXpChannelIds"
-              name="noXpChannelIds"
-              defaultValue={settings.noXpChannelIds.map((id) => `<#${id}>`).join(' ')}
-              rows={2}
-              placeholder="<#channel-id-1> <#channel-id-2>"
-              className={textareaClassName}
-            />
-          </Field>
+            channels={channels}
+            allowedTypes={['text']}
+            modes={['all', 'except']}
+            initialMode={settings.noXpChannelIds.length > 0 ? 'except' : 'all'}
+            initialChannels={settings.noXpChannelIds}
+            labels={{
+              all: 'XP in every channel',
+              except: 'All except these',
+            }}
+          />
         </FormCard>
 
         <SaveBar />

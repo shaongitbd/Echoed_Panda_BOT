@@ -3,6 +3,7 @@ import {
   listTwitchSubs,
   listYouTubeSubs,
 } from '@/lib/queries/notifications';
+import { getServerChannels, type BotChannel } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
 import { AddSubForm } from './AddSubForm';
 import {
@@ -23,11 +24,13 @@ const TWITCH_CONFIGURED =
 
 export default async function NotificationsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [reddit, twitch, youtube] = await Promise.all([
+  const [reddit, twitch, youtube, channels] = await Promise.all([
     listRedditSubs(serverId),
     listTwitchSubs(serverId),
     listYouTubeSubs(serverId),
+    getServerChannels(serverId),
   ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
 
   return (
     <div>
@@ -51,13 +54,14 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
             idName="subreddit"
             idPlaceholder="memes, programmerhumor, …"
             submitLabel="Follow"
+            channels={channels}
           />
           <SubList
             empty="No subreddits followed yet."
             items={reddit.map((r) => ({
               id: r.id,
               left: <span className="font-semibold">r/{r.subreddit}</span>,
-              right: <ChannelMention id={r.channelId} />,
+              right: <ChannelMention id={r.channelId} channels={channelById} />,
             }))}
             onRemove={(id) => removeReddit.bind(null, serverId, id)}
           />
@@ -83,6 +87,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
             idName="twitchLogin"
             idPlaceholder="username (no @)"
             submitLabel="Follow"
+            channels={channels}
           />
           <SubList
             empty="No streamers followed yet."
@@ -98,7 +103,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
                   ) : null}
                 </span>
               ),
-              right: <ChannelMention id={t.channelId} />,
+              right: <ChannelMention id={t.channelId} channels={channelById} />,
             }))}
             onRemove={(id) => removeTwitch.bind(null, serverId, id)}
           />
@@ -115,6 +120,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
             idName="youtubeChannelId"
             idPlaceholder="UCxxxxxxxxxxxxxxxxxxxx"
             submitLabel="Follow"
+            channels={channels}
           />
           <SubList
             empty="No channels followed yet."
@@ -123,7 +129,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
               left: (
                 <code className="font-mono text-xs text-text-primary">{y.youtubeChannelId}</code>
               ),
-              right: <ChannelMention id={y.channelId} />,
+              right: <ChannelMention id={y.channelId} channels={channelById} />,
             }))}
             onRemove={(id) => removeYouTube.bind(null, serverId, id)}
           />
@@ -171,6 +177,18 @@ function SubList({
   );
 }
 
-function ChannelMention({ id }: { id: string }): JSX.Element {
-  return <span className="font-mono">&lt;#{id}&gt;</span>;
+function ChannelMention({
+  id,
+  channels,
+}: {
+  id: string;
+  channels: Map<string, BotChannel>;
+}): JSX.Element {
+  const c = channels.get(id);
+  return (
+    <span className="text-text-primary">
+      <span className="text-text-muted">#</span>
+      {c?.name ?? id.slice(0, 8) + '…'}
+    </span>
+  );
 }

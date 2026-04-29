@@ -17,6 +17,10 @@ export interface GuildConfig {
   antiRaidThreshold: number;
   antiRaidWindowSeconds: number;
   antiRaidLockdownUntil: Date | null;
+  // DJ role for music commands. When set, members with this role can run
+  // skip / pause / volume / loop without holding MANAGE_SERVER. null →
+  // fall back to MANAGE_SERVER only.
+  djRoleId: string | null;
 }
 
 interface ConfigRow {
@@ -31,6 +35,7 @@ interface ConfigRow {
   anti_raid_threshold: number;
   anti_raid_window_seconds: number;
   anti_raid_lockdown_until: Date | null;
+  dj_role_id: string | null;
 }
 
 function rowToConfig(row: ConfigRow): GuildConfig {
@@ -46,6 +51,7 @@ function rowToConfig(row: ConfigRow): GuildConfig {
     antiRaidThreshold: row.anti_raid_threshold ?? 10,
     antiRaidWindowSeconds: row.anti_raid_window_seconds ?? 30,
     antiRaidLockdownUntil: row.anti_raid_lockdown_until,
+    djRoleId: row.dj_role_id,
   };
 }
 
@@ -61,6 +67,7 @@ const EMPTY = (serverId: string): GuildConfig => ({
   antiRaidThreshold: 10,
   antiRaidWindowSeconds: 30,
   antiRaidLockdownUntil: null,
+  djRoleId: null,
 });
 
 // Cache resolved configs in-process. TTL trades a tiny staleness window
@@ -80,7 +87,7 @@ export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
     `SELECT server_id, prefix, modlog_channel, welcome_channel, welcome_message,
             autorole_id, suggestions_channel,
             anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
-            anti_raid_lockdown_until
+            anti_raid_lockdown_until, dj_role_id
        FROM panda.guild_config
       WHERE server_id = $1`,
     [serverId],
@@ -106,6 +113,7 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   antiRaidThreshold: 'anti_raid_threshold',
   antiRaidWindowSeconds: 'anti_raid_window_seconds',
   antiRaidLockdownUntil: 'anti_raid_lockdown_until',
+  djRoleId: 'dj_role_id',
 };
 
 export async function setGuildConfig(
@@ -133,7 +141,7 @@ export async function setGuildConfig(
      RETURNING server_id, prefix, modlog_channel, welcome_channel, welcome_message,
                autorole_id, suggestions_channel,
                anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
-               anti_raid_lockdown_until`,
+               anti_raid_lockdown_until, dj_role_id`,
     [serverId, ...values],
   );
 

@@ -1,4 +1,5 @@
 import { listForServer } from '@/lib/queries/keywords';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
 import { AddKeywordForm } from './AddKeywordForm';
 import { removeKeyword } from './actions';
@@ -9,7 +10,11 @@ interface PageProps {
 
 export default async function KeywordsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const rules = await listForServer(serverId);
+  const [rules, channels] = await Promise.all([
+    listForServer(serverId),
+    getServerChannels(serverId),
+  ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
 
   return (
     <div>
@@ -24,7 +29,7 @@ export default async function KeywordsPage({ params }: PageProps): Promise<JSX.E
         title="Add a rule"
         description="The bot fires AT MOST ONE keyword response per message — rules are evaluated in insertion order."
       >
-        <AddKeywordForm serverId={serverId} />
+        <AddKeywordForm serverId={serverId} channels={channels} />
       </FormCard>
 
       <div className="mt-6 rounded-lg border border-[var(--border-subtle)] bg-bg-card">
@@ -53,8 +58,8 @@ export default async function KeywordsPage({ params }: PageProps): Promise<JSX.E
                         "{r.phrase}"
                       </code>
                       {r.channelId ? (
-                        <span className="font-mono text-xs text-text-muted">
-                          in &lt;#{r.channelId}&gt;
+                        <span className="text-xs text-text-muted">
+                          in <span className="text-text-primary">#{channelById.get(r.channelId)?.name ?? r.channelId.slice(0, 8) + '…'}</span>
                         </span>
                       ) : (
                         <span className="text-xs text-text-muted">any channel</span>

@@ -1,5 +1,7 @@
 import { getGuildConfig } from '@/lib/queries/guildConfig';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field, inputClassName } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
 import { SaveBar } from '@/components/SaveBar';
 import { saveGeneral } from './actions';
 
@@ -9,7 +11,10 @@ interface PageProps {
 
 export default async function GeneralPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const config = await getGuildConfig(serverId);
+  const [config, channels] = await Promise.all([
+    getGuildConfig(serverId),
+    getServerChannels(serverId),
+  ]);
   const action = saveGeneral.bind(null, serverId);
 
   return (
@@ -49,14 +54,15 @@ export default async function GeneralPage({ params }: PageProps): Promise<JSX.El
           <Field
             label="Channel"
             name="suggestionsChannel"
-            hint="Channel ID or <#channel> mention. Type 'none' to clear."
+            hint="Pick the channel where suggestion posts will appear."
           >
-            <input
-              id="suggestionsChannel"
+            <ChannelPicker
+              mode="single"
               name="suggestionsChannel"
-              defaultValue={config.suggestionsChannel ?? ''}
-              placeholder="<#channel> or channel ID"
-              className={inputClassName}
+              channels={channels}
+              initial={config.suggestionsChannel}
+              allowedTypes={['text']}
+              clearable
             />
           </Field>
         </FormCard>

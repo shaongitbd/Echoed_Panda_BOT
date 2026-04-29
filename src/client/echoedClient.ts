@@ -322,6 +322,31 @@ export class EchoedClient {
     return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/server-avatar`);
   }
 
+  // ─── Voice ───────────────────────────────────────────────────────────
+  // Mint a LiveKit AccessToken for the bot to join a voice channel and
+  // publish audio. Returns the SFU URL + token + room name.
+  async joinVoiceChannel(
+    serverId: string,
+    channelId: string,
+  ): Promise<{
+    success: true;
+    url: string;
+    token: string;
+    room: string;
+    callId: string;
+    identity: string;
+    expiresIn: number;
+  }> {
+    return this.request('POST', `/v1/bots/${serverId}/voice/${channelId}/join`);
+  }
+
+  async leaveVoiceChannel(
+    serverId: string,
+    channelId: string,
+  ): Promise<{ success: true; callId: string }> {
+    return this.request('POST', `/v1/bots/${serverId}/voice/${channelId}/leave`);
+  }
+
   // ─── Messaging ───────────────────────────────────────────────────────
   async sendMessage(input: SendMessageInput): Promise<SendMessageResponse> {
     const { serverId, channelId, content, replyToId, attachmentIds, embeds } = input;
@@ -336,6 +361,21 @@ export class EchoedClient {
 
   async getMessage(serverId: string, messageId: string): Promise<ChannelMessage> {
     return this.request('GET', `/v1/bots/${serverId}/messages/${messageId}`);
+  }
+
+  // Edit a message authored by the bot (or by anyone if the bot has
+  // MANAGE_MESSAGES). Either content or embeds (or both) must be set.
+  async editMessage(input: {
+    serverId: string;
+    messageId: string;
+    content?: string;
+    embeds?: Embed[];
+  }): Promise<{ messageId: string; content?: string; embeds?: Embed[] }> {
+    const { serverId, messageId, content, embeds } = input;
+    const body: Record<string, unknown> = {};
+    if (content !== undefined) body.content = content;
+    if (embeds !== undefined) body.embeds = embeds;
+    return this.request('PUT', `/v1/bots/${serverId}/messages/${messageId}`, body);
   }
 
   async deleteMessage(serverId: string, messageId: string): Promise<DeleteResponse> {
@@ -439,6 +479,15 @@ export class EchoedClient {
 
   async removeRole(serverId: string, userId: string, roleId: string): Promise<DeleteResponse> {
     return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/roles/${roleId}`);
+  }
+
+  // Returns the role IDs assigned to a member. Used by the DJ-role check
+  // and any future role-gated commands.
+  async getMemberRoles(
+    serverId: string,
+    userId: string,
+  ): Promise<{ userId: string; serverId: string; roles: string[] }> {
+    return this.request('GET', `/v1/bots/${serverId}/members/${userId}/roles`);
   }
 
   // ─── Server / Channels ───────────────────────────────────────────────

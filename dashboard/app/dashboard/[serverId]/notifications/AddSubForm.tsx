@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { inputClassName, Field } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
+import type { BotChannel } from '@/lib/botApi';
 
 interface AddSubFormProps {
   // Each notification kind has the same field shape — channel + a
@@ -14,6 +16,7 @@ interface AddSubFormProps {
   idName: string;
   idPlaceholder: string;
   submitLabel: string;
+  channels: BotChannel[];
 }
 
 export function AddSubForm({
@@ -22,6 +25,7 @@ export function AddSubForm({
   idName,
   idPlaceholder,
   submitLabel,
+  channels,
 }: AddSubFormProps): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -48,13 +52,12 @@ export function AddSubForm({
         <Field label={idLabel} name={idName}>
           <input id={idName} name={idName} placeholder={idPlaceholder} required className={inputClassName} />
         </Field>
-        <Field label="Channel" name="channelId" hint="Channel ID or <#channel>.">
-          <input
-            id="channelId"
+        <Field label="Channel" name="channelId" hint="Where new posts will appear.">
+          <ChannelPicker
+            mode="single"
             name="channelId"
-            placeholder="<#channel>"
-            required
-            className={inputClassName}
+            channels={channels}
+            allowedTypes={['text']}
           />
         </Field>
       </div>

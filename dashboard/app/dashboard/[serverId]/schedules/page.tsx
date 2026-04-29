@@ -1,4 +1,5 @@
 import { listForServer, type ScheduledMessage } from '@/lib/queries/scheduledMessages';
+import { getServerChannels, type BotChannel } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
 import { AddScheduleForm } from './AddScheduleForm';
 import { removeScheduledMessage } from './actions';
@@ -9,7 +10,11 @@ interface PageProps {
 
 export default async function SchedulesPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const items = await listForServer(serverId);
+  const [items, channels] = await Promise.all([
+    listForServer(serverId),
+    getServerChannels(serverId),
+  ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
 
   return (
     <div>
@@ -25,7 +30,7 @@ export default async function SchedulesPage({ params }: PageProps): Promise<JSX.
         title="Add a schedule"
         description="Daily times are stored in UTC. Per-server timezones are a future polish."
       >
-        <AddScheduleForm serverId={serverId} />
+        <AddScheduleForm serverId={serverId} channels={channels} />
       </FormCard>
 
       <div className="mt-6 rounded-lg border border-[var(--border-subtle)] bg-bg-card">
@@ -43,7 +48,12 @@ export default async function SchedulesPage({ params }: PageProps): Promise<JSX.
         ) : (
           <ul className="divide-y divide-[var(--border-subtle)]">
             {items.map((s) => (
-              <ScheduleRow key={s.id} item={s} serverId={serverId} />
+              <ScheduleRow
+                key={s.id}
+                item={s}
+                serverId={serverId}
+                channel={channelById.get(s.channelId)}
+              />
             ))}
           </ul>
         )}
@@ -55,9 +65,11 @@ export default async function SchedulesPage({ params }: PageProps): Promise<JSX.
 function ScheduleRow({
   item,
   serverId,
+  channel,
 }: {
   item: ScheduledMessage;
   serverId: string;
+  channel: BotChannel | undefined;
 }): JSX.Element {
   const remove = removeScheduledMessage.bind(null, serverId, item.id);
   const cadence =
@@ -73,7 +85,10 @@ function ScheduleRow({
           <span className="rounded-sm bg-accent-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
             {cadence}
           </span>
-          <span className="font-mono text-sm text-text-primary">&lt;#{item.channelId}&gt;</span>
+          <span className="text-sm text-text-primary">
+            <span className="text-text-muted">#</span>
+            {channel?.name ?? item.channelId.slice(0, 8) + '…'}
+          </span>
           <span className="text-xs text-text-muted">next in {formatInterval(nextIn)}</span>
         </div>
         <div className="mt-2 max-w-2xl whitespace-pre-wrap break-words font-mono text-xs text-text-secondary">

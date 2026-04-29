@@ -1,5 +1,7 @@
 import { getGuildConfig } from '@/lib/queries/guildConfig';
+import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
 import { SaveBar } from '@/components/SaveBar';
 import { saveWelcome } from './actions';
 
@@ -9,7 +11,10 @@ interface PageProps {
 
 export default async function WelcomePage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const config = await getGuildConfig(serverId);
+  const [config, channels] = await Promise.all([
+    getGuildConfig(serverId),
+    getServerChannels(serverId),
+  ]);
   const action = saveWelcome.bind(null, serverId);
 
   return (
@@ -29,14 +34,15 @@ export default async function WelcomePage({ params }: PageProps): Promise<JSX.El
           <Field
             label="Welcome channel"
             name="welcomeChannel"
-            hint="Channel ID or <#channel> mention. Type 'none' to clear."
+            hint="Pick the channel to post welcomes in. Leave empty to disable."
           >
-            <input
-              id="welcomeChannel"
+            <ChannelPicker
+              mode="single"
               name="welcomeChannel"
-              defaultValue={config.welcomeChannel ?? ''}
-              placeholder="<#channel> or channel ID"
-              className={inputClassName}
+              channels={channels}
+              initial={config.welcomeChannel}
+              allowedTypes={['text']}
+              clearable
             />
           </Field>
 

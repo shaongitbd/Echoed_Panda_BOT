@@ -84,6 +84,16 @@ const CATEGORIES: readonly Category[] = [
     commands: ['reddit', 'twitch', 'youtube'],
   },
   {
+    name: 'music',
+    emoji: '🎵',
+    blurb: 'Play music in voice channels — YouTube, SoundCloud, direct URLs',
+    commands: [
+      'play', 'skip', 'stop', 'pause', 'resume',
+      'queue', 'nowplaying', 'volume', 'loop',
+      'shuffle', 'remove', 'clearqueue', 'djrole',
+    ],
+  },
+  {
     name: 'automation',
     emoji: '✨',
     blurb: 'Auto-react, keyword responses, scheduled messages',

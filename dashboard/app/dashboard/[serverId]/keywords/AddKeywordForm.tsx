@@ -3,8 +3,16 @@
 import { useState, useTransition } from 'react';
 import { addKeyword, type AddResult } from './actions';
 import { inputClassName, textareaClassName, Field } from '@/components/FormCard';
+import { ChannelPicker } from '@/components/ChannelPicker';
+import type { BotChannel } from '@/lib/botApi';
 
-export function AddKeywordForm({ serverId }: { serverId: string }): JSX.Element {
+export function AddKeywordForm({
+  serverId,
+  channels,
+}: {
+  serverId: string;
+  channels: BotChannel[];
+}): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -40,13 +48,15 @@ export function AddKeywordForm({ serverId }: { serverId: string }): JSX.Element 
         <Field
           label="Channel filter"
           name="channelId"
-          hint="Optional — leave blank to fire in any channel."
+          hint="Optional — leave empty to fire in any channel."
         >
-          <input
-            id="channelId"
+          <ChannelPicker
+            mode="single"
             name="channelId"
-            placeholder="<#channel> (optional)"
-            className={inputClassName}
+            channels={channels}
+            allowedTypes={['text']}
+            clearable
+            placeholder="(any channel)"
           />
         </Field>
       </div>
