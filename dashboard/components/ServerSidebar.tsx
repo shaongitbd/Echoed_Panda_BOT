@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 
 interface SidebarServer {
@@ -51,7 +50,8 @@ export function ServerSidebar({ server }: { server: SidebarServer }): JSX.Elemen
     <aside className="sticky top-16 h-[calc(100vh-4rem)] w-64 shrink-0 border-r border-[var(--border-subtle)] bg-bg-card/30 px-4 py-6">
       <div className="mb-8 flex items-center gap-3 rounded-lg border border-[var(--border-subtle)] bg-bg-card p-3">
         {server.iconUrl ? (
-          <Image
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={server.iconUrl}
             alt=""
             width={40}

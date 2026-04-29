@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import Image from 'next/image';
 import { redirect } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
@@ -85,7 +84,11 @@ function ServerTile({ id, name, iconUrl }: ServerTileProps): JSX.Element {
       className="group flex items-center gap-4 rounded-lg border border-[var(--border-subtle)] bg-bg-card p-5 transition-all duration-150 hover:border-accent/40 hover:bg-bg-hover"
     >
       {iconUrl ? (
-        <Image
+        // Plain <img> — server icons can come from any host the
+        // operator configured (MINIO_PUBLIC_URL), and next/image
+        // requires every host to be allowlisted in next.config.mjs.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
           src={iconUrl}
           alt=""
           width={56}
