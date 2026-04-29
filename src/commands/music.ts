@@ -163,16 +163,36 @@ export const handlePlay: Handler = async (ctx, svc) => {
     return;
   }
 
+  // Run yt-dlp resolution + LiveKit join in parallel — they're
+  // independent and each costs 1-3s, so overlapping them shaves the
+  // slower one off the user-perceived startup time.
+  const tracksP = resolveQuery(query, ctx.senderId, ctx.senderName);
+  const existing = svc.voice.get(ctx.serverId);
+  const sessionP = existing
+    ? Promise.resolve(existing)
+    : svc.voice.join(ctx.serverId, channelId, ctx.channelId);
+
   let tracks: Track[];
+  let session: Awaited<typeof sessionP>;
   try {
-    tracks = await resolveQuery(query, ctx.senderId, ctx.senderName);
+    [tracks, session] = await Promise.all([tracksP, sessionP]);
   } catch (err) {
-    log.warn({ err, query }, 'Source resolution failed');
+    log.warn({ err, query, channelId }, 'Play setup failed');
+    // Try to disambiguate: if the session promise rejected, it's a
+    // join error; otherwise treat as resolution error.
+    let isJoinErr = false;
+    try {
+      await sessionP;
+    } catch {
+      isJoinErr = true;
+    }
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: '❌ Couldn\'t resolve that. Try a YouTube URL or a different search.',
+      content: isJoinErr
+        ? '❌ Couldn\'t join the voice channel. Make sure I have **Connect** + **Speak** there.'
+        : '❌ Couldn\'t resolve that. Try a YouTube URL or a different search.',
     });
     return;
   }
@@ -190,20 +210,6 @@ export const handlePlay: Handler = async (ctx, svc) => {
   // a picker UX.)
   const track = tracks[0];
   if (!track) return;
-
-  let session = svc.voice.get(ctx.serverId);
-  try {
-    session = await svc.voice.join(ctx.serverId, channelId, ctx.channelId);
-  } catch (err) {
-    log.warn({ err, channelId }, 'Voice join failed');
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      replyToId: ctx.messageId,
-      content: '❌ Couldn\'t join the voice channel. Make sure I have **Connect** + **Speak** there.',
-    });
-    return;
-  }
 
   const position = session.player.enqueue(track);
   const wasIdle = !session.player.nowPlaying();

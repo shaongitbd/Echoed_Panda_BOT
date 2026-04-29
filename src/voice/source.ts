@@ -75,6 +75,16 @@ async function resolveYoutubeUrl(
   return youtubeMetaToTrack(meta, requestedBy, requestedByName);
 }
 
+interface YtDlpFormat {
+  url?: string;
+  format_id?: string;
+  protocol?: string;
+  acodec?: string;
+  vcodec?: string;
+  ext?: string;
+  abr?: number;
+}
+
 interface YtDlpMeta {
   title?: string;
   duration?: number;
@@ -82,6 +92,41 @@ interface YtDlpMeta {
   thumbnail?: string;
   uploader?: string;
   channel?: string;
+  // Present on `-J` output. We pre-pick a format from this so we
+  // don't need a second yt-dlp invocation at play time.
+  formats?: YtDlpFormat[];
+}
+
+// Pick the best progressive HTTPS audio format from yt-dlp's metadata.
+// Returns null when nothing matches — caller falls back to a `-g` call.
+//
+// Ordering:
+//   1. Audio-only over combined (smaller fetches, ffmpeg doesn't waste
+//      time on unused video tracks).
+//   2. Opus over m4a — opus is what LiveKit ultimately wants, so we
+//      cut a re-encode round-trip when it's available.
+//   3. Higher bitrate over lower.
+function pickAudioFormat(formats: YtDlpFormat[]): YtDlpFormat | null {
+  const candidates = formats.filter(
+    (f) =>
+      typeof f.url === 'string' &&
+      f.url.startsWith('http') &&
+      typeof f.protocol === 'string' &&
+      f.protocol.startsWith('https') &&
+      typeof f.acodec === 'string' &&
+      f.acodec !== 'none',
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    const aAudioOnly = !a.vcodec || a.vcodec === 'none';
+    const bAudioOnly = !b.vcodec || b.vcodec === 'none';
+    if (aAudioOnly !== bAudioOnly) return aAudioOnly ? -1 : 1;
+    const aOpus = a.acodec === 'opus';
+    const bOpus = b.acodec === 'opus';
+    if (aOpus !== bOpus) return aOpus ? -1 : 1;
+    return (b.abr ?? 0) - (a.abr ?? 0);
+  });
+  return candidates[0] ?? null;
 }
 
 function youtubeMetaToTrack(
@@ -90,6 +135,29 @@ function youtubeMetaToTrack(
   requestedByName: string,
 ): Track {
   const url = m.webpage_url ?? '';
+  // Pre-pick the format from the metadata's `formats` array. This
+  // eliminates the second yt-dlp invocation that used to dominate
+  // start-of-track latency (~3-5s saved per play). The picked URL
+  // is signed and expires; we capture it in the closure and only
+  // re-resolve via `ytDlpStreamUrl` if it's gone stale by play time.
+  const cached = pickAudioFormat(m.formats ?? []);
+  if (cached) {
+    log.info(
+      {
+        formatId: cached.format_id,
+        protocol: cached.protocol,
+        acodec: cached.acodec,
+        abr: cached.abr,
+        url,
+      },
+      'Cached YouTube format at queue time',
+    );
+  }
+  const cachedAt = Date.now();
+  // Signed URLs typically last ~6h. We treat anything older than
+  // 5h as suspect and refresh; younger than that we use directly.
+  const URL_FRESH_MS = 5 * 60 * 60 * 1000;
+
   return {
     kind: 'youtube',
     title: m.title ?? '(untitled)',
@@ -100,9 +168,11 @@ function youtubeMetaToTrack(
     requestedBy,
     requestedByName,
     open: async () => {
-      // Resolve the direct stream URL just-in-time — these expire
-      // (~6h) so we can't cache them at queue-time. ffmpeg pulls the
-      // resolved URL with reconnect-on-error.
+      if (cached?.url && Date.now() - cachedAt < URL_FRESH_MS) {
+        return openPcmFromUrl(cached.url);
+      }
+      // Fallback: the cached URL expired (long-queued track) or
+      // metadata didn't surface a usable format. Resolve fresh.
       const directUrl = await ytDlpStreamUrl(url || (m.webpage_url ?? ''));
       return openPcmFromUrl(directUrl);
     },
