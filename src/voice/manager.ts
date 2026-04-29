@@ -9,6 +9,12 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import { log } from '../log.js';
 
 const IDLE_LEAVE_MS = 2 * 60 * 1000; // 2 min after last track ends
+// LiveKit can briefly report a participant gone during a network blip
+// (the SDK's reconnect logic restores them within a few seconds).
+// Without grace, the bot leaves the moment count hits 0 and the user
+// returns to find the music gone. 10 s covers typical reconnects
+// without delaying real "everyone left" cleanup noticeably.
+const EMPTY_LEAVE_GRACE_MS = 10 * 1000;
 
 interface Session {
   connection: VoiceConnection;
@@ -18,6 +24,10 @@ interface Session {
   // Timer that fires if the player goes idle. Cancelled when a new track
   // starts.
   idleTimer: NodeJS.Timeout | null;
+  // Timer that fires if remote participants stay at 0 for the grace
+  // period. Cancelled the moment a participant reappears (e.g. after
+  // a network blip + reconnect).
+  emptyLeaveTimer: NodeJS.Timeout | null;
 }
 
 const sessions = new Map<string, Session>();
@@ -63,7 +73,14 @@ export class VoiceManager {
       textChannelId,
     });
 
-    const session: Session = { connection, player, channelId, liveCard, idleTimer: null };
+    const session: Session = {
+      connection,
+      player,
+      channelId,
+      liveCard,
+      idleTimer: null,
+      emptyLeaveTimer: null,
+    };
     sessions.set(serverId, session);
 
     // Wire idle auto-leave: when the queue empties, start a 2-min timer.
@@ -75,11 +92,30 @@ export class VoiceManager {
       this.cancelIdleLeave(serverId);
     });
 
-    // If the bot ends up alone in the channel, leave gracefully.
+    // If the bot ends up alone in the channel, leave gracefully —
+    // but with a grace window. LiveKit can briefly report count=0
+    // during a humans's reconnect (network blip on their end); without
+    // grace the bot would leave permanently in the 2-second gap and
+    // the user comes back to silence.
     connection.onParticipantCountChange = (count) => {
+      const s = sessions.get(serverId);
+      if (!s) return;
       if (count === 0) {
-        log.info({ serverId, channelId }, 'Voice channel empty — leaving');
-        void this.leave(serverId);
+        if (s.emptyLeaveTimer) return; // already armed
+        log.info({ serverId, channelId, graceMs: EMPTY_LEAVE_GRACE_MS }, 'Voice channel empty — arming leave grace');
+        s.emptyLeaveTimer = setTimeout(() => {
+          s.emptyLeaveTimer = null;
+          // Re-check live count: a participant may have returned
+          // after we armed but before the timer fired.
+          if (s.connection.remoteParticipantCount() === 0) {
+            log.info({ serverId, channelId }, 'Voice channel still empty after grace — leaving');
+            void this.leave(serverId);
+          }
+        }, EMPTY_LEAVE_GRACE_MS);
+      } else if (s.emptyLeaveTimer) {
+        clearTimeout(s.emptyLeaveTimer);
+        s.emptyLeaveTimer = null;
+        log.info({ serverId, channelId, count }, 'Participant returned within grace — keeping bot connected');
       }
     };
     connection.onDisconnect = () => {
@@ -90,7 +126,13 @@ export class VoiceManager {
       // grabs the next queued track, and the queue burns through
       // in milliseconds. Looks like rapid "looping" from outside.
       const session = sessions.get(serverId);
-      if (session) session.player.stop();
+      if (session) {
+        if (session.emptyLeaveTimer) {
+          clearTimeout(session.emptyLeaveTimer);
+          session.emptyLeaveTimer = null;
+        }
+        session.player.stop();
+      }
       sessions.delete(serverId);
     };
 
@@ -102,6 +144,10 @@ export class VoiceManager {
     if (!session) return;
     sessions.delete(serverId);
     this.cancelIdleLeave(serverId);
+    if (session.emptyLeaveTimer) {
+      clearTimeout(session.emptyLeaveTimer);
+      session.emptyLeaveTimer = null;
+    }
     session.player.stop();
     await session.connection.disconnect();
     try {
