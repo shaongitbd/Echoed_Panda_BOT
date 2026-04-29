@@ -226,7 +226,21 @@ function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => v
 // region-locked / spam-flagged will fail.
 
 function ytDlpBaseArgs(): string[] {
-  const args: string[] = ['--no-playlist', '--no-warnings'];
+  // --extractor-args 'youtube:player-client=…': force yt-dlp through
+  // YouTube clients that work without a JavaScript runtime. With the
+  // default selector + cookies loaded, yt-dlp prefers the `web`
+  // client; that client requires deno (or another JS runtime) on the
+  // host to deobfuscate signed URLs, and our container only has
+  // node. android_vr / tv use a server-side signature flow that
+  // doesn't need JS, so they keep working in headless containers.
+  // Listing multiple clients lets yt-dlp fall back if YouTube blocks
+  // any single one.
+  const args: string[] = [
+    '--no-playlist',
+    '--no-warnings',
+    '--extractor-args',
+    'youtube:player-client=default,android_vr,tv,android,ios',
+  ];
   if (config.ytDlpCookiesFile) {
     args.push('--cookies', config.ytDlpCookiesFile);
   }
@@ -302,10 +316,16 @@ async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
 }
 
 async function ytDlpStreamUrl(url: string): Promise<string> {
+  // bestaudio*: matches any format that contains audio, including DASH
+  //   segments and combined audio+video. More permissive than
+  //   `bestaudio` (which only matches strictly "audio-only" formats),
+  //   so it survives YouTube's recent format-list shifts.
+  // /best: final fallback — combined progressive stream. Always exists
+  //   on every public video.
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
     '-f',
-    'bestaudio[ext=webm]/bestaudio/best',
+    'bestaudio*/best',
     '-g',
     url,
   ]);
