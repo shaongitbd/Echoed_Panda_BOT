@@ -89,10 +89,14 @@ export class MusicPlayer extends EventEmitter {
   removeAt(index: number): Track | null {
     if (index < 0 || index >= this.queue.length) return null;
     const [removed] = this.queue.splice(index, 1);
+    if (removed) void removed.cleanup().catch(() => {});
     return removed ?? null;
   }
 
   clearQueue(): void {
+    for (const t of this.queue) {
+      void t.cleanup().catch(() => {});
+    }
     this.queue = [];
   }
 
@@ -137,6 +141,19 @@ export class MusicPlayer extends EventEmitter {
         this.pausedAt = null;
         this.leftover = Buffer.alloc(0);
         this.emit('trackStart', next);
+
+        // Kick off the next track's download in the background while
+        // the current one plays. By the time current ends, the next
+        // file is already on disk and open() returns near-instantly.
+        // Failures here are silent — open() will retry the download
+        // when the track actually becomes current.
+        const upcoming = this.queue[0];
+        if (upcoming) {
+          void upcoming.prefetch().catch((err) => {
+            log.debug({ err, title: upcoming.title }, 'Prefetch failed (will retry on play)');
+          });
+        }
+
         const cause = await this.playCurrent();
         this.emit('trackEnd', { track: next, cause });
         if (cause === 'stopped') {
@@ -148,6 +165,10 @@ export class MusicPlayer extends EventEmitter {
         this.emit('trackError', { track: next, err });
       } finally {
         this.cleanupCurrentStream();
+        // Delete the downloaded file. For loop=track / loop=queue the
+        // next iteration will re-download — cheap relative to the
+        // disk-space win of keeping /tmp clean.
+        void next.cleanup().catch(() => {});
         this.current = null;
       }
     }
@@ -179,6 +200,9 @@ export class MusicPlayer extends EventEmitter {
 
   // Stop everything: clear queue and end current playback.
   stop(): void {
+    for (const t of this.queue) {
+      void t.cleanup().catch(() => {});
+    }
     this.queue = [];
     this.trackComplete?.('stopped');
     this.playing = false;

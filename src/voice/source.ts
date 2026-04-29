@@ -1,10 +1,22 @@
-// Source resolver: takes a query (URL or search term) and returns a track
-// descriptor + a function that produces a 48kHz/16-bit/stereo PCM stream
-// (Readable<Buffer>) ready to be chunked into AudioFrames.
+// Source resolver: takes a query (URL or search term) and returns Track
+// descriptors. Each track downloads its audio to a local file (via yt-dlp,
+// play-dl, or fetch), then ffmpeg reads from that file to produce 48kHz
+// 16-bit stereo PCM frames.
 //
-// Two stages so callers can show "Now playing" cards immediately while
-// the actual stream is opened lazily on play (saves a HEAD on queued
-// items).
+// Why download-first instead of streaming:
+//   - YouTube signs URLs that expire and serves HLS/segmented audio for
+//     several player clients — both fragile under real-time PCM streaming.
+//   - Short tracks (≈5-10 MB at opus quality) download in 2-5s on a
+//     decent connection, often faster than streaming startup once you
+//     factor in TLS handshakes + first-byte latency.
+//   - Once the file is on disk, playback is rock-solid: no mid-stream
+//     network blips, no URL expiry, no reconnect logic.
+//   - Queue prefetch (player downloads the next track during current
+//     playback) hides the download cost on every track after the first.
+//
+// Lifecycle: every Track exposes prefetch / open / cleanup. The player
+// calls prefetch on lookahead, open when the track becomes current, and
+// cleanup once the track is done (or removed from the queue).
 
 import { spawn } from 'node:child_process';
 import { Readable, PassThrough } from 'node:stream';
@@ -28,9 +40,17 @@ export interface Track {
   // The user who queued this track — used for "remove your own" rules.
   requestedBy: string;
   requestedByName: string;
-  // Open the actual audio stream just-in-time. Returned stream is PCM
-  // s16le 48kHz stereo, ready for AudioFrame chunking.
+  // Eagerly download the audio to disk. Idempotent — calling multiple
+  // times returns the same result. The player invokes this on the
+  // next queued track during current playback so the next track's
+  // file is already local by the time it becomes current.
+  prefetch: () => Promise<void>;
+  // Open a PCM s16le 48kHz stereo stream. Awaits the download if it
+  // hasn't started or hasn't finished yet.
   open: () => Promise<{ pcm: Readable; close: () => void }>;
+  // Best-effort delete of the downloaded file. Called when the track
+  // is removed from the queue or finishes playback.
+  cleanup: () => Promise<void>;
 }
 
 const URL_RE = /^https?:\/\//i;
@@ -75,16 +95,6 @@ async function resolveYoutubeUrl(
   return youtubeMetaToTrack(meta, requestedBy, requestedByName);
 }
 
-interface YtDlpFormat {
-  url?: string;
-  format_id?: string;
-  protocol?: string;
-  acodec?: string;
-  vcodec?: string;
-  ext?: string;
-  abr?: number;
-}
-
 interface YtDlpMeta {
   title?: string;
   duration?: number;
@@ -92,41 +102,76 @@ interface YtDlpMeta {
   thumbnail?: string;
   uploader?: string;
   channel?: string;
-  // Present on `-J` output. We pre-pick a format from this so we
-  // don't need a second yt-dlp invocation at play time.
-  formats?: YtDlpFormat[];
 }
 
-// Pick the best progressive HTTPS audio format from yt-dlp's metadata.
-// Returns null when nothing matches — caller falls back to a `-g` call.
-//
-// Ordering:
-//   1. Audio-only over combined (smaller fetches, ffmpeg doesn't waste
-//      time on unused video tracks).
-//   2. Opus over m4a — opus is what LiveKit ultimately wants, so we
-//      cut a re-encode round-trip when it's available.
-//   3. Higher bitrate over lower.
-function pickAudioFormat(formats: YtDlpFormat[]): YtDlpFormat | null {
-  const candidates = formats.filter(
-    (f) =>
-      typeof f.url === 'string' &&
-      f.url.startsWith('http') &&
-      typeof f.protocol === 'string' &&
-      f.protocol.startsWith('https') &&
-      typeof f.acodec === 'string' &&
-      f.acodec !== 'none',
-  );
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => {
-    const aAudioOnly = !a.vcodec || a.vcodec === 'none';
-    const bAudioOnly = !b.vcodec || b.vcodec === 'none';
-    if (aAudioOnly !== bAudioOnly) return aAudioOnly ? -1 : 1;
-    const aOpus = a.acodec === 'opus';
-    const bOpus = b.acodec === 'opus';
-    if (aOpus !== bOpus) return aOpus ? -1 : 1;
-    return (b.abr ?? 0) - (a.abr ?? 0);
-  });
-  return candidates[0] ?? null;
+interface TrackMetadata {
+  title: string;
+  url: string;
+  durationSeconds: number;
+  thumbnailUrl?: string;
+  uploader?: string;
+  requestedBy: string;
+  requestedByName: string;
+}
+
+// Wraps a download function in the prefetch / open / cleanup lifecycle.
+// The download is memoized: prefetch and open share the same in-flight
+// promise. On failure the cache is reset so a follow-up call retries
+// (matters when a prefetch fails before play and we want open() to
+// give it another shot).
+function buildTrack(
+  kind: SourceKind,
+  meta: TrackMetadata,
+  download: () => Promise<string>,
+): Track {
+  let downloadPromise: Promise<string> | null = null;
+  let downloadedPath: string | null = null;
+
+  function ensureDownloaded(): Promise<string> {
+    if (!downloadPromise) {
+      downloadPromise = download()
+        .then((path) => {
+          downloadedPath = path;
+          return path;
+        })
+        .catch((err) => {
+          downloadPromise = null;
+          throw err;
+        });
+    }
+    return downloadPromise;
+  }
+
+  return {
+    kind,
+    title: meta.title,
+    url: meta.url,
+    durationSeconds: meta.durationSeconds,
+    thumbnailUrl: meta.thumbnailUrl,
+    uploader: meta.uploader,
+    requestedBy: meta.requestedBy,
+    requestedByName: meta.requestedByName,
+    prefetch: async () => {
+      await ensureDownloaded();
+    },
+    open: async () => {
+      const path = await ensureDownloaded();
+      return openPcmFromFile(path);
+    },
+    cleanup: async () => {
+      // Nothing started — nothing to clean.
+      if (!downloadedPath && !downloadPromise) return;
+      // If the download is still in flight, wait for it so we can
+      // delete the file it produces. If it's already failed, there's
+      // nothing on disk to delete.
+      const path = downloadedPath ?? (await downloadPromise!.catch(() => null));
+      if (path) {
+        await fs.unlink(path).catch(() => {
+          /* best-effort: tmpfs cleared on reboot anyway */
+        });
+      }
+    },
+  };
 }
 
 function youtubeMetaToTrack(
@@ -135,48 +180,19 @@ function youtubeMetaToTrack(
   requestedByName: string,
 ): Track {
   const url = m.webpage_url ?? '';
-  // Pre-pick the format from the metadata's `formats` array. This
-  // eliminates the second yt-dlp invocation that used to dominate
-  // start-of-track latency (~3-5s saved per play). The picked URL
-  // is signed and expires; we capture it in the closure and only
-  // re-resolve via `ytDlpStreamUrl` if it's gone stale by play time.
-  const cached = pickAudioFormat(m.formats ?? []);
-  if (cached) {
-    log.info(
-      {
-        formatId: cached.format_id,
-        protocol: cached.protocol,
-        acodec: cached.acodec,
-        abr: cached.abr,
-        url,
-      },
-      'Cached YouTube format at queue time',
-    );
-  }
-  const cachedAt = Date.now();
-  // Signed URLs typically last ~6h. We treat anything older than
-  // 5h as suspect and refresh; younger than that we use directly.
-  const URL_FRESH_MS = 5 * 60 * 60 * 1000;
-
-  return {
-    kind: 'youtube',
-    title: m.title ?? '(untitled)',
-    url,
-    durationSeconds: typeof m.duration === 'number' ? m.duration : 0,
-    thumbnailUrl: m.thumbnail,
-    uploader: m.uploader ?? m.channel,
-    requestedBy,
-    requestedByName,
-    open: async () => {
-      if (cached?.url && Date.now() - cachedAt < URL_FRESH_MS) {
-        return openPcmFromUrl(cached.url);
-      }
-      // Fallback: the cached URL expired (long-queued track) or
-      // metadata didn't surface a usable format. Resolve fresh.
-      const directUrl = await ytDlpStreamUrl(url || (m.webpage_url ?? ''));
-      return openPcmFromUrl(directUrl);
+  return buildTrack(
+    'youtube',
+    {
+      title: m.title ?? '(untitled)',
+      url,
+      durationSeconds: typeof m.duration === 'number' ? m.duration : 0,
+      thumbnailUrl: m.thumbnail,
+      uploader: m.uploader ?? m.channel,
+      requestedBy,
+      requestedByName,
     },
-  };
+    () => ytDlpDownload(url),
+  );
 }
 
 async function resolveSoundcloudUrl(
@@ -191,20 +207,19 @@ async function resolveSoundcloudUrl(
     user?: { name?: string };
     permalink?: string;
   };
-  return {
-    kind: 'soundcloud',
-    title: info.name ?? '(untitled)',
-    url,
-    durationSeconds: info.durationInSec,
-    thumbnailUrl: info.thumbnail,
-    uploader: info.user?.name,
-    requestedBy,
-    requestedByName,
-    open: async () => {
-      const stream = await play.stream(url);
-      return openPcmFromCompressed(stream.stream);
+  return buildTrack(
+    'soundcloud',
+    {
+      title: info.name ?? '(untitled)',
+      url,
+      durationSeconds: info.durationInSec,
+      thumbnailUrl: info.thumbnail,
+      uploader: info.user?.name,
+      requestedBy,
+      requestedByName,
     },
-  };
+    () => soundcloudDownload(url),
+  );
 }
 
 // Direct URL — usually a hosted .mp3 / .m4a / .opus / .ogg file. We
@@ -216,51 +231,138 @@ function resolveDirectUrl(
   requestedByName: string,
 ): Track {
   const filename = decodeURIComponent(url.split('/').pop() ?? url).split('?')[0] ?? url;
-  return {
-    kind: 'url',
-    title: filename || '(direct stream)',
-    url,
-    durationSeconds: 0,
-    requestedBy,
-    requestedByName,
-    open: async () => {
-      // ffmpeg can fetch http(s) URLs directly — keeps us off the
-      // download → temp-file path entirely.
-      return openPcmFromUrl(url);
+  return buildTrack(
+    'url',
+    {
+      title: filename || '(direct stream)',
+      url,
+      durationSeconds: 0,
+      requestedBy,
+      requestedByName,
     },
-  };
+    () => httpDownload(url),
+  );
 }
 
 // =============================================================================
-// FFmpeg pipelines
+// Downloaders
 // =============================================================================
 
-// Convert a compressed audio stream (opus/webm/mp3/etc.) into 48kHz s16le
-// stereo PCM. Spawns one ffmpeg subprocess and pipes input → stdin →
-// transcode → stdout. The returned `close()` kills it cleanly.
-function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => void } {
+// Run yt-dlp's downloader and return the final path on disk. yt-dlp
+// handles all the format selection, signature workarounds, HLS
+// segmenting, etc. — we just point ffmpeg at the resulting file later.
+async function ytDlpDownload(url: string): Promise<string> {
+  const id = randomBytes(8).toString('hex');
+  // %(ext)s lets yt-dlp pick the right extension (m4a / webm / opus).
+  // We capture the final path via --print after_move:filepath so we
+  // don't have to glob the directory.
+  const outputTemplate = join(tmpdir(), `panda-yt-${id}.%(ext)s`);
+
+  const startedAt = Date.now();
+  log.info({ url }, 'Starting yt-dlp download');
+
+  const out = await runYtDlp([
+    ...ytDlpBaseArgs(),
+    '-f',
+    'bestaudio*/best',
+    '-o',
+    outputTemplate,
+    '--no-progress',
+    '--print',
+    'after_move:filepath',
+    url,
+  ]);
+
+  const path = out.trim().split('\n').pop()?.trim();
+  if (!path) throw new Error('yt-dlp download produced no file path');
+
+  const sizeBytes = await fs.stat(path).then((s) => s.size).catch(() => 0);
+  log.info(
+    { path, url, ms: Date.now() - startedAt, sizeKB: Math.round(sizeBytes / 1024) },
+    'yt-dlp download complete',
+  );
+  return path;
+}
+
+// Pull a SoundCloud track via play-dl and write the bytes to a temp
+// file. Same shape as ytDlpDownload — caller gets a local path.
+async function soundcloudDownload(url: string): Promise<string> {
+  const id = randomBytes(8).toString('hex');
+  const filePath = join(tmpdir(), `panda-sc-${id}.audio`);
+  const startedAt = Date.now();
+
+  const stream = await play.stream(url);
+  await new Promise<void>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    stream.stream.on('error', reject);
+    stream.stream.on('end', async () => {
+      try {
+        await fs.writeFile(filePath, Buffer.concat(chunks));
+        resolve();
+      } catch (err) {
+        reject(err as Error);
+      }
+    });
+  });
+
+  const sizeBytes = await fs.stat(filePath).then((s) => s.size).catch(() => 0);
+  log.info(
+    { path: filePath, url, ms: Date.now() - startedAt, sizeKB: Math.round(sizeBytes / 1024) },
+    'SoundCloud download complete',
+  );
+  return filePath;
+}
+
+// Direct HTTP fetch to a temp file. Used for hosted .mp3 / .m4a /
+// .ogg URLs that aren't YouTube or SoundCloud.
+async function httpDownload(url: string): Promise<string> {
+  const id = randomBytes(8).toString('hex');
+  const filePath = join(tmpdir(), `panda-http-${id}.audio`);
+  const startedAt = Date.now();
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  await fs.writeFile(filePath, buf);
+
+  log.info(
+    { path: filePath, url, ms: Date.now() - startedAt, sizeKB: Math.round(buf.length / 1024) },
+    'Direct URL download complete',
+  );
+  return filePath;
+}
+
+// =============================================================================
+// FFmpeg pipeline
+// =============================================================================
+
+// Read a local audio file and emit 48kHz s16le stereo PCM. ffmpeg
+// auto-detects the input format. No HTTP, no reconnect, no segmenting
+// — just file → pcm.
+function openPcmFromFile(filePath: string): { pcm: Readable; close: () => void } {
   const ff = spawn(
     'ffmpeg',
     [
       '-hide_banner',
-      '-loglevel', 'error',
-      '-i', 'pipe:0',
-      '-vn',                  // ignore video tracks
-      '-f', 's16le',
-      '-acodec', 'pcm_s16le',
-      '-ar', '48000',
-      '-ac', '2',
+      '-loglevel',
+      'error',
+      '-i',
+      filePath,
+      '-vn',
+      '-f',
+      's16le',
+      '-acodec',
+      'pcm_s16le',
+      '-ar',
+      '48000',
+      '-ac',
+      '2',
       'pipe:1',
     ],
-    { stdio: ['pipe', 'pipe', 'pipe'] },
+    { stdio: ['ignore', 'pipe', 'pipe'] },
   );
 
-  // Forward source → ffmpeg stdin. Errors on either side terminate both.
-  input.pipe(ff.stdin);
-  input.on('error', (err) => {
-    log.warn({ err }, 'Audio source stream errored');
-    ff.kill('SIGKILL');
-  });
   ff.stderr.on('data', (chunk) => {
     log.debug({ ffmpeg: chunk.toString() }, 'ffmpeg stderr');
   });
@@ -271,11 +373,6 @@ function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => v
   return {
     pcm: out,
     close: () => {
-      try {
-        input.destroy();
-      } catch {
-        /* best-effort */
-      }
       try {
         ff.kill('SIGKILL');
       } catch {
@@ -292,7 +389,7 @@ function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => v
 // Three entry points:
 //   - ytDlpMetadata(url)  → { title, duration, thumbnail, uploader, … }
 //   - ytDlpSearch(q, n)   → up to N metadata objects, ordered by relevance
-//   - ytDlpStreamUrl(url) → expiring direct audio URL ffmpeg can pull
+//   - ytDlpDownload(url)  → local file path with the downloaded audio
 //
 // Cookies (config.ytDlpCookiesFile) bypass YouTube's "Sign in to
 // confirm you're not a bot" wall when the bot is hitting it. Without
@@ -300,15 +397,12 @@ function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => v
 // region-locked / spam-flagged will fail.
 
 function ytDlpBaseArgs(): string[] {
-  // --extractor-args 'youtube:player-client=…': order matters here.
-  // `tv` / `web` / `default` tend to return HLS playlists (manifest
-  // .googlevideo.com / .m3u8) — those break real-time PCM streaming
-  // because ffmpeg has to refetch segments on the fly, which stalls
-  // the pipeline and surfaces as breakup / robot voice. `android`
-  // and `ios` return progressive audio-only m4a/webm via a single
-  // HTTPS GET — perfect for our streaming pipe. We list them first
-  // so yt-dlp prefers progressive, falling back to the HLS clients
-  // only if YouTube blocks the mobile flow.
+  // --extractor-args 'youtube:player-client=…': we still prefer mobile
+  // clients (android / ios) because they tend to surface progressive
+  // m4a/opus formats with smaller download sizes than the HLS
+  // variants from web/tv. This matters less now that we download
+  // before playback (HLS would still complete fine), but it's a free
+  // bandwidth win.
   return [
     '--no-playlist',
     '--no-warnings',
@@ -393,7 +487,7 @@ async function ytDlpMetadata(url: string): Promise<YtDlpMeta> {
   // available" on videos where YouTube hasn't surfaced the standard
   // adaptive formats — common for newer or region-restricted content.
   // For metadata-only calls we don't actually need a format yet; the
-  // real format selection happens in ytDlpStreamUrl at play time.
+  // real format selection happens during ytDlpDownload at play time.
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
     '-J',
@@ -420,79 +514,4 @@ async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
   // --ignore-errors / no-formats-error can leave nulls in entries
   // when a single result fails — drop them.
   return (parsed.entries ?? []).filter((e): e is YtDlpMeta => e !== null);
-}
-
-async function ytDlpStreamUrl(url: string): Promise<string> {
-  // Format priority — all variants reject HLS (m3u8) explicitly so
-  // ffmpeg always gets a single progressive HTTPS stream:
-  //   1. opus audio-only HTTPS  → no re-encode pain, smallest bytes
-  //   2. m4a audio-only HTTPS   → universally available fallback
-  //   3. any audio-only HTTPS   → catch-all for unusual format lists
-  //   4. any progressive stream → last-ditch (combined audio+video)
-  // The protocol filter is the load-bearing part: HLS makes ffmpeg
-  // refetch segments mid-stream which stalls our PCM pipe and
-  // surfaces as the breakup/robot artifacts the test WAV doesn't have.
-  const out = await runYtDlp([
-    ...ytDlpBaseArgs(),
-    '-f',
-    'ba[protocol^=https][acodec=opus]/ba[protocol^=https][ext=m4a]/ba[protocol^=https]/b[protocol^=https]',
-    '-g',
-    '--print', 'after_filter:%(format_id)s|%(protocol)s|%(acodec)s|%(abr)s',
-    url,
-  ]);
-  // -g prints the URL; --print after_filter prints the chosen
-  // format's metadata on a separate line. Logging the metadata
-  // makes it obvious in the logs which format we actually got.
-  const lines = out.trim().split('\n').filter(Boolean);
-  let chosenUrl: string | null = null;
-  for (const line of lines) {
-    if (line.startsWith('http')) {
-      chosenUrl = line;
-    } else if (line.includes('|')) {
-      const [formatId, protocol, acodec, abr] = line.split('|');
-      log.info({ formatId, protocol, acodec, abr, url }, 'yt-dlp picked format');
-    }
-  }
-  if (!chosenUrl) throw new Error('yt-dlp returned no stream URL');
-  return chosenUrl;
-}
-
-// Same shape but ffmpeg fetches the URL itself.
-function openPcmFromUrl(url: string): { pcm: Readable; close: () => void } {
-  const ff = spawn(
-    'ffmpeg',
-    [
-      '-hide_banner',
-      '-loglevel', 'error',
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '5',
-      '-i', url,
-      '-vn',
-      '-f', 's16le',
-      '-acodec', 'pcm_s16le',
-      '-ar', '48000',
-      '-ac', '2',
-      'pipe:1',
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
-  );
-
-  ff.stderr.on('data', (chunk) => {
-    log.debug({ ffmpeg: chunk.toString() }, 'ffmpeg stderr');
-  });
-
-  const out = new PassThrough();
-  ff.stdout.pipe(out);
-
-  return {
-    pcm: out,
-    close: () => {
-      try {
-        ff.kill('SIGKILL');
-      } catch {
-        /* best-effort */
-      }
-    },
-  };
 }
