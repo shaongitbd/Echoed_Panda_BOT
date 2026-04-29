@@ -2,7 +2,9 @@
 //   - the queue (in-memory; resets on bot restart by design — simpler)
 //   - the current track + playback position
 //   - paused/playing state, loop mode, volume
-//   - the 20ms PCM frame ticker that pushes audio to the VoiceConnection
+//   - an async push loop that feeds PCM frames to the VoiceConnection
+//     at the rate LiveKit consumes them (self-pacing via the awaited
+//     captureFrame promise)
 //
 // Decoupled from LiveKit specifics: the player only talks to a
 // VoiceConnection.pushFrame() interface.
@@ -16,7 +18,12 @@ import { log } from '../log.js';
 const BYTES_PER_SAMPLE = 2; // s16le
 const CHANNELS = 2;
 const FRAME_BYTES = SAMPLES_PER_FRAME * CHANNELS * BYTES_PER_SAMPLE;
-const FRAME_INTERVAL_MS = 20;
+
+// A pre-allocated silence frame. Used during pause + when the source
+// stream hasn't delivered its next chunk in time. Created once because
+// it's all zeros and we never mutate it; sharing the same Int16Array
+// across pushes is safe (LiveKit copies the data in captureFrame).
+const SILENT_FRAME: Int16Array = new Int16Array(FRAME_BYTES / BYTES_PER_SAMPLE);
 
 export type LoopMode = 'off' | 'track' | 'queue';
 
@@ -46,8 +53,6 @@ export class MusicPlayer extends EventEmitter {
   private pausedAt: number | null = null;
   private accumulatedPause = 0;
 
-  private ticker: NodeJS.Timeout | null = null;
-  private nextTickAt = 0;
 
   // Resolves when end-of-track is reached. Used by the queue runner so
   // we know when to advance.
@@ -220,74 +225,84 @@ export class MusicPlayer extends EventEmitter {
     return next;
   }
 
-  // playCurrent owns the 20ms ticker. Returns when the track finishes
-  // naturally, is skipped, or the player is stopped.
+  // playCurrent runs the awaited push loop until the track finishes,
+  // is skipped, or the player is stopped.
+  //
+  // Pacing model: LiveKit's AudioSource.captureFrame() returns a
+  // Promise that resolves once the source's internal queue has space
+  // — i.e. once enough audio has been *played out* to make room. That
+  // resolution rate IS the playback rate (1 frame / 20 ms at 48 kHz
+  // stereo), so awaiting captureFrame is the natural rate limiter.
+  //
+  // The previous implementation used a setTimeout-based 20 ms ticker
+  // AND fired captureFrame as void — racing the bot's manual cadence
+  // against LiveKit's self-pacing. Frames piled up in the queue and
+  // played back compressed, producing the "robot voice" symptom.
   private playCurrent(): Promise<'natural' | 'skipped' | 'stopped'> {
     return new Promise((resolve) => {
-      this.trackComplete = (cause) => {
+      let resolved = false;
+      const settle = (cause: 'natural' | 'skipped' | 'stopped'): void => {
+        if (resolved) return;
+        resolved = true;
         this.trackComplete = null;
-        if (this.ticker) {
-          clearTimeout(this.ticker);
-          this.ticker = null;
-        }
         resolve(cause);
       };
+      this.trackComplete = settle;
 
       const stream = this.currentStream;
       if (!stream) {
-        this.trackComplete?.('natural');
+        settle('natural');
         return;
       }
 
       stream.on('end', () => {
-        // Natural end — let any leftover buffered audio drain.
-        if (!this.trackComplete) return;
-        // Wait for LiveKit to play out queued frames before advancing.
+        // Natural end — let LiveKit drain its queue before advancing.
+        // Without this we'd cut off the last ~2 seconds of audio
+        // (whatever is buffered in the source).
         this.connection.waitForPlayout().finally(() => {
-          this.trackComplete?.('natural');
+          settle('natural');
         });
       });
       stream.on('error', (err) => {
         log.warn({ err }, 'PCM stream errored');
-        this.trackComplete?.('natural');
+        settle('natural');
       });
 
-      this.nextTickAt = Date.now();
-      this.tick();
+      void this.runPushLoop(settle);
     });
   }
 
-  // Pull one 20ms PCM frame from the stream + push to LiveKit.
-  // Self-reschedules to run every FRAME_INTERVAL_MS, drift-compensated.
-  private tick = (): void => {
-    if (!this.trackComplete) return; // already done
-
-    if (this.paused) {
-      // While paused, just reschedule — don't advance buffer or play silence.
-      this.nextTickAt += FRAME_INTERVAL_MS;
-      this.scheduleNextTick();
-      return;
+  // Tight loop that pulls a frame from the PCM stream and awaits its
+  // delivery to LiveKit. captureFrame's promise gates the loop at
+  // playback rate. While paused we still push silence so LiveKit
+  // doesn't underrun (an underrun mid-track manifests as a clicking
+  // gap on resume).
+  private async runPushLoop(
+    settle: (cause: 'natural' | 'skipped' | 'stopped') => void,
+  ): Promise<void> {
+    while (this.trackComplete) {
+      try {
+        if (this.paused) {
+          await this.connection.pushFrame(SILENT_FRAME);
+          continue;
+        }
+        const frame = this.readFrame();
+        if (!frame) {
+          // Stream hasn't delivered the next chunk yet. Push a single
+          // silence frame to keep the source fed, then loop. The
+          // stream's 'end' event resolves the outer promise when the
+          // track is genuinely over.
+          await this.connection.pushFrame(SILENT_FRAME);
+          continue;
+        }
+        const scaled = applyVolume(frame, this.volume);
+        await this.connection.pushFrame(bufToInt16(scaled));
+      } catch (err) {
+        log.warn({ err }, 'Push loop errored — ending track');
+        settle('natural');
+        return;
+      }
     }
-
-    const frame = this.readFrame();
-    if (!frame) {
-      // Out of buffered data and stream hasn't emitted 'end' yet — emit
-      // silence to keep the ticker steady. The natural-end path drains
-      // via stream.on('end') above.
-      const silence = Buffer.alloc(FRAME_BYTES);
-      void this.connection.pushFrame(bufToInt16(silence));
-    } else {
-      const scaled = applyVolume(frame, this.volume);
-      void this.connection.pushFrame(bufToInt16(scaled));
-    }
-
-    this.nextTickAt += FRAME_INTERVAL_MS;
-    this.scheduleNextTick();
-  };
-
-  private scheduleNextTick(): void {
-    const delay = Math.max(0, this.nextTickAt - Date.now());
-    this.ticker = setTimeout(this.tick, delay);
   }
 
   // Pull the next FRAME_BYTES from leftover + stream chunks. Returns
