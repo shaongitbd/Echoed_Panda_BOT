@@ -1,0 +1,25 @@
+node_modules
+dist
+.next
+*.log
+
+# Dashboard is its own Dokploy app — don't bake it into the bot image.
+dashboard
+
+# Local env files. Production env comes from Dokploy's Environment tab,
+# never from a committed file.
+.env
+.env.*
+
+# Cookies file (yt-dlp). Should arrive via Dokploy mount, never via
+# image layers. If this gets baked in, anyone with image access can
+# pull your YouTube credentials.
+cookies.txt
+*.cookies.txt
+
+# IDE / OS noise
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
