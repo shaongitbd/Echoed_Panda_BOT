@@ -267,23 +267,38 @@ function runYtDlp(args: string[]): Promise<string> {
 }
 
 async function ytDlpMetadata(url: string): Promise<YtDlpMeta> {
-  const out = await runYtDlp([...ytDlpBaseArgs(), '-J', '--skip-download', url]);
-  return JSON.parse(out) as YtDlpMeta;
-}
-
-async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
-  // ytsearch5:<query> returns up to 5 hits. We deliberately don't use
-  // --flat-playlist here — flat entries are missing duration /
-  // thumbnail / uploader, which makes the queue card useless. The
-  // extra metadata fetch costs ~1s but fires once per !play.
+  // --ignore-no-formats-error: yt-dlp's default format selector is
+  // strict (`bv*+ba/b`) and will fail with "Requested format is not
+  // available" on videos where YouTube hasn't surfaced the standard
+  // adaptive formats — common for newer or region-restricted content.
+  // For metadata-only calls we don't actually need a format yet; the
+  // real format selection happens in ytDlpStreamUrl at play time.
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
     '-J',
     '--skip-download',
+    '--ignore-no-formats-error',
+    url,
+  ]);
+  return JSON.parse(out) as YtDlpMeta;
+}
+
+async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
+  // ytsearch5:<query> returns up to 5 hits. Same format-error
+  // suppression as ytDlpMetadata — search hits the same default
+  // format selector and would otherwise fail on any single
+  // unavailable result, which kills the whole search.
+  const out = await runYtDlp([
+    ...ytDlpBaseArgs(),
+    '-J',
+    '--skip-download',
+    '--ignore-no-formats-error',
     `ytsearch${limit}:${query}`,
   ]);
-  const parsed = JSON.parse(out) as { entries?: YtDlpMeta[] };
-  return parsed.entries ?? [];
+  const parsed = JSON.parse(out) as { entries?: (YtDlpMeta | null)[] };
+  // --ignore-errors / no-formats-error can leave nulls in entries
+  // when a single result fails — drop them.
+  return (parsed.entries ?? []).filter((e): e is YtDlpMeta => e !== null);
 }
 
 async function ytDlpStreamUrl(url: string): Promise<string> {
