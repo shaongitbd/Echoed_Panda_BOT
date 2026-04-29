@@ -266,8 +266,14 @@ async function ytDlpDownload(url: string): Promise<string> {
 
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
+    // Format priority: strict audio-only first (small, fast), then
+    // anything-with-audio (catches odd format lists), then any
+    // progressive stream as a last resort. The previous selector
+    // (`bestaudio*/best`) skipped strict audio-only and grabbed
+    // the combined video+audio mp4 — 70+ MB instead of 5–10 MB,
+    // wasting download time on video bytes ffmpeg discards.
     '-f',
-    'bestaudio*/best',
+    'bestaudio[acodec=opus]/bestaudio[ext=m4a]/bestaudio/bestaudio*/best',
     '-o',
     outputTemplate,
     '--no-progress',
