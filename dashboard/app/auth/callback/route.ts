@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { cookies } from 'next/headers';
 import { exchangeCodeForToken, fetchUserinfo } from '@/lib/echoed';
-import { setSession } from '@/lib/auth';
+import { setSessionOn } from '@/lib/auth';
+import { config } from '@/lib/config';
 
 const STATE_COOKIE = 'panda_oauth_state';
 
@@ -25,9 +25,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return new NextResponse('Missing code or state', { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const stored = cookieStore.get(STATE_COOKIE)?.value;
-  cookieStore.delete(STATE_COOKIE);
+  const stored = req.cookies.get(STATE_COOKIE)?.value;
   if (!stored || stored !== state) {
     return new NextResponse('Invalid state', { status: 400 });
   }
@@ -46,12 +44,23 @@ export async function GET(req: NextRequest): Promise<Response> {
     return new NextResponse(`User lookup failed: ${(err as Error).message}`, { status: 502 });
   }
 
-  await setSession({
+  // Build the post-login redirect from DASHBOARD_BASE_URL, NOT from
+  // req.url — behind Dokploy / Traefik / any reverse proxy, req.url
+  // resolves to the internal Docker container hostname (e.g.
+  // https://08d437…:3030) which the user's browser can't reach.
+  const response = NextResponse.redirect(`${config.dashboardBaseUrl}/dashboard`);
+
+  // Set the session cookie + clear the state cookie ON the redirect
+  // response itself. cookies().set() inside a route handler that
+  // returns a redirect drops the Set-Cookie header — this is the
+  // class of bug that surfaces as "Invalid state" on the next round.
+  setSessionOn(response, {
     userId: user.sub,
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresAt: Math.floor(Date.now() / 1000) + token.expires_in,
   });
+  response.cookies.delete(STATE_COOKIE);
 
-  return NextResponse.redirect(new URL('/dashboard', url));
+  return response;
 }

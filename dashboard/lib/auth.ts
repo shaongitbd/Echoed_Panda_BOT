@@ -69,15 +69,37 @@ export async function getSession(): Promise<Session | null> {
   return session;
 }
 
+// Two flavours intentionally:
+//   - setSession(...): for use inside Server Actions (e.g. saving a
+//     login that doesn't redirect). cookies().set() is correct there.
+//   - setSessionOn(response, ...): for Route Handlers that return a
+//     redirect — cookies set via cookies() are dropped on a redirect
+//     response, so we mutate the response directly. Same logic for
+//     clear (clearSessionOn).
+const COOKIE_OPTIONS = (): {
+  httpOnly: true;
+  secure: boolean;
+  sameSite: 'lax';
+  path: '/';
+  maxAge: number;
+} => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  path: '/',
+  maxAge: COOKIE_MAX_AGE,
+});
+
 export async function setSession(session: Session): Promise<void> {
   const token = encode(session);
-  (await cookies()).set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: COOKIE_MAX_AGE,
-  });
+  (await cookies()).set(COOKIE_NAME, token, COOKIE_OPTIONS());
+}
+
+export function setSessionOn(
+  response: { cookies: { set: (n: string, v: string, opts: ReturnType<typeof COOKIE_OPTIONS>) => void } },
+  session: Session,
+): void {
+  response.cookies.set(COOKIE_NAME, encode(session), COOKIE_OPTIONS());
 }
 
 export async function clearSession(): Promise<void> {
