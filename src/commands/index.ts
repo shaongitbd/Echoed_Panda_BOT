@@ -70,6 +70,7 @@ import {
   handleClearQueue,
   handleDjRole,
 } from './music.js';
+import { handleTestAudio } from './testTone.js';
 
 export interface Services {
   api: EchoedClient;
@@ -463,6 +464,12 @@ export const registry: readonly Registered[] = [
     aliases: ['dj'],
     handler: handleDjRole,
     help: 'set the DJ role — `djrole <@role|none>` (Manage Server)',
+  },
+  {
+    name: 'testaudio',
+    aliases: ['testwav'],
+    handler: handleTestAudio,
+    help: 'diagnostic: play LiveKit\'s example WAV through the pipeline (bypasses yt-dlp)',
   },
 
   // ─── Meta ─────────────────────────────────────────────────────────
