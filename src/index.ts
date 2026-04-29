@@ -17,8 +17,53 @@ import { processJoin as antiRaidProcessJoin } from './antiRaid/detector.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { processAutoReact } from './autoReact/handler.js';
 import { processKeywords } from './keywords/handler.js';
+import { promises as fs } from 'node:fs';
+
+// One-time boot-time check that the music feature is configured correctly.
+// Logs at INFO when good, WARN when something's off — never throws,
+// because music is optional and the rest of the bot should boot regardless.
+async function checkMusicConfig(): Promise<void> {
+  const cookiesPath = config.ytDlpCookiesFile;
+  if (!cookiesPath) {
+    log.warn(
+      'YTDLP_COOKIES_FILE is not set. YouTube playback will fail on most videos with "Sign in to confirm you\'re not a bot." Export Netscape-format cookies from a browser, mount on the host, set the env var.',
+    );
+    return;
+  }
+  try {
+    const stat = await fs.stat(cookiesPath);
+    if (!stat.isFile()) {
+      log.warn({ cookiesPath }, 'YTDLP_COOKIES_FILE points at something that is not a regular file');
+      return;
+    }
+    // Sanity-check the format. Netscape cookies files start with a
+    // marker line; if we see something else, the file is wrong even
+    // if it exists.
+    const head = (await fs.readFile(cookiesPath, 'utf8')).slice(0, 200);
+    const looksNetscape = head.includes('Netscape HTTP Cookie File') || /\.youtube\.com\s/.test(head);
+    if (!looksNetscape) {
+      log.warn(
+        { cookiesPath, head: head.slice(0, 60) },
+        'Cookies file is not Netscape format. Use the "Get cookies.txt LOCALLY" extension, not a JSON exporter.',
+      );
+      return;
+    }
+    log.info({ cookiesPath, sizeBytes: stat.size }, 'YouTube cookies loaded');
+  } catch (err) {
+    log.warn(
+      { err, cookiesPath },
+      'YTDLP_COOKIES_FILE is set but the file is not readable — yt-dlp will run without cookies and most YouTube videos will fail.',
+    );
+  }
+}
 
 async function main(): Promise<void> {
+  // 0. Music config sanity-check. Surface any cookies-file
+  // misconfiguration on boot rather than at first !play, so it's
+  // visible in deployment logs without anyone having to test the
+  // music feature.
+  await checkMusicConfig();
+
   // 1. Database first — if Postgres is unreachable nothing else makes
   //    sense to wire up. Migrations are idempotent and run every boot.
   try {
