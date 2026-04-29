@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import type { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { config } from './config';
 
@@ -26,6 +27,14 @@ export interface Session {
 
 const COOKIE_NAME = 'panda_session';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+
+const COOKIE_OPTIONS = {
+  httpOnly: true as const,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/' as const,
+  maxAge: COOKIE_MAX_AGE,
+};
 
 function sign(payload: string): string {
   return crypto
@@ -59,6 +68,8 @@ function decode(token: string): Session | null {
   }
 }
 
+// Read the session from the incoming request. Pages and Server
+// Components call this with no args (cookies() is auto-resolved).
 export async function getSession(): Promise<Session | null> {
   const cookie = (await cookies()).get(COOKIE_NAME);
   if (!cookie) return null;
@@ -69,39 +80,14 @@ export async function getSession(): Promise<Session | null> {
   return session;
 }
 
-// Two flavours intentionally:
-//   - setSession(...): for use inside Server Actions (e.g. saving a
-//     login that doesn't redirect). cookies().set() is correct there.
-//   - setSessionOn(response, ...): for Route Handlers that return a
-//     redirect — cookies set via cookies() are dropped on a redirect
-//     response, so we mutate the response directly. Same logic for
-//     clear (clearSessionOn).
-const COOKIE_OPTIONS = (): {
-  httpOnly: true;
-  secure: boolean;
-  sameSite: 'lax';
-  path: '/';
-  maxAge: number;
-} => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
-  path: '/',
-  maxAge: COOKIE_MAX_AGE,
-});
-
-export async function setSession(session: Session): Promise<void> {
-  const token = encode(session);
-  (await cookies()).set(COOKIE_NAME, token, COOKIE_OPTIONS());
+// Write the session cookie to a response. Always pass the response —
+// in Route Handlers that return a redirect, cookies().set() is dropped
+// (Set-Cookie never goes out), so we always mutate the response
+// directly. This works for both redirect responses and JSON responses.
+export function setSession(response: NextResponse, session: Session): void {
+  response.cookies.set(COOKIE_NAME, encode(session), COOKIE_OPTIONS);
 }
 
-export function setSessionOn(
-  response: { cookies: { set: (n: string, v: string, opts: ReturnType<typeof COOKIE_OPTIONS>) => void } },
-  session: Session,
-): void {
-  response.cookies.set(COOKIE_NAME, encode(session), COOKIE_OPTIONS());
-}
-
-export async function clearSession(): Promise<void> {
-  (await cookies()).delete(COOKIE_NAME);
+export function clearSession(response: NextResponse): void {
+  response.cookies.delete(COOKIE_NAME);
 }

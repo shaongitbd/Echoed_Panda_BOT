@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { exchangeCodeForToken, fetchUserinfo } from '@/lib/echoed';
-import { setSessionOn } from '@/lib/auth';
+import { setSession } from '@/lib/auth';
 import { config } from '@/lib/config';
 
 const STATE_COOKIE = 'panda_oauth_state';
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   // response itself. cookies().set() inside a route handler that
   // returns a redirect drops the Set-Cookie header — this is the
   // class of bug that surfaces as "Invalid state" on the next round.
-  setSessionOn(response, {
+  setSession(response, {
     userId: user.sub,
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
