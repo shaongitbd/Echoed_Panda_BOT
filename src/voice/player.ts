@@ -25,6 +25,14 @@ const FRAME_BYTES = SAMPLES_PER_FRAME * CHANNELS * BYTES_PER_SAMPLE;
 // across pushes is safe (LiveKit copies the data in captureFrame).
 const SILENT_FRAME: Int16Array = new Int16Array(FRAME_BYTES / BYTES_PER_SAMPLE);
 
+// Throttle thresholds for LiveKit's native AudioSource queue. The
+// native side caps at ~1 s (the queueSize default). We back off when
+// queued audio exceeds 700 ms to leave headroom; above the cap, frames
+// get silently dropped or compressed (manifesting as bit-crushed /
+// breaking audio).
+const QUEUE_TARGET_HIGH_MS = 700;
+const QUEUE_POLL_MS = 50;
+
 
 export type LoopMode = 'off' | 'track' | 'queue';
 
@@ -266,16 +274,23 @@ export class MusicPlayer extends EventEmitter {
     });
   }
 
-  // Frame-driven push loop. Reads from the PCM stream via async
-  // iteration (Node's `for await` on a Readable awaits new chunks
-  // when the internal buffer empties — no silence-padding race) and
-  // pushes complete frames to LiveKit.
+  // Frame-driven push loop with two pacing layers:
   //
-  // Pause handling: while paused we push silence at the same rate as
-  // playback so the source doesn't underrun (an underrun would surface
-  // as packet loss to LiveKit's WebRTC layer, producing audible
-  // clicks on resume). On resume the for-await loop picks up where
-  // it left off.
+  //   1. Stream chunks arrive via `for await (chunk of stream)` —
+  //      proper async iteration over Node Readable. Iteration *waits*
+  //      when the internal buffer is empty, so we never accidentally
+  //      inject silence between real audio chunks.
+  //
+  //   2. Before pushing each frame we check LiveKit's queued duration.
+  //      The native AudioSource accepts frames eagerly without
+  //      backpressure — captureFrame's await returns the moment the
+  //      FFI ack arrives, NOT when audio plays out — so blasting
+  //      frames overflows the queue and surfaces as bit-crushed /
+  //      breaking audio. We sleep briefly when the queue is over the
+  //      target, keeping ~half a second of buffer.
+  //
+  // Pause handling: silence is pushed at the same rate so the source
+  // doesn't underrun (underrun = WebRTC packet loss = clicks).
   private async runPushLoop(
     settle: (cause: 'natural' | 'skipped' | 'stopped') => void,
   ): Promise<void> {
@@ -287,27 +302,24 @@ export class MusicPlayer extends EventEmitter {
 
     try {
       for await (const chunk of stream) {
-        // Drain pause state before accepting the next chunk back into
-        // the leftover buffer — otherwise a long pause on a slow stream
-        // could leave us holding bytes the user can't hear advance.
-        while (this.paused && this.trackComplete) {
-          await this.connection.pushFrame(SILENT_FRAME);
-        }
         if (!this.trackComplete) return;
-
         this.leftover = Buffer.concat([this.leftover, chunk as Buffer]);
 
         while (this.leftover.length >= FRAME_BYTES && this.trackComplete) {
+          // Throttle: keep LiveKit's queue between 200-700 ms. Below
+          // 200 ms risks underrun on the next slow chunk; above 700 ms
+          // pushes us toward the 1 s cap where frames get dropped.
+          await this.gateOnQueueDepth();
+
+          if (this.paused) {
+            await this.connection.pushFrame(SILENT_FRAME);
+            continue; // don't consume from leftover while paused
+          }
+
           const frameBuf = this.leftover.subarray(0, FRAME_BYTES);
           this.leftover = this.leftover.subarray(FRAME_BYTES);
-
           const scaled = applyVolume(frameBuf, this.volume);
           await this.connection.pushFrame(bufToInt16(scaled));
-
-          // If we got paused mid-chunk, drain pause before continuing.
-          while (this.paused && this.trackComplete) {
-            await this.connection.pushFrame(SILENT_FRAME);
-          }
         }
       }
 
@@ -317,6 +329,7 @@ export class MusicPlayer extends EventEmitter {
         const tail = Buffer.alloc(FRAME_BYTES);
         this.leftover.copy(tail);
         this.leftover = Buffer.alloc(0);
+        await this.gateOnQueueDepth();
         await this.connection.pushFrame(bufToInt16(tail));
       }
 
@@ -329,6 +342,15 @@ export class MusicPlayer extends EventEmitter {
     } catch (err) {
       log.warn({ err }, 'Push loop errored — ending track');
       settle('natural');
+    }
+  }
+
+  // Wait while LiveKit's native queue is over our target depth.
+  // Polls every 50 ms — coarse but good enough; we only care about
+  // staying under the queue cap, not millisecond precision.
+  private async gateOnQueueDepth(): Promise<void> {
+    while (this.trackComplete && this.connection.queuedDurationMs() > QUEUE_TARGET_HIGH_MS) {
+      await new Promise<void>((resolve) => setTimeout(resolve, QUEUE_POLL_MS));
     }
   }
 

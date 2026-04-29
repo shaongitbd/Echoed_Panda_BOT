@@ -95,12 +95,20 @@ export class VoiceConnection {
     );
   }
 
-  // Push a single 20ms PCM s16le interleaved frame. Caller is responsible
-  // for paced delivery (the player wraps this with a 20ms ticker).
+  // Push one 100ms PCM s16le interleaved frame. The caller paces by
+  // checking queuedDurationMs (LiveKit's queue is ~1s by default).
   async pushFrame(pcm: Int16Array): Promise<void> {
     if (!this.audioSource) return;
     const frame = new AudioFrame(pcm, SAMPLE_RATE, CHANNELS, pcm.length / CHANNELS);
     await this.audioSource.captureFrame(frame);
+  }
+
+  // Approximate ms of audio currently buffered in LiveKit's native
+  // AudioSource. Used by the player loop to gate pushes — feeding past
+  // a threshold causes the native side to drop or compress frames,
+  // surfacing as bit-crushed / breaking audio.
+  queuedDurationMs(): number {
+    return this.audioSource?.queuedDuration ?? 0;
   }
 
   // Wait until LiveKit has played out everything we've queued. Used at
