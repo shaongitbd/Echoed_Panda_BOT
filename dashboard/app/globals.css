@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts via Google Fonts CDN — kept inline rather than in app/layout
+   so the entire stylesheet is self-contained. preconnect happens in
+   the document <head> for performance. */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ─── Design tokens ─────────────────────────────────────────────────
+   Single source of truth. Aliased into Tailwind via tailwind.config.ts
+   so utility classes like `bg-bg-card` resolve here. Match the spec
+   we agreed on for panda — Echoed family palette, panda-themed
+   bamboo green for status. */
+:root {
+  /* Backgrounds — descend in lightness; "base" is the page bg, "card"
+     is the default surface, "elevated" lifts modals/hover. */
+  --bg-base: #0e0e10;
+  --bg-card: #18181c;
+  --bg-elevated: #1f1f24;
+  --bg-hover: #232329;
+  --bg-input: #14141a;
+
+  /* Text — never pure white; pure white on a dark bg looks brittle. */
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+
+  /* Accent — Echoed's gold. Used sparingly: primary CTAs, active
+     navigation, key status emphasis. Anything more diluted goes into
+     --accent-muted. */
+  --accent: #FFC928;
+  --accent-hover: #ffd54a;
+  --accent-muted: rgba(255, 201, 40, 0.12);
+  --accent-fg: #1a1a0d;
+
+  /* Status — bamboo green for online/live, off-the-shelf reds/yellows
+     for danger/warning. */
+  --status-online: #4ade80;
+  --status-danger: #ef4444;
+  --status-warning: #f59e0b;
+
+  /* Borders — always low-contrast, never harsh lines. */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+}
+
+/* ─── Base resets ───────────────────────────────────────────────────
+   Tailwind's preflight handles most resets. We add typography
+   defaults + scrollbar styling so dark scrollbars don't blow out
+   the page. */
+html,
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans, 'Inter'), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  border-color: var(--border-subtle);
+}
+
+::selection {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+/* Subtle scrollbars — most users won't notice them, which is the goal. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ─── Component utilities ───────────────────────────────────────────
+   Tiny helpers Tailwind can't express tersely. Kept here rather than
+   in @layer components so they're greppable. */
+.vertical-stencil {
+  /* Heavy display label running bottom-to-top along the right edge
+     of feature cards — the JOIN/LEAVE/CLEAR move from tempvoice. */
+  font-family: var(--font-display, 'Bebas Neue'), system-ui, sans-serif;
+  font-size: clamp(3rem, 8vw, 5rem);
+  letter-spacing: 0.05em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  color: var(--accent);
+  opacity: 0.9;
+  user-select: none;
+  pointer-events: none;
+}
+
+.headline-display {
+  /* Hero headline — Bebas, tight tracking, large display size with
+     responsive clamp so it scales smoothly to mobile. */
+  font-family: var(--font-display, 'Bebas Neue'), system-ui, sans-serif;
+  font-size: clamp(3rem, 8vw, 6rem);
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+}
+
+/* Decorative gradient halo behind the hero illustration. Single
+   accent-tinted glow, positioned by the consumer. */
+.hero-glow::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(
+    closest-side,
+    var(--accent-muted),
+    transparent 70%
+  );
+  z-index: -1;
+  pointer-events: none;
+}
