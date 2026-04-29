@@ -48,33 +48,63 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-function cacheKey(serverId: string, userId: string): string {
-  return `${serverId}:${userId}`;
+// Cache key. When channelId is undefined the entry is the server-level
+// effective permissions; with a channelId it is post-override per-channel.
+function cacheKey(serverId: string, userId: string, channelId?: string): string {
+  return channelId ? `${serverId}:${userId}:${channelId}` : `${serverId}:${userId}`;
 }
 
 export class PermissionService {
   constructor(private readonly api: EchoedClient) {}
 
-  // Returns true if the user has the given permission in the server.
-  // Administrator implies everything. Network failures fail CLOSED — when
-  // we genuinely don't know what perms a user has, denying the action is
-  // the safer default for moderation commands.
-  async has(serverId: string, userId: string, perm: Permission): Promise<boolean> {
-    const perms = await this.fetch(serverId, userId);
+  // Returns true if the user has the given permission. When `channelId` is
+  // supplied the check honors per-channel overrides; otherwise it's a
+  // server-level check. Administrator implies everything. Network failures
+  // fail CLOSED — denying is the safer default for moderation commands.
+  async has(
+    serverId: string,
+    userId: string,
+    perm: Permission,
+    channelId?: string,
+  ): Promise<boolean> {
+    const perms = await this.fetch(serverId, userId, channelId);
     if (!perms) return false;
     return perms.has('ADMINISTRATOR') || perms.has(perm);
   }
 
+  // Channel-aware convenience: same as has(...) but the channelId is
+  // required, so the call site reads as "does this user have X in #channel".
+  async hasIn(
+    serverId: string,
+    channelId: string,
+    userId: string,
+    perm: Permission,
+  ): Promise<boolean> {
+    return this.has(serverId, userId, perm, channelId);
+  }
+
   // Lower-level accessor for callers that need the full set (e.g. a
   // permission-check that needs ANY of several perms).
-  async list(serverId: string, userId: string): Promise<ReadonlySet<Permission> | null> {
-    return this.fetch(serverId, userId);
+  async list(
+    serverId: string,
+    userId: string,
+    channelId?: string,
+  ): Promise<ReadonlySet<Permission> | null> {
+    return this.fetch(serverId, userId, channelId);
   }
 
   // Drop a cached entry. Wire this to the PERMISSION_UPDATE socket event
-  // so role/channel-perm changes take effect immediately.
+  // so role/channel-perm changes take effect immediately. Without
+  // channelId, drops both server-level and every per-channel entry for
+  // this user — channel overrides typically change in lockstep with role
+  // edits, so over-eviction is fine.
   invalidate(serverId: string, userId: string): void {
-    cache.delete(cacheKey(serverId, userId));
+    const userPrefix = `${serverId}:${userId}`;
+    for (const key of cache.keys()) {
+      if (key === userPrefix || key.startsWith(`${userPrefix}:`)) {
+        cache.delete(key);
+      }
+    }
   }
 
   invalidateServer(serverId: string): void {
@@ -84,15 +114,31 @@ export class PermissionService {
     }
   }
 
-  private async fetch(serverId: string, userId: string): Promise<ReadonlySet<Permission> | null> {
-    const key = cacheKey(serverId, userId);
+  // Drop every cached entry for a single channel (any user). Use when a
+  // channel's overrides change — server-level entries stay valid.
+  invalidateChannel(serverId: string, channelId: string): void {
+    const suffix = `:${channelId}`;
+    const prefix = `${serverId}:`;
+    for (const key of cache.keys()) {
+      if (key.startsWith(prefix) && key.endsWith(suffix)) {
+        cache.delete(key);
+      }
+    }
+  }
+
+  private async fetch(
+    serverId: string,
+    userId: string,
+    channelId?: string,
+  ): Promise<ReadonlySet<Permission> | null> {
+    const key = cacheKey(serverId, userId, channelId);
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.permissions;
     }
 
     try {
-      const res = await this.api.getMemberPermissions(serverId, userId);
+      const res = await this.api.getMemberPermissions(serverId, userId, channelId);
       const set = new Set(res.permissions as Permission[]);
       cache.set(key, { permissions: set, expiresAt: Date.now() + TTL_MS });
       return set;
@@ -106,7 +152,7 @@ export class PermissionService {
         return empty;
       }
       log.warn(
-        { err, serverId, userId },
+        { err, serverId, userId, channelId },
         'Failed to fetch member permissions — failing closed',
       );
       return null;

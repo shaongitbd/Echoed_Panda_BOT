@@ -35,6 +35,7 @@ const CATEGORIES: readonly Category[] = [
     commands: [
       'kick', 'ban', 'unban', 'timeout', 'untimeout', 'purge',
       'warn', 'warnings', 'clearwarnings', 'setmodlog',
+      'nick', 'resetnick',
     ],
   },
   {

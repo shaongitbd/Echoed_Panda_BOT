@@ -87,6 +87,33 @@ async function main(): Promise<void> {
     }
   });
 
+  // Drop perm-cache entries the moment Echoed signals a change. Without
+  // this we'd be stale for up to TTL_MS (60s) — fine for read-only ops
+  // but a real correctness gap for moderation gating.
+  socket.onPermissionInvalidated((data) => {
+    if (data.type === 'role_permission_updated') {
+      // member_roles_updated is the surgical case: only one user's
+      // roleset changed, evict just them. Every other reason
+      // (role_created/updated/deleted) potentially affects every member
+      // who held the role, so we conservatively flush the whole server.
+      if (data.affectedUserId) {
+        services.perms.invalidate(data.serverId, data.affectedUserId);
+      } else {
+        services.perms.invalidateServer(data.serverId);
+      }
+      return;
+    }
+    // channel_permission_updated.
+    // user_channel_override → just that user's entry on that channel.
+    // role_channel_override / channel_overrides_bulk → drop every cached
+    // entry for the channel; we don't have role→user mapping locally.
+    if (data.userId) {
+      services.perms.invalidate(data.serverId, data.userId);
+    } else {
+      services.perms.invalidateChannel(data.serverId, data.channelId);
+    }
+  });
+
   socket.onMessage(async (msg) => {
     if (!msg.content || msg.messageType !== 'user') return;
     if (!msg.serverId || !msg.channelId) return;

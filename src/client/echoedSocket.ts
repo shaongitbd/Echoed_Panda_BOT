@@ -11,6 +11,28 @@ type MessageHandler = (data: MessageCreatedData) => void | Promise<void>;
 type MemberJoinedHandler = (data: MemberJoinedData) => void | Promise<void>;
 type ReactionHandler = (data: ReactionEventData) => void | Promise<void>;
 
+// Echoed publishes 'permission:invalidated' on role / channel-override
+// changes. Two `type` variants share one event name; subscribers branch
+// on `type` to decide what to drop from cache.
+export type PermissionInvalidatedData =
+  | {
+      type: 'role_permission_updated';
+      serverId: string;
+      roleId?: string;
+      affectedUserId?: string;
+      reason: 'role_created' | 'role_updated' | 'role_deleted' | 'member_roles_updated';
+    }
+  | {
+      type: 'channel_permission_updated';
+      serverId: string;
+      channelId: string;
+      userId?: string;
+      roleId?: string;
+      reason: 'channel_overrides_bulk' | 'user_channel_override' | 'role_channel_override';
+    };
+
+type PermissionInvalidatedHandler = (data: PermissionInvalidatedData) => void | Promise<void>;
+
 // Suppress noise we don't act on. Bits map: TYPING=1, PRESENCE=2,
 // REACTIONS=4, VOICE_STATE=8. Reactions stay subscribed because
 // reaction-roles need MESSAGE_REACTION_ADD / REMOVE events.
@@ -24,6 +46,7 @@ export class EchoedSocket {
   private memberJoinedHandler: MemberJoinedHandler | null = null;
   private reactionAddedHandler: ReactionHandler | null = null;
   private reactionRemovedHandler: ReactionHandler | null = null;
+  private permissionInvalidatedHandler: PermissionInvalidatedHandler | null = null;
   private botUserId: string | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
@@ -41,6 +64,10 @@ export class EchoedSocket {
 
   onReactionRemoved(handler: ReactionHandler): void {
     this.reactionRemovedHandler = handler;
+  }
+
+  onPermissionInvalidated(handler: PermissionInvalidatedHandler): void {
+    this.permissionInvalidatedHandler = handler;
   }
 
   setBotUserId(id: string): void {
@@ -119,6 +146,16 @@ export class EchoedSocket {
       if (this.botUserId && data.userId === this.botUserId) return;
       Promise.resolve(this.reactionRemovedHandler?.(data)).catch((err) => {
         log.error({ err }, 'Reaction-removed handler threw');
+      });
+    });
+
+    // Permission cache eviction. Echoed sends one event for both role and
+    // channel-override changes, distinguished by `type`. We forward the
+    // raw payload — the wiring layer decides how aggressively to evict.
+    socket.on('permission:invalidated', (data: PermissionInvalidatedData) => {
+      if (!data || !data.serverId) return;
+      Promise.resolve(this.permissionInvalidatedHandler?.(data)).catch((err) => {
+        log.error({ err }, 'Permission-invalidated handler threw');
       });
     });
 

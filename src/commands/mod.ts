@@ -53,6 +53,27 @@ async function requirePerm(
   return ok;
 }
 
+// Channel-scoped variant — honours per-channel role/user overrides so a
+// member with a server-level perm that's been revoked on this channel
+// (or granted only on this channel) is gated correctly.
+async function requirePermInChannel(
+  ctx: CommandContext,
+  svc: Services,
+  perm: Permission,
+  label: string,
+): Promise<boolean> {
+  const ok = await svc.perms.hasIn(ctx.serverId, ctx.channelId, ctx.senderId, perm);
+  if (!ok) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: `You need the **${label}** permission in this channel.`,
+    });
+  }
+  return ok;
+}
+
 // Standard error reply that surfaces the upstream API's message when
 // useful (e.g. "Cannot kick the server owner.") but stays generic on
 // unexpected shapes.
@@ -275,7 +296,7 @@ export const handleUntimeout: Handler = async (ctx, svc) => {
 const PURGE_MAX = 100;
 
 export const handlePurge: Handler = async (ctx, svc) => {
-  if (!(await requirePerm(ctx, svc, 'MANAGE_MESSAGES', 'Manage Messages'))) return;
+  if (!(await requirePermInChannel(ctx, svc, 'MANAGE_MESSAGES', 'Manage Messages'))) return;
 
   const countArg = ctx.args[0];
   const count = countArg ? parseInt(countArg, 10) : NaN;

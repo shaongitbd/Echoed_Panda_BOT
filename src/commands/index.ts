@@ -53,6 +53,7 @@ import { handleYoutube } from './youtube.js';
 import { handleAutoReact } from './autoReact.js';
 import { handleKeyword } from './keyword.js';
 import { handleSchedule } from './scheduleMsg.js';
+import { handleNick, handleResetNick } from './nick.js';
 
 export interface Services {
   api: EchoedClient;
@@ -189,6 +190,18 @@ export const registry: readonly Registered[] = [
     aliases: ['modlogchannel'],
     handler: handleSetModlog,
     help: 'set mod-log channel — `setmodlog <#channel|here|none>`',
+  },
+  {
+    name: 'nick',
+    aliases: ['nickname', 'setnick'],
+    handler: handleNick,
+    help: 'change a member\'s nickname — `nick <@user> <nickname>` (empty clears)',
+  },
+  {
+    name: 'resetnick',
+    aliases: ['clearnick'],
+    handler: handleResetNick,
+    help: 'clear a member\'s nickname — `resetnick <@user>`',
   },
 
   // ─── Auto-mod (Manage Server) ─────────────────────────────────────

@@ -21,6 +21,26 @@ async function requireManageChannels(ctx: CommandContext, svc: Services): Promis
   return ok;
 }
 
+// Per-channel variant — honours channel overrides so a member who has
+// Manage Channels granted (or denied) on a specific channel is gated
+// correctly when cancelling that channel's auto-delete.
+async function requireManageChannelsIn(
+  ctx: CommandContext,
+  svc: Services,
+  targetChannelId: string,
+): Promise<boolean> {
+  const ok = await svc.perms.hasIn(ctx.serverId, targetChannelId, ctx.senderId, 'MANAGE_CHANNELS');
+  if (!ok) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: `You need the **Manage Channels** permission in <#${targetChannelId}>.`,
+    });
+  }
+  return ok;
+}
+
 const USAGE = (prefix: string): string =>
   `Usage:
 \`${prefix}tempchannel <name> <duration>\` — create (e.g. \`30m\`, \`2h\`, \`1d\`)
@@ -62,8 +82,6 @@ export const handleTempChannel: Handler = async (ctx, svc) => {
     return;
   }
 
-  if (!(await requireManageChannels(ctx, svc))) return;
-
   if (sub === 'cancel') {
     const arg = ctx.args[1];
     const channelMention = arg?.match(/^<#(?<id>[a-zA-Z0-9_-]+)>$/);
@@ -77,6 +95,7 @@ export const handleTempChannel: Handler = async (ctx, svc) => {
       });
       return;
     }
+    if (!(await requireManageChannelsIn(ctx, svc, channelId))) return;
     const removed = await cancelTemp(channelId);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
@@ -88,7 +107,10 @@ export const handleTempChannel: Handler = async (ctx, svc) => {
     return;
   }
 
-  // Default: !tempchannel <name> <duration>
+  // Default: !tempchannel <name> <duration> — creating a brand-new
+  // channel is a server-level operation, so server-level perms apply.
+  if (!(await requireManageChannels(ctx, svc))) return;
+
   const name = ctx.args[0];
   const durArg = ctx.args[1];
   const duration = durArg ? parseDuration(durArg) : null;

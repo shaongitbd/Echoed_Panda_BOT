@@ -1,3 +1,4 @@
+import { Blob } from 'node:buffer';
 import { config } from '../config.js';
 import { log } from '../log.js';
 
@@ -198,9 +199,127 @@ export class EchoedClient {
     return parsed as T;
   }
 
+  // Multipart upload — kept separate from `request()` so `Content-Type`
+  // can be set by the runtime (with the boundary). The form field is
+  // always named `file` to match the backend's getFileFromRequest().
+  private async upload<T>(
+    path: string,
+    file: { data: Buffer | Uint8Array; filename: string; contentType?: string },
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const form = new FormData();
+    const blob = new Blob([file.data], {
+      type: file.contentType ?? 'application/octet-stream',
+    });
+    // FormData.append's Blob overload comes from undici's web types; node's
+    // node:buffer.Blob is structurally compatible at runtime.
+    form.append('file', blob as unknown as Blob, file.filename);
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-Bot-Token': this.token,
+        'User-Agent': 'panda-bot/0.1',
+      },
+      body: form,
+    });
+    let parsed: unknown = null;
+    const text = await res.text();
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    }
+    if (!res.ok) {
+      const obj = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+      const message =
+        (typeof obj.message === 'string' && obj.message) ||
+        (typeof obj.error === 'string' && obj.error) ||
+        `HTTP ${res.status}`;
+      const code = typeof obj.code === 'number' ? obj.code : undefined;
+      log.warn({ path, status: res.status, message }, 'Echoed upload error');
+      throw new EchoedApiError(res.status, code, message);
+    }
+    return parsed as T;
+  }
+
   // ─── Identity ────────────────────────────────────────────────────────
   async getProfile(): Promise<BotProfileResponse> {
     return this.request('GET', '/v1/bots/profile');
+  }
+
+  // Update the bot's global display name and/or avatar URL. At least one
+  // field must be supplied; pass an empty string for `avatar` to clear.
+  async updateProfile(input: {
+    name?: string;
+    avatar?: string;
+  }): Promise<{ success: true; name?: string; avatar?: string }> {
+    return this.request('PATCH', '/v1/bots/me', input);
+  }
+
+  // Set the bot's per-server nickname. Pass an empty string (or use
+  // clearServerNickname) to revert to the global name.
+  async setServerNickname(
+    serverId: string,
+    nickname: string,
+  ): Promise<{ success: true; nickname: string }> {
+    return this.request('PATCH', `/v1/bots/${serverId}/nickname`, { nickname });
+  }
+
+  async clearServerNickname(serverId: string): Promise<{ success: true }> {
+    return this.request('DELETE', `/v1/bots/${serverId}/nickname`);
+  }
+
+  // Set the bot's per-server avatar by uploading an image. Allowed
+  // formats: png, jpg, jpeg, gif, webp. The returned `url` is the full
+  // CDN URL the avatar resolves to.
+  async setServerAvatar(
+    serverId: string,
+    file: { data: Buffer | Uint8Array; filename: string; contentType?: string },
+  ): Promise<{ success: true; path: string; url: string; timestamp: number }> {
+    return this.upload(`/v1/bots/${serverId}/server-avatar`, file);
+  }
+
+  async clearServerAvatar(serverId: string): Promise<{ success: true }> {
+    return this.request('DELETE', `/v1/bots/${serverId}/server-avatar`);
+  }
+
+  // ─── Member customization (admin-style) ──────────────────────────────
+  // Bot needs MANAGE_SERVER to call these; the command-issuing user's
+  // authority is the bot's responsibility to verify before invoking.
+
+  async setMemberNickname(
+    serverId: string,
+    userId: string,
+    nickname: string,
+  ): Promise<{ success: true; userId: string; nickname: string }> {
+    return this.request('PATCH', `/v1/bots/${serverId}/members/${userId}/nickname`, {
+      nickname,
+    });
+  }
+
+  async clearMemberNickname(
+    serverId: string,
+    userId: string,
+  ): Promise<{ success: true; userId: string }> {
+    return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/nickname`);
+  }
+
+  async setMemberServerAvatar(
+    serverId: string,
+    userId: string,
+    file: { data: Buffer | Uint8Array; filename: string; contentType?: string },
+  ): Promise<{ success: true; userId: string; path: string; url: string; timestamp: number }> {
+    return this.upload(`/v1/bots/${serverId}/members/${userId}/server-avatar`, file);
+  }
+
+  async clearMemberServerAvatar(
+    serverId: string,
+    userId: string,
+  ): Promise<{ success: true; userId: string }> {
+    return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/server-avatar`);
   }
 
   // ─── Messaging ───────────────────────────────────────────────────────
@@ -268,11 +387,17 @@ export class EchoedClient {
   }
 
   // ─── Members ─────────────────────────────────────────────────────────
+  // When `channelId` is supplied, the returned permissions reflect channel
+  // overrides; otherwise the response is server-level.
   async getMemberPermissions(
     serverId: string,
     userId: string,
+    channelId?: string,
   ): Promise<MemberPermissionsResponse> {
-    return this.request('GET', `/v1/bots/${serverId}/members/${userId}/permissions`);
+    const path = channelId
+      ? `/v1/bots/${serverId}/members/${userId}/permissions?channel_id=${encodeURIComponent(channelId)}`
+      : `/v1/bots/${serverId}/members/${userId}/permissions`;
+    return this.request('GET', path);
   }
 
   async kickMember(serverId: string, userId: string, reason?: string): Promise<DeleteResponse> {
