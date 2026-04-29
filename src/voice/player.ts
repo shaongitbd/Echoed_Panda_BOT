@@ -25,6 +25,7 @@ const FRAME_BYTES = SAMPLES_PER_FRAME * CHANNELS * BYTES_PER_SAMPLE;
 // across pushes is safe (LiveKit copies the data in captureFrame).
 const SILENT_FRAME: Int16Array = new Int16Array(FRAME_BYTES / BYTES_PER_SAMPLE);
 
+
 export type LoopMode = 'off' | 'track' | 'queue';
 
 export interface NowPlaying {
@@ -228,16 +229,17 @@ export class MusicPlayer extends EventEmitter {
   // playCurrent runs the awaited push loop until the track finishes,
   // is skipped, or the player is stopped.
   //
-  // Pacing model: LiveKit's AudioSource.captureFrame() returns a
-  // Promise that resolves once the source's internal queue has space
-  // — i.e. once enough audio has been *played out* to make room. That
-  // resolution rate IS the playback rate (1 frame / 20 ms at 48 kHz
-  // stereo), so awaiting captureFrame is the natural rate limiter.
+  // Pacing model: matches LiveKit's official publish-wav example. We
+  // iterate the PCM stream with `for await (chunk of stream)`, which
+  // is the canonical way to consume a Node Readable. The async
+  // iteration *waits* when the stream's internal buffer is empty —
+  // crucially, it does NOT return undefined or null, so we never
+  // accidentally feed silence between real audio chunks (the bug
+  // that caused the previous "robot voice" symptom).
   //
-  // The previous implementation used a setTimeout-based 20 ms ticker
-  // AND fired captureFrame as void — racing the bot's manual cadence
-  // against LiveKit's self-pacing. Frames piled up in the queue and
-  // played back compressed, producing the "robot voice" symptom.
+  // captureFrame() blocks at the FFI level when the native
+  // AudioSource queue is full (default 1 second), which is the
+  // natural rate limiter. No manual setTimeout / sleep needed.
   private playCurrent(): Promise<'natural' | 'skipped' | 'stopped'> {
     return new Promise((resolve) => {
       let resolved = false;
@@ -255,14 +257,6 @@ export class MusicPlayer extends EventEmitter {
         return;
       }
 
-      stream.on('end', () => {
-        // Natural end — let LiveKit drain its queue before advancing.
-        // Without this we'd cut off the last ~2 seconds of audio
-        // (whatever is buffered in the source).
-        this.connection.waitForPlayout().finally(() => {
-          settle('natural');
-        });
-      });
       stream.on('error', (err) => {
         log.warn({ err }, 'PCM stream errored');
         settle('natural');
@@ -272,58 +266,70 @@ export class MusicPlayer extends EventEmitter {
     });
   }
 
-  // Tight loop that pulls a frame from the PCM stream and awaits its
-  // delivery to LiveKit. captureFrame's promise gates the loop at
-  // playback rate. While paused we still push silence so LiveKit
-  // doesn't underrun (an underrun mid-track manifests as a clicking
-  // gap on resume).
+  // Frame-driven push loop. Reads from the PCM stream via async
+  // iteration (Node's `for await` on a Readable awaits new chunks
+  // when the internal buffer empties — no silence-padding race) and
+  // pushes complete frames to LiveKit.
+  //
+  // Pause handling: while paused we push silence at the same rate as
+  // playback so the source doesn't underrun (an underrun would surface
+  // as packet loss to LiveKit's WebRTC layer, producing audible
+  // clicks on resume). On resume the for-await loop picks up where
+  // it left off.
   private async runPushLoop(
     settle: (cause: 'natural' | 'skipped' | 'stopped') => void,
   ): Promise<void> {
-    while (this.trackComplete) {
-      try {
-        if (this.paused) {
+    const stream = this.currentStream;
+    if (!stream) {
+      settle('natural');
+      return;
+    }
+
+    try {
+      for await (const chunk of stream) {
+        // Drain pause state before accepting the next chunk back into
+        // the leftover buffer — otherwise a long pause on a slow stream
+        // could leave us holding bytes the user can't hear advance.
+        while (this.paused && this.trackComplete) {
           await this.connection.pushFrame(SILENT_FRAME);
-          continue;
         }
-        const frame = this.readFrame();
-        if (!frame) {
-          // Stream hasn't delivered the next chunk yet. Push a single
-          // silence frame to keep the source fed, then loop. The
-          // stream's 'end' event resolves the outer promise when the
-          // track is genuinely over.
-          await this.connection.pushFrame(SILENT_FRAME);
-          continue;
+        if (!this.trackComplete) return;
+
+        this.leftover = Buffer.concat([this.leftover, chunk as Buffer]);
+
+        while (this.leftover.length >= FRAME_BYTES && this.trackComplete) {
+          const frameBuf = this.leftover.subarray(0, FRAME_BYTES);
+          this.leftover = this.leftover.subarray(FRAME_BYTES);
+
+          const scaled = applyVolume(frameBuf, this.volume);
+          await this.connection.pushFrame(bufToInt16(scaled));
+
+          // If we got paused mid-chunk, drain pause before continuing.
+          while (this.paused && this.trackComplete) {
+            await this.connection.pushFrame(SILENT_FRAME);
+          }
         }
-        const scaled = applyVolume(frame, this.volume);
-        await this.connection.pushFrame(bufToInt16(scaled));
-      } catch (err) {
-        log.warn({ err }, 'Push loop errored — ending track');
-        settle('natural');
-        return;
       }
-    }
-  }
 
-  // Pull the next FRAME_BYTES from leftover + stream chunks. Returns
-  // null when the stream is exhausted and leftover is empty.
-  private readFrame(): Buffer | null {
-    if (!this.currentStream) return null;
-    while (this.leftover.length < FRAME_BYTES) {
-      const chunk = this.currentStream.read() as Buffer | null;
-      if (!chunk) return this.leftover.length > 0 ? this.padToFrame() : null;
-      this.leftover = Buffer.concat([this.leftover, chunk]);
-    }
-    const frame = this.leftover.subarray(0, FRAME_BYTES);
-    this.leftover = this.leftover.subarray(FRAME_BYTES);
-    return frame;
-  }
+      // Stream ended naturally — push the trailing partial frame
+      // (zero-padded) so we don't lose the last fragment.
+      if (this.leftover.length > 0 && this.trackComplete) {
+        const tail = Buffer.alloc(FRAME_BYTES);
+        this.leftover.copy(tail);
+        this.leftover = Buffer.alloc(0);
+        await this.connection.pushFrame(bufToInt16(tail));
+      }
 
-  private padToFrame(): Buffer {
-    const out = Buffer.alloc(FRAME_BYTES);
-    this.leftover.copy(out);
-    this.leftover = Buffer.alloc(0);
-    return out;
+      // Drain whatever's still in LiveKit's queue before advancing —
+      // otherwise we cut off the last ~1s of audio (the queue depth).
+      if (this.trackComplete) {
+        await this.connection.waitForPlayout();
+        settle('natural');
+      }
+    } catch (err) {
+      log.warn({ err }, 'Push loop errored — ending track');
+      settle('natural');
+    }
   }
 
   private cleanupCurrentStream(): void {

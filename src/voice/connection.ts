@@ -16,8 +16,13 @@ import { log } from '../log.js';
 
 const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
-// 20ms frames @ 48kHz stereo = 960 samples per channel.
-export const SAMPLES_PER_FRAME = SAMPLE_RATE / 50;
+// 100ms frames @ 48kHz stereo = 4800 samples per channel.
+//
+// LiveKit's official publish-wav example uses 1s frames; 100ms is a
+// middle ground that keeps startup latency ~instant while reducing
+// FFI call frequency 5× vs the original 20ms (smoother on slow
+// hardware, fewer chances for empty-buffer gaps to surface).
+export const SAMPLES_PER_FRAME = SAMPLE_RATE / 10;
 
 export interface JoinTokenInput {
   url: string;
