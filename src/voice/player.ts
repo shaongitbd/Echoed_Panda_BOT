@@ -384,9 +384,27 @@ export class MusicPlayer extends EventEmitter {
 // ─── Helpers ───────────────────────────────────────────────────────────
 
 function bufToInt16(buf: Buffer): Int16Array {
-  // The buffer's underlying ArrayBuffer may be larger than its visible
-  // window (Buffer.allocUnsafe uses a pool); slice precisely.
-  return new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
+  // CRITICAL: allocate a fresh Int16Array whose `.buffer` is exactly
+  // the slice's bytes — DO NOT return a view into a larger buffer.
+  //
+  // LiveKit's AudioFrame.protoInfo() does:
+  //   `retrievePtr(new Uint8Array(this.data.buffer))`
+  // which discards the Int16Array's byteOffset and points at the
+  // start of the underlying ArrayBuffer. With a `subarray` view the
+  // underlying ArrayBuffer is the entire concatenated PCM, so every
+  // frame reads from offset 0 — meaning every captured frame is the
+  // first 1 s of audio. Symptom: a long track plays the first 1–2 s
+  // on loop forever, and a short track sounds "fine" only because
+  // the loop wraps fast enough to feel continuous.
+  //
+  // Allocating a brand-new Int16Array means `out.buffer.byteLength`
+  // equals `buf.byteLength` and `out.byteOffset` is 0 — LiveKit's
+  // pointer points at the actual frame data, full stop.
+  const out = new Int16Array(buf.byteLength / 2);
+  new Uint8Array(out.buffer).set(
+    new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
+  );
+  return out;
 }
 
 // In-place s16le volume scaling. Avoids cloning by writing back to the

@@ -29,8 +29,6 @@ const TEST_WAV_URL =
 
 const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
-const FRAME_DURATION_SEC = 1; // matches LiveKit's publish-wav example
-const FRAME_INTERLEAVED_LEN = SAMPLE_RATE * FRAME_DURATION_SEC * CHANNELS;
 
 export const handleTestAudio: Handler = async (ctx, svc) => {
   // Resolve voice channel: prefer existing session, else find the
@@ -100,21 +98,31 @@ export const handleTestAudio: Handler = async (ctx, svc) => {
     return;
   }
 
-  // Wrap as Int16Array view (no copy) for AudioFrame ingestion.
-  const int16 = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 2);
   log.info(
-    { samples: int16.length, durationSec: int16.length / CHANNELS / SAMPLE_RATE },
+    {
+      bytes: pcm.length,
+      durationSec: pcm.length / (SAMPLE_RATE * CHANNELS * 2),
+    },
     'Test WAV PCM ready',
   );
 
-  // Push exactly like LiveKit's publish-wav: 1-second slices, await,
-  // no throttle. If LiveKit's example pattern is correct, this works.
+  // Push 1-second slices, copying each into a fresh Int16Array.
+  // CRITICAL: do not pass `int16.subarray(...)` — LiveKit's
+  // AudioFrame.protoInfo() reads from `data.buffer` (full ArrayBuffer)
+  // ignoring byteOffset, so subarray views all point at offset 0
+  // and every frame ends up being the first 1 s of audio on loop.
+  // See player.ts:bufToInt16 for the same fix in the production path.
+  const FRAME_BYTES = SAMPLE_RATE * CHANNELS * 2; // 192 000
   let written = 0;
-  while (written < int16.length) {
-    const frameSize = Math.min(FRAME_INTERLEAVED_LEN, int16.length - written);
-    const frame = int16.subarray(written, written + frameSize);
-    await session.connection.pushFrame(frame);
-    written += frameSize;
+  while (written < pcm.length) {
+    const frameEnd = Math.min(written + FRAME_BYTES, pcm.length);
+    const slice = pcm.subarray(written, frameEnd);
+    const owned = new Int16Array(slice.byteLength / 2);
+    new Uint8Array(owned.buffer).set(
+      new Uint8Array(slice.buffer, slice.byteOffset, slice.byteLength),
+    );
+    await session.connection.pushFrame(owned);
+    written = frameEnd;
   }
   await session.connection.waitForPlayout();
 
