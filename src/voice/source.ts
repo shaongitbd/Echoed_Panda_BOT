@@ -230,20 +230,20 @@ function openPcmFromCompressed(input: Readable): { pcm: Readable; close: () => v
 // region-locked / spam-flagged will fail.
 
 function ytDlpBaseArgs(): string[] {
-  // --extractor-args 'youtube:player-client=…': force yt-dlp through
-  // YouTube clients that work without a JavaScript runtime. With the
-  // default selector + cookies loaded, yt-dlp prefers the `web`
-  // client; that client requires deno (or another JS runtime) on the
-  // host to deobfuscate signed URLs, and our container only has
-  // node. android_vr / tv use a server-side signature flow that
-  // doesn't need JS, so they keep working in headless containers.
-  // Listing multiple clients lets yt-dlp fall back if YouTube blocks
-  // any single one.
+  // --extractor-args 'youtube:player-client=…': order matters here.
+  // `tv` / `web` / `default` tend to return HLS playlists (manifest
+  // .googlevideo.com / .m3u8) — those break real-time PCM streaming
+  // because ffmpeg has to refetch segments on the fly, which stalls
+  // the pipeline and surfaces as breakup / robot voice. `android`
+  // and `ios` return progressive audio-only m4a/webm via a single
+  // HTTPS GET — perfect for our streaming pipe. We list them first
+  // so yt-dlp prefers progressive, falling back to the HLS clients
+  // only if YouTube blocks the mobile flow.
   return [
     '--no-playlist',
     '--no-warnings',
     '--extractor-args',
-    'youtube:player-client=default,android_vr,tv,android,ios',
+    'youtube:player-client=android,ios,android_vr,tv,default',
   ];
   // NOTE: cookies are NOT added here — they're added per-call via a
   // throwaway temp copy. See runYtDlp for why.
@@ -353,26 +353,38 @@ async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
 }
 
 async function ytDlpStreamUrl(url: string): Promise<string> {
-  // bestaudio*: matches any format that contains audio, including DASH
-  //   segments and combined audio+video. More permissive than
-  //   `bestaudio` (which only matches strictly "audio-only" formats),
-  //   so it survives YouTube's recent format-list shifts.
-  // /best: final fallback — combined progressive stream. Always exists
-  //   on every public video.
+  // Format priority — all variants reject HLS (m3u8) explicitly so
+  // ffmpeg always gets a single progressive HTTPS stream:
+  //   1. opus audio-only HTTPS  → no re-encode pain, smallest bytes
+  //   2. m4a audio-only HTTPS   → universally available fallback
+  //   3. any audio-only HTTPS   → catch-all for unusual format lists
+  //   4. any progressive stream → last-ditch (combined audio+video)
+  // The protocol filter is the load-bearing part: HLS makes ffmpeg
+  // refetch segments mid-stream which stalls our PCM pipe and
+  // surfaces as the breakup/robot artifacts the test WAV doesn't have.
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
     '-f',
-    'bestaudio*/best',
+    'ba[protocol^=https][acodec=opus]/ba[protocol^=https][ext=m4a]/ba[protocol^=https]/b[protocol^=https]',
     '-g',
+    '--print', 'after_filter:%(format_id)s|%(protocol)s|%(acodec)s|%(abr)s',
     url,
   ]);
-  // -g prints the chosen format's direct URL; with multi-stream
-  // formats it can print 2 lines (audio + video) — we want the
-  // audio one, which is usually the last for our format selector.
+  // -g prints the URL; --print after_filter prints the chosen
+  // format's metadata on a separate line. Logging the metadata
+  // makes it obvious in the logs which format we actually got.
   const lines = out.trim().split('\n').filter(Boolean);
-  const last = lines[lines.length - 1];
-  if (!last) throw new Error('yt-dlp returned no stream URL');
-  return last;
+  let chosenUrl: string | null = null;
+  for (const line of lines) {
+    if (line.startsWith('http')) {
+      chosenUrl = line;
+    } else if (line.includes('|')) {
+      const [formatId, protocol, acodec, abr] = line.split('|');
+      log.info({ formatId, protocol, acodec, abr, url }, 'yt-dlp picked format');
+    }
+  }
+  if (!chosenUrl) throw new Error('yt-dlp returned no stream URL');
+  return chosenUrl;
 }
 
 // Same shape but ffmpeg fetches the URL itself.
