@@ -2,6 +2,7 @@ import { pool } from '../db/pool.js';
 import { getLevelSettings } from '../db/levelSettings.js';
 import { levelForTotalXp } from './curve.js';
 import { log } from '../log.js';
+import type { EchoedClient } from '../client/echoedClient.js';
 
 // Per-user-per-channel cooldown lives in memory: a restart hands a
 // user one extra grant in the worst case, which is fine. Persisting
@@ -56,18 +57,76 @@ interface GrantInput {
   serverId: string;
   userId: string;
   channelId: string;
+  // Optional client used to fetch member roles when the server has
+  // configured role-based XP scoping. Pass-through is fine — when both
+  // role lists are empty (the common case), the client is never
+  // touched.
+  api?: EchoedClient;
+}
+
+// Per-user member-role cache. Roles change on slow timescales (admin
+// edits, role assignments), so a short TTL keeps the hot path off the
+// network without making admin changes feel laggy. Only populated when
+// at least one server has role-scoped XP configured.
+const ROLE_CACHE_TTL_MS = 60 * 1000;
+const memberRolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
+
+async function fetchMemberRoles(
+  api: EchoedClient,
+  serverId: string,
+  userId: string,
+): Promise<string[] | null> {
+  const key = `${serverId}:${userId}`;
+  const cached = memberRolesCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.roles;
+  try {
+    const res = await api.getMemberRoles(serverId, userId);
+    const roles = res.roles ?? [];
+    memberRolesCache.set(key, { roles, expiresAt: Date.now() + ROLE_CACHE_TTL_MS });
+    return roles;
+  } catch (err) {
+    log.warn({ err, serverId, userId }, 'XP role-scope fetch failed — failing closed');
+    return null;
+  }
 }
 
 // awardXp is the single hot-path entry point called once per non-bot
-// user message. It coalesces three cheap checks (enabled, no-xp
-// channel, cooldown) before touching the DB; the DB write is a single
-// row upsert.
+// user message. It coalesces cheap checks (enabled, channel scope,
+// cooldown) before touching the DB; the DB write is a single row
+// upsert. Role-scope checks add one API call per user (cached 60s),
+// only when role lists are non-empty.
 export async function awardXp(input: GrantInput): Promise<GrantResult> {
   startSweeper();
 
   const settings = await getLevelSettings(input.serverId);
   if (!settings.enabled) return SKIPPED;
+
+  // Channel scope: allowed list (if non-empty) acts as a whitelist,
+  // ignored list always wins.
+  if (
+    settings.allowedXpChannelIds.length > 0 &&
+    !settings.allowedXpChannelIds.includes(input.channelId)
+  ) {
+    return SKIPPED;
+  }
   if (settings.noXpChannelIds.includes(input.channelId)) return SKIPPED;
+
+  // Role scope: only fetch member roles when the lists are non-empty,
+  // otherwise we skip the network round-trip entirely.
+  if (
+    (settings.allowedXpRoleIds.length > 0 || settings.ignoredXpRoleIds.length > 0) &&
+    input.api
+  ) {
+    const roles = await fetchMemberRoles(input.api, input.serverId, input.userId);
+    if (roles === null) return SKIPPED; // fail closed on lookup error
+    if (
+      settings.allowedXpRoleIds.length > 0 &&
+      !roles.some((r) => settings.allowedXpRoleIds.includes(r))
+    ) {
+      return SKIPPED;
+    }
+    if (roles.some((r) => settings.ignoredXpRoleIds.includes(r))) return SKIPPED;
+  }
 
   const key = `${input.serverId}:${input.userId}:${input.channelId}`;
   const now = Date.now();

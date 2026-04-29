@@ -8,7 +8,15 @@ export interface LevelSettings {
   // {server} that grant.ts substitutes when announcing.
   levelUpMessage: string | null;
   stackRewards: boolean;
+  // Channel scope. MEE6-style independent allow/ignore lists:
+  //   - allowedXpChannelIds: empty = XP everywhere; non-empty = XP only here
+  //   - noXpChannelIds (the "ignored" list): XP never fires here, overrides allowed
+  allowedXpChannelIds: string[];
   noXpChannelIds: string[];
+  // Role scope, same semantics as channels but applied to the
+  // sender's role set.
+  allowedXpRoleIds: string[];
+  ignoredXpRoleIds: string[];
   xpPerMessageMin: number;
   xpPerMessageMax: number;
   cooldownSeconds: number;
@@ -21,6 +29,9 @@ interface SettingsRow {
   level_up_message: string | null;
   stack_rewards: boolean;
   no_xp_channel_ids: string[];
+  allowed_xp_channel_ids: string[] | null;
+  allowed_xp_role_ids: string[] | null;
+  ignored_xp_role_ids: string[] | null;
   xp_per_message_min: number;
   xp_per_message_max: number;
   cooldown_seconds: number;
@@ -32,7 +43,10 @@ const DEFAULTS = (serverId: string): LevelSettings => ({
   levelUpChannel: null,
   levelUpMessage: null,
   stackRewards: true,
+  allowedXpChannelIds: [],
   noXpChannelIds: [],
+  allowedXpRoleIds: [],
+  ignoredXpRoleIds: [],
   xpPerMessageMin: 15,
   xpPerMessageMax: 25,
   cooldownSeconds: 60,
@@ -45,7 +59,10 @@ function rowToSettings(row: SettingsRow): LevelSettings {
     levelUpChannel: row.level_up_channel,
     levelUpMessage: row.level_up_message,
     stackRewards: row.stack_rewards,
+    allowedXpChannelIds: row.allowed_xp_channel_ids ?? [],
     noXpChannelIds: row.no_xp_channel_ids,
+    allowedXpRoleIds: row.allowed_xp_role_ids ?? [],
+    ignoredXpRoleIds: row.ignored_xp_role_ids ?? [],
     xpPerMessageMin: row.xp_per_message_min,
     xpPerMessageMax: row.xp_per_message_max,
     cooldownSeconds: row.cooldown_seconds,
@@ -66,7 +83,9 @@ export async function getLevelSettings(serverId: string): Promise<LevelSettings>
 
   const res = await pool.query<SettingsRow>(
     `SELECT server_id, enabled, level_up_channel, level_up_message, stack_rewards,
-            no_xp_channel_ids, xp_per_message_min, xp_per_message_max, cooldown_seconds
+            no_xp_channel_ids, allowed_xp_channel_ids,
+            allowed_xp_role_ids, ignored_xp_role_ids,
+            xp_per_message_min, xp_per_message_max, cooldown_seconds
        FROM panda.level_settings
       WHERE server_id = $1`,
     [serverId],
@@ -85,6 +104,9 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   levelUpMessage: 'level_up_message',
   stackRewards: 'stack_rewards',
   noXpChannelIds: 'no_xp_channel_ids',
+  allowedXpChannelIds: 'allowed_xp_channel_ids',
+  allowedXpRoleIds: 'allowed_xp_role_ids',
+  ignoredXpRoleIds: 'ignored_xp_role_ids',
   xpPerMessageMin: 'xp_per_message_min',
   xpPerMessageMax: 'xp_per_message_max',
   cooldownSeconds: 'cooldown_seconds',
@@ -112,7 +134,9 @@ export async function setLevelSettings(
      VALUES ($1, ${placeholders.join(', ')})
      ON CONFLICT (server_id) DO UPDATE SET ${updates}
      RETURNING server_id, enabled, level_up_channel, level_up_message, stack_rewards,
-               no_xp_channel_ids, xp_per_message_min, xp_per_message_max, cooldown_seconds`,
+               no_xp_channel_ids, allowed_xp_channel_ids,
+               allowed_xp_role_ids, ignored_xp_role_ids,
+               xp_per_message_min, xp_per_message_max, cooldown_seconds`,
     [serverId, ...values],
   );
 

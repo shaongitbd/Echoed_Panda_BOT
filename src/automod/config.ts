@@ -50,7 +50,15 @@ export interface AutomodConfig {
 
   invitesEnabled: boolean;
 
+  // MEE6-style independent allow/ignore lists.
+  // - allowedChannelIds: empty = auto-mod fires everywhere; non-empty
+  //   restricts firing to those channels.
+  // - exemptChannelIds: never fires here, overrides the allowed list.
+  allowedChannelIds: string[];
   exemptChannelIds: string[];
+  // Role analogues. Sender holding any allowed role gates firing in;
+  // sender holding any exempt role short-circuits firing out.
+  allowedRoleIds: string[];
   exemptRoleIds: string[];
 }
 
@@ -75,6 +83,8 @@ interface ConfigRow {
   invites_enabled: boolean;
   exempt_channel_ids: string[];
   exempt_role_ids: string[];
+  allowed_channel_ids: string[] | null;
+  allowed_role_ids: string[] | null;
 }
 
 const DEFAULTS = (serverId: string): AutomodConfig => ({
@@ -96,7 +106,9 @@ const DEFAULTS = (serverId: string): AutomodConfig => ({
   linksEnabled: false,
   linkWhitelist: [],
   invitesEnabled: false,
+  allowedChannelIds: [],
   exemptChannelIds: [],
+  allowedRoleIds: [],
   exemptRoleIds: [],
 });
 
@@ -120,7 +132,9 @@ function rowToConfig(row: ConfigRow): AutomodConfig {
     linksEnabled: row.links_enabled,
     linkWhitelist: row.link_whitelist,
     invitesEnabled: row.invites_enabled,
+    allowedChannelIds: row.allowed_channel_ids ?? [],
     exemptChannelIds: row.exempt_channel_ids,
+    allowedRoleIds: row.allowed_role_ids ?? [],
     exemptRoleIds: row.exempt_role_ids,
   };
 }
@@ -138,7 +152,8 @@ const SELECT_COLUMNS = `
   zalgo_enabled,
   links_enabled, link_whitelist,
   invites_enabled,
-  exempt_channel_ids, exempt_role_ids
+  exempt_channel_ids, exempt_role_ids,
+  allowed_channel_ids, allowed_role_ids
 `;
 
 export async function getAutomodConfig(serverId: string): Promise<AutomodConfig> {
@@ -179,6 +194,8 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   invitesEnabled: 'invites_enabled',
   exemptChannelIds: 'exempt_channel_ids',
   exemptRoleIds: 'exempt_role_ids',
+  allowedChannelIds: 'allowed_channel_ids',
+  allowedRoleIds: 'allowed_role_ids',
 };
 
 export async function setAutomodConfig(

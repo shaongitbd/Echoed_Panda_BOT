@@ -9,7 +9,12 @@ export interface LevelSettings {
   levelUpChannel: string | null;
   levelUpMessage: string | null;
   stackRewards: boolean;
+  // MEE6-style independent allow/ignore lists. See bot's
+  // src/db/levelSettings.ts for the runtime semantics.
+  allowedXpChannelIds: string[];
   noXpChannelIds: string[];
+  allowedXpRoleIds: string[];
+  ignoredXpRoleIds: string[];
   xpPerMessageMin: number;
   xpPerMessageMax: number;
   cooldownSeconds: number;
@@ -22,6 +27,9 @@ interface Row {
   level_up_message: string | null;
   stack_rewards: boolean;
   no_xp_channel_ids: string[];
+  allowed_xp_channel_ids: string[] | null;
+  allowed_xp_role_ids: string[] | null;
+  ignored_xp_role_ids: string[] | null;
   xp_per_message_min: number;
   xp_per_message_max: number;
   cooldown_seconds: number;
@@ -33,7 +41,10 @@ const DEFAULTS = (serverId: string): LevelSettings => ({
   levelUpChannel: null,
   levelUpMessage: null,
   stackRewards: true,
+  allowedXpChannelIds: [],
   noXpChannelIds: [],
+  allowedXpRoleIds: [],
+  ignoredXpRoleIds: [],
   xpPerMessageMin: 15,
   xpPerMessageMax: 25,
   cooldownSeconds: 60,
@@ -46,7 +57,10 @@ function rowToSettings(row: Row): LevelSettings {
     levelUpChannel: row.level_up_channel,
     levelUpMessage: row.level_up_message,
     stackRewards: row.stack_rewards,
+    allowedXpChannelIds: row.allowed_xp_channel_ids ?? [],
     noXpChannelIds: row.no_xp_channel_ids,
+    allowedXpRoleIds: row.allowed_xp_role_ids ?? [],
+    ignoredXpRoleIds: row.ignored_xp_role_ids ?? [],
     xpPerMessageMin: row.xp_per_message_min,
     xpPerMessageMax: row.xp_per_message_max,
     cooldownSeconds: row.cooldown_seconds,
@@ -55,7 +69,9 @@ function rowToSettings(row: Row): LevelSettings {
 
 const SELECT = `
   server_id, enabled, level_up_channel, level_up_message, stack_rewards,
-  no_xp_channel_ids, xp_per_message_min, xp_per_message_max, cooldown_seconds
+  no_xp_channel_ids, allowed_xp_channel_ids,
+  allowed_xp_role_ids, ignored_xp_role_ids,
+  xp_per_message_min, xp_per_message_max, cooldown_seconds
 `;
 
 export async function getLevelSettings(serverId: string): Promise<LevelSettings> {
@@ -74,6 +90,9 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   levelUpMessage: 'level_up_message',
   stackRewards: 'stack_rewards',
   noXpChannelIds: 'no_xp_channel_ids',
+  allowedXpChannelIds: 'allowed_xp_channel_ids',
+  allowedXpRoleIds: 'allowed_xp_role_ids',
+  ignoredXpRoleIds: 'ignored_xp_role_ids',
   xpPerMessageMin: 'xp_per_message_min',
   xpPerMessageMax: 'xp_per_message_max',
   cooldownSeconds: 'cooldown_seconds',

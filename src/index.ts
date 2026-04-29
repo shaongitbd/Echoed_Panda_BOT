@@ -169,6 +169,7 @@ async function main(): Promise<void> {
           serverId: msg.serverId,
           userId: msg.senderId,
           channelId: msg.channelId,
+          api,
         });
         if (grant.leveledUp) {
           await handleLevelUp(api, {

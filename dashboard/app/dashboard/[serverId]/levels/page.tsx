@@ -1,9 +1,9 @@
 import { getLevelSettings } from '@/lib/queries/levelSettings';
 import { listRewards } from '@/lib/queries/levelRewards';
-import { getServerChannels } from '@/lib/botApi';
+import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
 import { ChannelPicker } from '@/components/ChannelPicker';
-import { ChannelScope } from '@/components/ChannelScope';
+import { ChannelAllowIgnore, RoleAllowIgnore } from '@/components/AllowIgnoreLists';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import { saveLevels, removeLevelReward } from './actions';
@@ -15,10 +15,11 @@ interface PageProps {
 
 export default async function LevelsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [settings, rewards, channels] = await Promise.all([
+  const [settings, rewards, channels, roles] = await Promise.all([
     getLevelSettings(serverId),
     listRewards(serverId),
     getServerChannels(serverId),
+    getServerRoles(serverId),
   ]);
 
   // Bind serverId into the action so the form can stay
@@ -131,19 +132,36 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
 
         <FormCard
           title="XP channel scope"
-          description="Where members can earn XP. Use 'All except' to mute XP in spam / bot channels, or 'Only' to restrict XP to active chat channels."
+          description="Allowed list restricts where XP is earned; ignored list overrides allowed. Leave both empty for XP everywhere."
         >
-          <ChannelScope
-            name="noXpChannelIds"
+          <ChannelAllowIgnore
             channels={channels}
             allowedTypes={['text']}
-            modes={['all', 'except']}
-            initialMode={settings.noXpChannelIds.length > 0 ? 'except' : 'all'}
-            initialChannels={settings.noXpChannelIds}
-            labels={{
-              all: 'XP in every channel',
-              except: 'All except these',
-            }}
+            allowedName="allowedXpChannelIds"
+            ignoredName="noXpChannelIds"
+            initialAllowed={settings.allowedXpChannelIds}
+            initialIgnored={settings.noXpChannelIds}
+            allowedLabel="Channels where members earn XP"
+            allowedHint="Empty = members earn XP in every channel."
+            ignoredLabel="Channels where members never earn XP"
+            ignoredHint="Wins over the allowed list. Use this for #spam, #bot-cmds, etc."
+          />
+        </FormCard>
+
+        <FormCard
+          title="XP role scope"
+          description="Role-based gating. Members holding any 'allowed' role earn XP; members holding any 'ignored' role never do."
+        >
+          <RoleAllowIgnore
+            roles={roles}
+            allowedName="allowedXpRoleIds"
+            ignoredName="ignoredXpRoleIds"
+            initialAllowed={settings.allowedXpRoleIds}
+            initialIgnored={settings.ignoredXpRoleIds}
+            allowedLabel="Roles that earn XP"
+            allowedHint="Empty = every member earns XP regardless of role."
+            ignoredLabel="Roles that never earn XP"
+            ignoredHint="Useful for muting XP for staff or bot accounts. Wins over the allowed list."
           />
         </FormCard>
 
@@ -159,7 +177,7 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
           title="Add a level reward"
           description="Members earn this role automatically when they cross the level threshold."
         >
-          <AddRewardForm serverId={serverId} />
+          <AddRewardForm serverId={serverId} roles={roles} />
         </FormCard>
 
         <div className="rounded-lg border border-[var(--border-subtle)] bg-bg-card">
@@ -180,6 +198,9 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
             <ul className="divide-y divide-[var(--border-subtle)]">
               {rewards.map((r) => {
                 const remove = removeLevelReward.bind(null, serverId, r.level);
+                const role = roles.find((ro) => ro.id === r.roleId);
+                const roleColor =
+                  role?.color && /^#([0-9a-fA-F]{6})$/.test(role.color) ? role.color : '#888';
                 return (
                   <li key={r.level} className="flex items-center justify-between gap-4 p-4">
                     <div className="flex items-center gap-4">
@@ -187,8 +208,13 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
                         Level {r.level}
                       </span>
                       <span className="text-sm text-text-secondary">→</span>
-                      <span className="font-mono text-sm text-text-primary">
-                        &lt;@&amp;{r.roleId}&gt;
+                      <span className="inline-flex items-center gap-2 text-sm text-text-primary">
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: roleColor }}
+                          aria-hidden="true"
+                        />
+                        {role?.name ?? r.roleId.slice(0, 8) + '…'}
                       </span>
                     </div>
                     <form action={remove}>

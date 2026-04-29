@@ -546,6 +546,23 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS dj_role_id TEXT
     `,
   },
+  {
+    name: 'level_settings + allow / ignore lists',
+    sql: `
+      ALTER TABLE panda.level_settings
+        ADD COLUMN IF NOT EXISTS allowed_xp_channel_ids TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS allowed_xp_role_ids    TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS ignored_xp_role_ids    TEXT[] NOT NULL DEFAULT '{}'
+    `,
+  },
+  {
+    name: 'automod_config + allow lists',
+    sql: `
+      ALTER TABLE panda.automod_config
+        ADD COLUMN IF NOT EXISTS allowed_channel_ids TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS allowed_role_ids    TEXT[] NOT NULL DEFAULT '{}'
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

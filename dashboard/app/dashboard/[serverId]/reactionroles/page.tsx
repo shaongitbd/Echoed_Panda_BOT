@@ -1,4 +1,5 @@
 import { listReactionRoles, type ReactRoleListing } from '@/lib/queries/reactionRoles';
+import { getServerChannels, getServerRoles, type BotChannel, type BotRole } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
 import { deleteMapping, changeMode } from './actions';
 
@@ -8,7 +9,13 @@ interface PageProps {
 
 export default async function ReactionRolesPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const messages = await listReactionRoles(serverId);
+  const [messages, channels, roles] = await Promise.all([
+    listReactionRoles(serverId),
+    getServerChannels(serverId),
+    getServerRoles(serverId),
+  ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
+  const roleById = new Map(roles.map((r) => [r.id, r]));
 
   return (
     <div>
@@ -44,7 +51,13 @@ export default async function ReactionRolesPage({ params }: PageProps): Promise<
           </div>
         ) : (
           messages.map((m) => (
-            <ReactRoleMessage key={m.messageId} listing={m} serverId={serverId} />
+            <ReactRoleMessage
+              key={m.messageId}
+              listing={m}
+              serverId={serverId}
+              channel={channelById.get(m.channelId)}
+              roleById={roleById}
+            />
           ))
         )}
       </div>
@@ -55,9 +68,13 @@ export default async function ReactionRolesPage({ params }: PageProps): Promise<
 function ReactRoleMessage({
   listing,
   serverId,
+  channel,
+  roleById,
 }: {
   listing: ReactRoleListing;
   serverId: string;
+  channel: BotChannel | undefined;
+  roleById: Map<string, BotRole>;
 }): JSX.Element {
   const modeAction = changeMode.bind(null, serverId, listing.messageId);
 
@@ -69,7 +86,11 @@ function ReactRoleMessage({
           <div className="font-mono text-xs text-text-muted">message id</div>
           <div className="font-mono text-sm text-text-primary">{listing.messageId}</div>
           <div className="mt-1 text-xs text-text-secondary">
-            in <span className="font-mono">&lt;#{listing.channelId}&gt;</span>
+            in{' '}
+            <span className="text-text-primary">
+              <span className="text-text-muted">#</span>
+              {channel?.name ?? listing.channelId.slice(0, 8) + '…'}
+            </span>
           </div>
         </div>
 
@@ -106,13 +127,21 @@ function ReactRoleMessage({
         ) : (
           listing.mappings.map((m) => {
             const deleteAction = deleteMapping.bind(null, serverId, listing.messageId, m.emoji);
+            const role = roleById.get(m.roleId);
+            const roleColor =
+              role?.color && /^#([0-9a-fA-F]{6})$/.test(role.color) ? role.color : '#888';
             return (
               <li key={m.emoji} className="flex items-center justify-between gap-4 p-4">
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">{m.emoji}</span>
                   <span className="text-sm text-text-secondary">→</span>
-                  <span className="font-mono text-sm text-text-primary">
-                    &lt;@&amp;{m.roleId}&gt;
+                  <span className="inline-flex items-center gap-2 text-sm text-text-primary">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: roleColor }}
+                      aria-hidden="true"
+                    />
+                    {role?.name ?? m.roleId.slice(0, 8) + '…'}
                   </span>
                 </div>
                 <form action={deleteAction}>

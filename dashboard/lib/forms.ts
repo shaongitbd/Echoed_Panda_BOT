@@ -57,6 +57,21 @@ export function parseRoleList(raw: FormDataEntryValue | null): string[] {
     .filter((id): id is string => id != null);
 }
 
+// Multi-pickers (ChannelPicker mode="multi", RolePicker mode="multi")
+// emit one hidden input per selected ID, all sharing the same form
+// field name. Use this helper to read them out and validate via the
+// matching parser. Garbage tokens are silently dropped.
+export function collectIds(
+  formData: FormData,
+  name: string,
+  parser: (raw: FormDataEntryValue | null) => string | null,
+): string[] {
+  return formData
+    .getAll(name)
+    .map((v) => parser(v))
+    .filter((id): id is string => id != null);
+}
+
 // Bounded integer parser — falls back to a default and clamps to
 // [min,max]. Used for thresholds throughout.
 export function parseBoundedInt(

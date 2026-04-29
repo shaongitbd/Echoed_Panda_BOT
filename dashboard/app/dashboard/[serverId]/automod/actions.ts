@@ -7,22 +7,13 @@ import {
   parseBool,
   parseBoundedInt,
   parseChannelId,
-  parseRoleList,
+  parseRoleId,
   parseStringList,
+  collectIds,
 } from '@/lib/forms';
 
 export async function saveAutomod(serverId: string, formData: FormData): Promise<void> {
   await requireOwner(serverId);
-
-  // ChannelScope (modes: all | except). 'all' clears, 'except' stores.
-  const exemptMode = (formData.get('exemptChannelIds_mode') as string | null) ?? 'all';
-  const exemptChannelIds =
-    exemptMode === 'except'
-      ? formData
-          .getAll('exemptChannelIds')
-          .map((v) => parseChannelId(v))
-          .filter((v): v is string => v != null)
-      : [];
 
   await setAutomodConfig(serverId, {
     enabled: parseBool(formData.get('enabled')),
@@ -51,8 +42,10 @@ export async function saveAutomod(serverId: string, formData: FormData): Promise
     spamThreshold: parseBoundedInt(formData.get('spamThreshold'), 5, 2, 50),
     spamWindowSeconds: parseBoundedInt(formData.get('spamWindowSeconds'), 5, 1, 60),
 
-    exemptChannelIds,
-    exemptRoleIds: parseRoleList(formData.get('exemptRoleIds')),
+    allowedChannelIds: collectIds(formData, 'allowedChannelIds', parseChannelId),
+    exemptChannelIds: collectIds(formData, 'exemptChannelIds', parseChannelId),
+    allowedRoleIds: collectIds(formData, 'allowedRoleIds', parseRoleId),
+    exemptRoleIds: collectIds(formData, 'exemptRoleIds', parseRoleId),
   });
 
   revalidatePath(`/dashboard/${serverId}/automod`);

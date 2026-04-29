@@ -10,28 +10,76 @@ import { addWarning } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
 import { log } from '../log.js';
 
+// Per-user member-role cache. Auto-mod runs on every message, so the
+// role lookup needs caching. 60s TTL absorbs admin role changes
+// without making the hot path issue a network call per message.
+const ROLE_CACHE_TTL_MS = 60 * 1000;
+const memberRolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
+
+async function fetchMemberRoles(
+  api: EchoedClient,
+  serverId: string,
+  userId: string,
+): Promise<string[] | null> {
+  const key = `${serverId}:${userId}`;
+  const cached = memberRolesCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.roles;
+  try {
+    const res = await api.getMemberRoles(serverId, userId);
+    const roles = res.roles ?? [];
+    memberRolesCache.set(key, { roles, expiresAt: Date.now() + ROLE_CACHE_TTL_MS });
+    return roles;
+  } catch (err) {
+    log.warn({ err, serverId, userId }, 'Auto-mod role-scope fetch failed');
+    return null;
+  }
+}
+
 // processMessage is the auto-mod entry-point. Returns true if the
 // message was acted on (deleted) — caller skips XP grant + dispatch.
 //
 // Skip conditions (return false fast, no DB hit unless needed):
 //   - automod disabled at server level
-//   - channel is in exempt list
-//   - user is in an exempt role (uses permission cache so it's cheap)
+//   - channel allowed list is non-empty and channel isn't in it
+//   - channel is in exempt list (overrides allowed)
+//   - sender holds an exempt role (overrides allowed roles)
+//   - role allowed list is non-empty and sender holds none of them
 export async function processMessage(
   api: EchoedClient,
-  perms: PermissionService,
+  _perms: PermissionService,
   msg: MessageCreatedData,
 ): Promise<boolean> {
   const config = await getAutomodConfig(msg.serverId);
   if (!config.enabled) return false;
+
+  // Channel scope.
+  if (
+    config.allowedChannelIds.length > 0 &&
+    !config.allowedChannelIds.includes(msg.channelId)
+  ) {
+    return false;
+  }
   if (config.exemptChannelIds.includes(msg.channelId)) return false;
 
-  // Exempt-role check via the permission service's role data isn't
-  // available — perms only resolves permission flags, not raw roles.
-  // For now we skip role-exempt entirely; the exempt-channel list +
-  // server-owner protection (backend-side) covers the common cases.
-  // TODO: add a member-roles cache + invalidation on PERMISSION_UPDATE
-  // and wire it here.
+  // Role scope. Skip the network call entirely when both lists are
+  // empty (the common case for servers that don't configure roles).
+  if (config.allowedRoleIds.length > 0 || config.exemptRoleIds.length > 0) {
+    const roles = await fetchMemberRoles(api, msg.serverId, msg.senderId);
+    if (roles === null) {
+      // Fail open on role-lookup failure — we'd rather let messages
+      // through than break the server when Echoed's API hiccups. The
+      // alternative (fail closed) silently suppresses auto-mod, which
+      // is a worse failure mode for moderators.
+    } else {
+      if (roles.some((r) => config.exemptRoleIds.includes(r))) return false;
+      if (
+        config.allowedRoleIds.length > 0 &&
+        !roles.some((r) => config.allowedRoleIds.includes(r))
+      ) {
+        return false;
+      }
+    }
+  }
 
   const match = runFilters(config, {
     serverId: msg.serverId,

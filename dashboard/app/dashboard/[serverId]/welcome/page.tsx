@@ -1,7 +1,8 @@
 import { getGuildConfig } from '@/lib/queries/guildConfig';
-import { getServerChannels } from '@/lib/botApi';
+import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
 import { ChannelPicker } from '@/components/ChannelPicker';
+import { RolePicker } from '@/components/RolePicker';
 import { SaveBar } from '@/components/SaveBar';
 import { saveWelcome } from './actions';
 
@@ -11,9 +12,10 @@ interface PageProps {
 
 export default async function WelcomePage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [config, channels] = await Promise.all([
+  const [config, channels, roles] = await Promise.all([
     getGuildConfig(serverId),
     getServerChannels(serverId),
+    getServerRoles(serverId),
   ]);
   const action = saveWelcome.bind(null, serverId);
 
@@ -69,14 +71,14 @@ export default async function WelcomePage({ params }: PageProps): Promise<JSX.El
           <Field
             label="Auto-role"
             name="autoroleId"
-            hint="Role ID or <@&role> mention. Type 'none' to clear."
+            hint="Pick the role to assign on join. Leave empty to disable."
           >
-            <input
-              id="autoroleId"
+            <RolePicker
+              mode="single"
               name="autoroleId"
-              defaultValue={config.autoroleId ?? ''}
-              placeholder="<@&role> or role ID"
-              className={inputClassName}
+              roles={roles}
+              initial={config.autoroleId}
+              clearable
             />
           </Field>
         </FormCard>

@@ -3,8 +3,16 @@
 import { useState, useTransition } from 'react';
 import { addLevelReward, type AddRewardResult } from './actions';
 import { inputClassName, Field } from '@/components/FormCard';
+import { RolePicker } from '@/components/RolePicker';
+import type { BotRole } from '@/lib/botApi';
 
-export function AddRewardForm({ serverId }: { serverId: string }): JSX.Element {
+export function AddRewardForm({
+  serverId,
+  roles,
+}: {
+  serverId: string;
+  roles: BotRole[];
+}): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -39,14 +47,8 @@ export function AddRewardForm({ serverId }: { serverId: string }): JSX.Element {
             className={inputClassName}
           />
         </Field>
-        <Field label="Role" name="roleId" hint="Role ID or <@&role> mention.">
-          <input
-            id="roleId"
-            name="roleId"
-            placeholder="<@&role-id> or role-id"
-            required
-            className={inputClassName}
-          />
+        <Field label="Role" name="roleId">
+          <RolePicker mode="single" name="roleId" roles={roles} />
         </Field>
         <button
           type="submit"

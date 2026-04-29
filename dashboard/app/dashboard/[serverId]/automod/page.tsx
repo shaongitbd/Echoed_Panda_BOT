@@ -1,7 +1,7 @@
 import { getAutomodConfig } from '@/lib/queries/automodConfig';
-import { getServerChannels } from '@/lib/botApi';
+import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
-import { ChannelScope } from '@/components/ChannelScope';
+import { ChannelAllowIgnore, RoleAllowIgnore } from '@/components/AllowIgnoreLists';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import { saveAutomod } from './actions';
@@ -12,9 +12,10 @@ interface PageProps {
 
 export default async function AutomodPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [config, channels] = await Promise.all([
+  const [config, channels, roles] = await Promise.all([
     getAutomodConfig(serverId),
     getServerChannels(serverId),
+    getServerRoles(serverId),
   ]);
   const action = saveAutomod.bind(null, serverId);
 
@@ -243,43 +244,41 @@ export default async function AutomodPage({ params }: PageProps): Promise<JSX.El
           </div>
         </FormCard>
 
-        {/* ─── Exempts ───────────────────────────────────────────── */}
+        {/* ─── Channel scope ───────────────────────────────────── */}
         <FormCard
-          title="Exempts"
-          description="Channels and roles auto-mod ignores. Useful for #staff-only channels or trusted moderator roles."
+          title="Channel scope"
+          description="Allowed list restricts auto-mod to specific channels; ignored list overrides allowed. Leave both empty to apply everywhere."
         >
-          <Field
-            label="Channel scope"
-            name="exemptChannelIds"
-            hint="Apply auto-mod to all channels, or skip a specific list."
-          >
-            <ChannelScope
-              name="exemptChannelIds"
-              channels={channels}
-              allowedTypes={['text']}
-              modes={['all', 'except']}
-              initialMode={config.exemptChannelIds.length > 0 ? 'except' : 'all'}
-              initialChannels={config.exemptChannelIds}
-              labels={{
-                all: 'Apply auto-mod everywhere',
-                except: 'Skip these channels',
-              }}
-            />
-          </Field>
-          <Field
-            label="Exempt roles"
-            name="exemptRoleIds"
-            hint="Role IDs or <@&role> mentions. (Note: role-exempt is stored but not yet enforced by the bot — channel-exempt and master-disable both work today.)"
-          >
-            <textarea
-              id="exemptRoleIds"
-              name="exemptRoleIds"
-              defaultValue={config.exemptRoleIds.map((id) => `<@&${id}>`).join(' ')}
-              rows={2}
-              placeholder="<@&moderator> <@&trusted>"
-              className={textareaClassName}
-            />
-          </Field>
+          <ChannelAllowIgnore
+            channels={channels}
+            allowedTypes={['text']}
+            allowedName="allowedChannelIds"
+            ignoredName="exemptChannelIds"
+            initialAllowed={config.allowedChannelIds}
+            initialIgnored={config.exemptChannelIds}
+            allowedLabel="Channels where auto-mod applies"
+            allowedHint="Empty = auto-mod applies in every channel."
+            ignoredLabel="Channels where auto-mod is skipped"
+            ignoredHint="Wins over the allowed list. Use for #staff-room, #mod-chat, etc."
+          />
+        </FormCard>
+
+        {/* ─── Role scope ──────────────────────────────────────── */}
+        <FormCard
+          title="Role scope"
+          description="Members holding any 'allowed' role are subject to auto-mod; members holding any 'ignored' role are skipped (overrides allowed)."
+        >
+          <RoleAllowIgnore
+            roles={roles}
+            allowedName="allowedRoleIds"
+            ignoredName="exemptRoleIds"
+            initialAllowed={config.allowedRoleIds}
+            initialIgnored={config.exemptRoleIds}
+            allowedLabel="Roles auto-mod applies to"
+            allowedHint="Empty = applies to every member regardless of role."
+            ignoredLabel="Roles auto-mod skips"
+            ignoredHint="Useful for trusted moderator / staff roles. Wins over the allowed list."
+          />
         </FormCard>
 
         <SaveBar />

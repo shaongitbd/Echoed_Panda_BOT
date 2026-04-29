@@ -10,6 +10,7 @@ import {
   parseChannelId,
   parseRoleId,
   parseTrimmedString,
+  collectIds,
 } from '@/lib/forms';
 
 // Save the level-settings form. Each field comes from the page's
@@ -21,16 +22,10 @@ export async function saveLevels(serverId: string, formData: FormData): Promise<
   const enabled = parseBool(formData.get('enabled'));
   const stackRewards = parseBool(formData.get('stackRewards'));
   const levelUpChannel = parseChannelId(formData.get('levelUpChannel'));
-  // ChannelScope (modes: all | except) — 'all' clears the list,
-  // 'except' stores the picked channels as the no-XP set.
-  const noXpMode = (formData.get('noXpChannelIds_mode') as string | null) ?? 'all';
-  const noXpChannelIds =
-    noXpMode === 'except'
-      ? formData
-          .getAll('noXpChannelIds')
-          .map((v) => parseChannelId(v))
-          .filter((v): v is string => v != null)
-      : [];
+  const allowedXpChannelIds = collectIds(formData, 'allowedXpChannelIds', parseChannelId);
+  const noXpChannelIds = collectIds(formData, 'noXpChannelIds', parseChannelId);
+  const allowedXpRoleIds = collectIds(formData, 'allowedXpRoleIds', parseRoleId);
+  const ignoredXpRoleIds = collectIds(formData, 'ignoredXpRoleIds', parseRoleId);
   const levelUpMessage = parseTrimmedString(formData.get('levelUpMessage'), 500);
 
   const xpPerMessageMin = parseBoundedInt(formData.get('xpPerMessageMin'), 15, 1, 200);
@@ -50,7 +45,10 @@ export async function saveLevels(serverId: string, formData: FormData): Promise<
     stackRewards,
     levelUpChannel,
     levelUpMessage,
+    allowedXpChannelIds,
     noXpChannelIds,
+    allowedXpRoleIds,
+    ignoredXpRoleIds,
     xpPerMessageMin,
     xpPerMessageMax,
     cooldownSeconds,
