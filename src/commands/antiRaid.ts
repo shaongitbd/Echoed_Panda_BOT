@@ -1,6 +1,7 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
+import { buildEmbed, field, COLORS } from '../client/embeds.js';
 
 async function requireManageServer(ctx: CommandContext, svc: Services): Promise<boolean> {
   const ok = await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER');
@@ -30,17 +31,38 @@ export const handleAntiRaid: Handler = async (ctx, svc) => {
   const cfg = await getGuildConfig(ctx.serverId);
 
   if (!sub) {
-    const lines = [
-      `**Anti-raid** — ${cfg.antiRaidEnabled ? '🟢 enabled' : '⚪ disabled'}`,
-      `Threshold: **${cfg.antiRaidThreshold}** joins in **${cfg.antiRaidWindowSeconds}s**`,
+    const lockdownActive =
+      cfg.antiRaidLockdownUntil != null && cfg.antiRaidLockdownUntil > new Date();
+    // Three states drive the color: lockdown active = danger red,
+    // enabled-but-quiet = bamboo green, disabled = muted gray.
+    const color = lockdownActive
+      ? COLORS.DANGER
+      : cfg.antiRaidEnabled
+        ? COLORS.ONLINE
+        : COLORS.MUTED;
+
+    const fields = [
+      field('Status', cfg.antiRaidEnabled ? '🟢 enabled' : '⚪ disabled', true),
+      field('Threshold', `${cfg.antiRaidThreshold} joins`, true),
+      field('Window', `${cfg.antiRaidWindowSeconds}s`, true),
     ];
-    if (cfg.antiRaidLockdownUntil && cfg.antiRaidLockdownUntil > new Date()) {
-      lines.push(`🔒 Lockdown active until ${cfg.antiRaidLockdownUntil.toISOString()}`);
+    if (lockdownActive && cfg.antiRaidLockdownUntil) {
+      fields.push(
+        field('🔒 Lockdown until', cfg.antiRaidLockdownUntil.toISOString(), false),
+      );
     }
+
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Anti-raid',
+          color,
+          fields,
+        }),
+      ],
     });
     return;
   }

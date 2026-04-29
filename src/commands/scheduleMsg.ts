@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { parseDuration, formatDuration } from '../mod/duration.js';
 import { addSchedule, removeSchedule, listForServer } from '../schedMsg/store.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -73,21 +74,28 @@ export const handleSchedule: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Scheduled messages**'];
-    for (const s of all) {
-      const cadence =
-        s.kind === 'every'
-          ? `every ${formatDuration(s.intervalSeconds ?? 0)}`
-          : `daily ${s.dailyTime ?? '?'} UTC`;
-      const remaining = Math.max(0, Math.floor((s.nextRunAt.getTime() - Date.now()) / 1000));
-      lines.push(
-        `\`#${s.id}\` ${cadence} → <#${s.channelId}> (next in ${formatDuration(remaining)})`,
-      );
-    }
+    const description = all
+      .map((s) => {
+        const cadence =
+          s.kind === 'every'
+            ? `every ${formatDuration(s.intervalSeconds ?? 0)}`
+            : `daily ${s.dailyTime ?? '?'} UTC`;
+        const remaining = Math.max(0, Math.floor((s.nextRunAt.getTime() - Date.now()) / 1000));
+        return `\`#${s.id}\` ${cadence} → <#${s.channelId}> (next in ${formatDuration(remaining)})`;
+      })
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: '◷ Scheduled messages',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} active`,
+        }),
+      ],
     });
     return;
   }

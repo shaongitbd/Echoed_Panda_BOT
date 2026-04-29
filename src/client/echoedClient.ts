@@ -15,12 +15,56 @@ export class EchoedApiError extends Error {
   }
 }
 
+// Echoed's rich-embed shape. Mirrors the backend's `RichEmbed`
+// struct field-for-field — anything we omit here means a client
+// renders the field empty. Use `buildEmbed()` below for sane defaults.
+export interface EmbedMedia {
+  url: string;
+  proxy_url?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface EmbedAuthor {
+  name?: string;
+  url?: string;
+  icon_url?: string;
+}
+
+export interface EmbedField {
+  name: string;
+  value: string;
+  inline?: boolean;
+}
+
+export interface EmbedFooter {
+  text: string;
+  icon_url?: string;
+}
+
+export interface Embed {
+  type?: 'rich' | 'image' | 'video' | 'gifv' | 'article' | 'link' | 'audio';
+  url?: string;
+  title?: string;
+  description?: string;
+  // Decimal RGB int. Build with `(r << 16) | (g << 8) | b`.
+  color?: number;
+  // RFC3339 string.
+  timestamp?: string;
+  thumbnail?: EmbedMedia;
+  image?: EmbedMedia;
+  author?: EmbedAuthor;
+  fields?: EmbedField[];
+  footer?: EmbedFooter;
+}
+
 interface SendMessageInput {
   serverId: string;
   channelId: string;
   content: string;
   replyToId?: string;
   attachmentIds?: string[];
+  embeds?: Embed[];
 }
 
 interface SendMessageResponse {
@@ -161,12 +205,13 @@ export class EchoedClient {
 
   // ─── Messaging ───────────────────────────────────────────────────────
   async sendMessage(input: SendMessageInput): Promise<SendMessageResponse> {
-    const { serverId, channelId, content, replyToId, attachmentIds } = input;
+    const { serverId, channelId, content, replyToId, attachmentIds, embeds } = input;
     return this.request('POST', `/v1/bots/${serverId}/messages/send`, {
       channelId,
       content,
       ...(replyToId ? { replyToId } : {}),
       ...(attachmentIds ? { attachmentIds } : {}),
+      ...(embeds && embeds.length > 0 ? { embeds } : {}),
     });
   }
 

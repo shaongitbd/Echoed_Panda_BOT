@@ -6,6 +6,7 @@ import {
   getAutomodConfig,
   setAutomodConfig,
 } from '../automod/config.js';
+import { buildEmbed, field, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
@@ -109,24 +110,49 @@ export const handleAutomod: Handler = async (ctx, svc) => {
 
   if (!sub) {
     const cfg = await getAutomodConfig(ctx.serverId);
-    const lines = [`**Auto-mod** — master ${on(cfg.enabled)}`];
-    for (const k of ALL_FILTERS) {
-      const flag = cfg[FILTER_ENABLED_KEY[k]];
-      lines.push(`  ${FILTER_LABEL[k]}: ${on(Boolean(flag))}`);
-    }
+
+    // Filter status as a 2-column field block. Each filter is its own
+    // inline field — clients render up to 3 inline fields per row,
+    // so 8 filters span 3 rows. Cleaner than a single multi-line
+    // description because users can scan at a glance.
+    const filterFields = ALL_FILTERS.map((k) =>
+      field(FILTER_LABEL[k], on(Boolean(cfg[FILTER_ENABLED_KEY[k]])), true),
+    );
+
+    // Exempts + bad-words list go in the description so they wrap
+    // naturally if any of them is long.
+    const descLines: string[] = [];
     if (cfg.exemptChannelIds.length > 0) {
-      lines.push(`Exempt channels: ${cfg.exemptChannelIds.map((id) => `<#${id}>`).join(', ')}`);
+      descLines.push(
+        `**Exempt channels** · ${cfg.exemptChannelIds.map((id) => `<#${id}>`).join(' ')}`,
+      );
     }
     if (cfg.exemptRoleIds.length > 0) {
-      lines.push(`Exempt roles: ${cfg.exemptRoleIds.map((id) => `<@&${id}>`).join(', ')}`);
+      descLines.push(
+        `**Exempt roles** · ${cfg.exemptRoleIds.map((id) => `<@&${id}>`).join(' ')}`,
+      );
     }
     if (cfg.badWords.length > 0) {
-      lines.push(`Bad-words list: ${cfg.badWords.length} word${cfg.badWords.length === 1 ? '' : 's'}`);
+      descLines.push(
+        `**Bad-words list** · ${cfg.badWords.length} word${cfg.badWords.length === 1 ? '' : 's'}`,
+      );
     }
+
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: `Auto-mod — master ${on(cfg.enabled)}`,
+          description: descLines.length > 0 ? descLines.join('\n') : undefined,
+          color: cfg.enabled ? COLORS.ONLINE : COLORS.MUTED,
+          fields: filterFields,
+          footer: cfg.enabled
+            ? 'Toggle filters with `automod filter <name> on|off`'
+            : 'Master switch is off — every filter is bypassed',
+        }),
+      ],
     });
     return;
   }
@@ -136,7 +162,7 @@ export const handleAutomod: Handler = async (ctx, svc) => {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: 'Auto-mod **enabled**. Individual filters still need to be toggled on.',
+      content: '✅ Auto-mod **on**. Toggle filters individually with `automod filter <name> on`.',
     });
     return;
   }
@@ -145,7 +171,7 @@ export const handleAutomod: Handler = async (ctx, svc) => {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: 'Auto-mod **disabled**.',
+      content: '✅ Auto-mod **off**.',
     });
     return;
   }
@@ -268,7 +294,15 @@ export const handleBadWord: Handler = async (ctx, svc) => {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: `**Bad words** (${cfg.badWords.length}): ${cfg.badWords.map((w) => `\`${w}\``).join(', ')}`,
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Bad-words list',
+          description: cfg.badWords.map((w) => `\`${w}\``).join(' '),
+          color: COLORS.WARNING,
+          footer: `${cfg.badWords.length} word${cfg.badWords.length === 1 ? '' : 's'}`,
+        }),
+      ],
     });
     return;
   }

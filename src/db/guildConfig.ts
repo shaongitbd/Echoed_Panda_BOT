@@ -6,8 +6,11 @@ export interface GuildConfig {
   modlogChannel: string | null;
   welcomeChannel: string | null;
   welcomeMessage: string | null;
-  goodbyeChannel: string | null;
-  goodbyeMessage: string | null;
+  // NOTE: goodbye_channel + goodbye_message columns exist in Postgres
+  // (added before we knew the backend wouldn't broadcast member-leave
+  // events). They're left in the DB for forward-compat but are not
+  // surfaced in the type — nothing reads or writes them. If goodbye
+  // support comes back, restore the fields here + add a leave handler.
   autoroleId: string | null;
   suggestionsChannel: string | null;
   antiRaidEnabled: boolean;
@@ -22,8 +25,6 @@ interface ConfigRow {
   modlog_channel: string | null;
   welcome_channel: string | null;
   welcome_message: string | null;
-  goodbye_channel: string | null;
-  goodbye_message: string | null;
   autorole_id: string | null;
   suggestions_channel: string | null;
   anti_raid_enabled: boolean;
@@ -39,8 +40,6 @@ function rowToConfig(row: ConfigRow): GuildConfig {
     modlogChannel: row.modlog_channel,
     welcomeChannel: row.welcome_channel,
     welcomeMessage: row.welcome_message,
-    goodbyeChannel: row.goodbye_channel,
-    goodbyeMessage: row.goodbye_message,
     autoroleId: row.autorole_id,
     suggestionsChannel: row.suggestions_channel,
     antiRaidEnabled: row.anti_raid_enabled ?? false,
@@ -56,8 +55,6 @@ const EMPTY = (serverId: string): GuildConfig => ({
   modlogChannel: null,
   welcomeChannel: null,
   welcomeMessage: null,
-  goodbyeChannel: null,
-  goodbyeMessage: null,
   autoroleId: null,
   suggestionsChannel: null,
   antiRaidEnabled: false,
@@ -81,7 +78,7 @@ export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
 
   const res = await pool.query<ConfigRow>(
     `SELECT server_id, prefix, modlog_channel, welcome_channel, welcome_message,
-            goodbye_channel, goodbye_message, autorole_id, suggestions_channel,
+            autorole_id, suggestions_channel,
             anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
             anti_raid_lockdown_until
        FROM panda.guild_config
@@ -103,8 +100,6 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   modlogChannel: 'modlog_channel',
   welcomeChannel: 'welcome_channel',
   welcomeMessage: 'welcome_message',
-  goodbyeChannel: 'goodbye_channel',
-  goodbyeMessage: 'goodbye_message',
   autoroleId: 'autorole_id',
   suggestionsChannel: 'suggestions_channel',
   antiRaidEnabled: 'anti_raid_enabled',
@@ -136,7 +131,7 @@ export async function setGuildConfig(
      VALUES ($1, ${placeholders.join(', ')})
      ON CONFLICT (server_id) DO UPDATE SET ${updates}
      RETURNING server_id, prefix, modlog_channel, welcome_channel, welcome_message,
-               goodbye_channel, goodbye_message, autorole_id, suggestions_channel,
+               autorole_id, suggestions_channel,
                anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
                anti_raid_lockdown_until`,
     [serverId, ...values],

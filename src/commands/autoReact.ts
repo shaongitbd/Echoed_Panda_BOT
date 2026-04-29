@@ -1,6 +1,7 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addAutoReact, removeAutoReact, listForServer } from '../autoReact/store.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -45,14 +46,21 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Auto-react rules**'];
-    for (const r of all) {
-      lines.push(`<#${r.channelId}> → ${r.emoji}`);
-    }
+    const description = all
+      .map((r) => `<#${r.channelId}> → ${r.emoji}`)
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Auto-react rules',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} rule${all.length === 1 ? '' : 's'}`,
+        }),
+      ],
     });
     return;
   }

@@ -8,6 +8,7 @@ import {
   parseMode,
 } from '../reactRoles/store.js';
 import { EchoedApiError } from '../client/echoedClient.js';
+import { buildEmbed, field, COLORS } from '../client/embeds.js';
 
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -168,19 +169,32 @@ export const handleReactRole: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Reaction-role messages**'];
-    for (const entry of all) {
-      lines.push(
-        `\`${entry.messageId}\` in <#${entry.channelId}> (mode: \`${entry.mode}\`)`,
+    // One field per reaction-role message — each shows the mode +
+    // every emoji→role binding. Inline=false because the bindings
+    // list can get long; we want each message on its own row.
+    const fields = all.map((entry) => {
+      const bindings =
+        entry.mappings.length > 0
+          ? entry.mappings.map((m) => `${m.emoji} → <@&${m.roleId}>`).join('\n')
+          : '_no bindings_';
+      return field(
+        `\`${entry.messageId}\` · #${entry.channelId} · ${entry.mode}`,
+        bindings,
+        false,
       );
-      for (const m of entry.mappings) {
-        lines.push(`  ${m.emoji} → <@&${m.roleId}>`);
-      }
-    }
+    });
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Reaction-role messages',
+          color: COLORS.ACCENT,
+          fields,
+          footer: `${all.length} message${all.length === 1 ? '' : 's'} configured`,
+        }),
+      ],
     });
     return;
   }

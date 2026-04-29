@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addRule, removeRule, listForServer } from '../keywords/store.js';
 import { forgetRule } from '../keywords/handler.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -62,15 +63,24 @@ export const handleKeyword: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Keyword rules**'];
-    for (const r of all) {
-      const scope = r.channelId ? `<#${r.channelId}>` : 'all channels';
-      lines.push(`\`#${r.id}\` (${scope}) "${r.phrase}" → ${r.response.slice(0, 80)}`);
-    }
+    const description = all
+      .map((r) => {
+        const scope = r.channelId ? `<#${r.channelId}>` : 'all channels';
+        return `\`#${r.id}\` (${scope}) "${r.phrase}" → ${r.response.slice(0, 80)}`;
+      })
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Keyword rules',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} rule${all.length === 1 ? '' : 's'}`,
+        }),
+      ],
     });
     return;
   }

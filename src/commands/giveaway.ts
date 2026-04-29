@@ -9,6 +9,7 @@ import {
 } from '../giveaways/store.js';
 import { pickAndAnnounce, GIVEAWAY_EMOJI } from '../giveaways/pickWinners.js';
 import { log } from '../log.js';
+import { buildEmbed, field, COLORS } from '../client/embeds.js';
 
 const MAX_PRIZE_LEN = 200;
 const MAX_WINNERS = 20;
@@ -100,14 +101,33 @@ export const handleGiveawayStart: Handler = async (ctx, svc) => {
 
   const endAt = new Date(Date.now() + duration * 1000);
   const human = formatDuration(duration);
-  const body = `🎉 **Giveaway** — react with ${GIVEAWAY_EMOJI} to enter!\nPrize: **${prize}**\nWinners: ${winnerCount}\nEnds in ${human}`;
 
+  // Iconic giveaway card. Title carries the prize so it shows in
+  // notifications; description gives the call-to-action; fields show
+  // the sortable details (winners count, end time). Color is the
+  // gold accent so the card pops in chat.
   let messageId: string;
   try {
     const sent = await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: body,
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: `🎉 ${prize}`,
+          description: `React with ${GIVEAWAY_EMOJI} to enter!`,
+          color: COLORS.ACCENT,
+          fields: [
+            field('Winners', String(winnerCount), true),
+            field('Ends in', human, true),
+            field('Hosted by', `<@${ctx.senderId}>`, true),
+          ],
+          footer: 'Giveaway ends',
+          // Setting the embed timestamp to the end-time gives clients
+          // a "ends at <localized time>" footer rendering for free.
+          timestamp: endAt,
+        }),
+      ],
     });
     messageId = sent.messageId;
   } catch (err) {
@@ -219,16 +239,23 @@ export const handleGiveawayList: Handler = async (ctx, svc) => {
     });
     return;
   }
-  const lines = ['**Active giveaways**'];
-  for (const g of all) {
-    const remaining = Math.max(0, Math.floor((g.endAt.getTime() - Date.now()) / 1000));
-    lines.push(
-      `\`${g.messageId}\` in <#${g.channelId}> — **${g.prize}** (${g.winnerCount} winner${g.winnerCount === 1 ? '' : 's'}) — ends in ${formatDuration(remaining)}`,
-    );
-  }
+  const description = all
+    .map((g) => {
+      const remaining = Math.max(0, Math.floor((g.endAt.getTime() - Date.now()) / 1000));
+      return `\`${g.messageId}\` in <#${g.channelId}> — **${g.prize}** (${g.winnerCount} winner${g.winnerCount === 1 ? '' : 's'}) — ends in ${formatDuration(remaining)}`;
+    })
+    .join('\n');
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: lines.join('\n'),
+    content: '',
+    embeds: [
+      buildEmbed({
+        title: '🎉 Active giveaways',
+        description,
+        color: COLORS.ACCENT,
+        footer: `${all.length} active`,
+      }),
+    ],
   });
 };

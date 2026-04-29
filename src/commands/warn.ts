@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import type { Permission } from '../auth/permissions.js';
 import { addWarning, listWarnings, clearWarnings } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const USER_MENTION_RE = /^<@(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -149,16 +150,25 @@ export const handleWarnings: Handler = async (ctx, svc) => {
     return;
   }
 
-  const lines = [`**Warnings** for <@${targetId}> (${warnings.length} shown)`];
+  // Header line + one row per warning. Mention parses inside an
+  // embed description, so the target shows as a clickable name.
+  const description: string[] = [`<@${targetId}>`];
   for (const w of warnings) {
-    lines.push(
+    description.push(
       `\`#${w.id}\` ${fmtAge(w.createdAt)} by <@${w.actorId}> — ${w.reason ?? '_no reason_'}`,
     );
   }
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: lines.join('\n'),
+    content: '',
+    embeds: [
+      buildEmbed({
+        title: `Warnings · ${warnings.length} shown`,
+        description: description.join('\n'),
+        color: COLORS.WARNING,
+      }),
+    ],
   });
 };
 

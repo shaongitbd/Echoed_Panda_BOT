@@ -42,22 +42,20 @@ export default async function OverviewPage({ params }: PageProps): Promise<JSX.E
         : 'No auto-role set',
     },
     {
-      href: `/dashboard/${serverId}`,
+      href: `/dashboard/${serverId}/moderation`,
       title: 'Mod-log',
       enabled: guild.modlogChannel != null,
       summary: guild.modlogChannel
         ? `Posts to channel id ${truncate(guild.modlogChannel)}`
         : 'No mod-log channel set',
-      soon: true,
     },
     {
-      href: `/dashboard/${serverId}`,
+      href: `/dashboard/${serverId}/moderation`,
       title: 'Anti-raid',
       enabled: guild.antiRaidEnabled,
       summary: guild.antiRaidEnabled
         ? `${guild.antiRaidThreshold} joins / ${guild.antiRaidWindowSeconds}s triggers lockdown`
         : 'Disabled',
-      soon: true,
     },
   ];
 

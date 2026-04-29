@@ -9,6 +9,7 @@ import {
   NAME_MAX_LENGTH,
   RESPONSE_MAX_LENGTH,
 } from '../customCommands/store.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 async function requireManageServer(ctx: CommandContext, svc: Services): Promise<boolean> {
   const ok = await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER');
@@ -63,14 +64,21 @@ export const handleCustomCommand: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = [`**Custom commands** (${all.length})`];
-    for (const c of all) {
-      lines.push(`\`${ctx.prefix}${c.name}\` — used ${c.usesCount}×`);
-    }
+    const description = all
+      .map((c) => `\`${ctx.prefix}${c.name}\` — used ${c.usesCount}×`)
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Custom commands',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} command${all.length === 1 ? '' : 's'}`,
+        }),
+      ],
     });
     return;
   }

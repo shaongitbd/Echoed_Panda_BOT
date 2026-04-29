@@ -371,8 +371,6 @@ export const handleSetModlog: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: channelId
-      ? `Mod actions will be logged to <#${channelId}>.`
-      : 'Mod-log disabled.',
+    content: channelId ? `✅ Mod-log → <#${channelId}>` : '✅ Mod-log disabled.',
   });
 };

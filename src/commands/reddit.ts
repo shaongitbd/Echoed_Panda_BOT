@@ -1,6 +1,7 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addSub, removeSub, listForServer } from '../reddit/store.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -54,14 +55,21 @@ export const handleReddit: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Reddit subscriptions**'];
-    for (const s of all) {
-      lines.push(`r/${s.subreddit} → <#${s.channelId}>`);
-    }
+    const description = all
+      .map((s) => `r/${s.subreddit} → <#${s.channelId}>`)
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: '◉ Reddit subscriptions',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} active`,
+        }),
+      ],
     });
     return;
   }

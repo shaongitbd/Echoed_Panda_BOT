@@ -18,22 +18,22 @@ interface SidebarSection {
 
 const SECTIONS: SidebarSection[] = [
   { href: '', label: 'Overview', icon: '◆' },
+  { href: '/general', label: 'General', icon: '⚙' },
   { href: '/levels', label: 'Levels', icon: '✦' },
   { href: '/welcome', label: 'Welcome', icon: '✿' },
-  // Future sections — leave the labels here as a roadmap so the
-  // sidebar UX shows the full surface and admins know what's coming.
-  // Disabled state is rendered below.
+  { href: '/moderation', label: 'Moderation', icon: '⚒' },
+  { href: '/automod', label: 'Auto-mod', icon: '⚡' },
+  { href: '/reactionroles', label: 'Reaction roles', icon: '✺' },
+  { href: '/customcommands', label: 'Custom commands', icon: '✎' },
+  { href: '/autoreact', label: 'Auto-react', icon: '✨' },
+  { href: '/keywords', label: 'Keywords', icon: '✯' },
+  { href: '/notifications', label: 'Notifications', icon: '◉' },
+  { href: '/statcounters', label: 'Stats counters', icon: '#' },
+  { href: '/schedules', label: 'Schedules', icon: '◷' },
 ];
 
-const SOON_SECTIONS = [
-  'Moderation',
-  'Auto-mod',
-  'Reaction roles',
-  'Custom commands',
-  'Notifications',
-  'Stats counters',
-  'Schedules',
-];
+// All feature areas now have web UIs — no "Coming soon" group.
+const SOON_SECTIONS: string[] = [];
 
 export function ServerSidebar({ server }: { server: SidebarServer }): JSX.Element {
   const pathname = usePathname() ?? '';
@@ -93,9 +93,11 @@ export function ServerSidebar({ server }: { server: SidebarServer }): JSX.Elemen
           </Link>
         ))}
 
-        <p className="mb-2 mt-6 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-text-muted">
-          Coming soon
-        </p>
+        {SOON_SECTIONS.length > 0 ? (
+          <p className="mb-2 mt-6 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-text-muted">
+            Coming soon
+          </p>
+        ) : null}
         {SOON_SECTIONS.map((label) => (
           <span
             key={label}

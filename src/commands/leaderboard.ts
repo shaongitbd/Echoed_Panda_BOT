@@ -1,5 +1,6 @@
 import type { Handler } from './index.js';
 import { getLeaderboard } from '../levels/grant.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const MAX_ROWS = 10;
 
@@ -19,12 +20,13 @@ export const handleLeaderboard: Handler = async (ctx, { api }) => {
     return;
   }
 
-  const lines = ['**🏆 Leaderboard** — top by XP'];
+  // Render the leaderboard as a description list rather than fields —
+  // a list reads top-to-bottom which matches the "ranking" mental
+  // model better than a 3-column grid.
+  const lines: string[] = [];
   for (const entry of top) {
-    // We mention each user by ID rather than resolving names — Echoed
-    // turns `<@id>` into a rendered username on the client side, which
-    // is faster than a fan-out of profile lookups here.
-    const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : ` #${entry.rank}`;
+    const medal =
+      entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `\`#${entry.rank}\``;
     lines.push(
       `${medal} <@${entry.userId}> · level **${entry.level}** · ${fmtXp(entry.totalXp)} XP`,
     );
@@ -33,6 +35,14 @@ export const handleLeaderboard: Handler = async (ctx, { api }) => {
   await api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: lines.join('\n'),
+    content: '',
+    embeds: [
+      buildEmbed({
+        title: '🏆 Leaderboard',
+        description: lines.join('\n'),
+        color: COLORS.ACCENT,
+        footer: `Top ${top.length} by XP`,
+      }),
+    ],
   });
 };

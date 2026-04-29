@@ -1,5 +1,6 @@
 import type { Handler } from './index.js';
 import { log } from '../log.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const NUMBER_EMOJI = [
   '1⃣', '2⃣', '3⃣', '4⃣', '5⃣',
@@ -52,19 +53,17 @@ export const handlePoll: Handler = async (ctx, { api }) => {
   }
 
   // Render the poll body and figure out which reactions to seed. For
-  // yes/no polls we skip listing the options inline — the thumbs are
-  // self-explanatory.
-  let body: string;
+  // yes/no polls don't list options inline — the thumbs are
+  // self-explanatory and an empty option list keeps the card clean.
+  let description: string;
   let emojis: string[];
   if (options.length === 0) {
-    body = `📊 **${question}**\n_Vote with reactions._`;
+    description = '_Vote with reactions._';
     emojis = [THUMBS_UP, THUMBS_DOWN];
   } else {
-    const lines = [`📊 **${question}**`];
-    for (let i = 0; i < options.length; i++) {
-      lines.push(`${NUMBER_EMOJI[i]} ${options[i]}`);
-    }
-    body = lines.join('\n');
+    description = options
+      .map((opt, i) => `${NUMBER_EMOJI[i]} ${opt}`)
+      .join('\n');
     emojis = options.map((_, i) => {
       const e = NUMBER_EMOJI[i];
       if (!e) {
@@ -82,7 +81,15 @@ export const handlePoll: Handler = async (ctx, { api }) => {
     const sent = await api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: body,
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: `📊 ${question}`,
+          description,
+          color: COLORS.ACCENT,
+          footer: `Poll by ${ctx.senderName}`,
+        }),
+      ],
     });
     messageId = sent.messageId;
   } catch (err) {

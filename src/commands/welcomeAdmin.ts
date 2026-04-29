@@ -73,9 +73,7 @@ export const handleSetWelcome: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: channelId
-      ? `Welcome messages will go to <#${channelId}>.`
-      : 'Welcome messages disabled (auto-role still active if set).',
+    content: channelId ? `✅ Welcome → <#${channelId}>` : '✅ Welcome messages disabled.',
   });
 };
 
@@ -147,8 +145,6 @@ export const handleAutoRole: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: roleId
-      ? `New members will receive <@&${roleId}>.`
-      : 'Auto-role disabled.',
+    content: roleId ? `✅ Auto-role → <@&${roleId}>` : '✅ Auto-role disabled.',
   });
 };

@@ -1,6 +1,7 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addCounter, removeCounter, listForServer, type StatKind } from '../stats/store.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -55,14 +56,21 @@ export const handleStatCounter: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Stat counters**'];
-    for (const c of all) {
-      lines.push(`<#${c.channelId}> · \`${c.kind}\` · format: \`${c.format}\``);
-    }
+    const description = all
+      .map((c) => `<#${c.channelId}> · \`${c.kind}\` · format: \`${c.format}\``)
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: '# Stat counters',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} configured`,
+        }),
+      ],
     });
     return;
   }

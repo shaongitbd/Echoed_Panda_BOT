@@ -1,5 +1,6 @@
 import type { Handler } from './index.js';
 import { pingDb } from '../db/pool.js';
+import { buildEmbed, field, COLORS } from '../client/embeds.js';
 
 function fmtUptime(ms: number): string {
   const sec = Math.floor(ms / 1000);
@@ -15,17 +16,34 @@ function fmtUptime(ms: number): string {
 
 export const handlePing: Handler = async (ctx, { api, startedAt }) => {
   const start = Date.now();
-  let dbStatus = '🟢 db';
+  let dbHealthy = true;
+  let dbLatency: number | null = null;
   try {
     await pingDb();
-    dbStatus = `🟢 db ${Date.now() - start}ms`;
+    dbLatency = Date.now() - start;
   } catch {
-    dbStatus = '🔴 db unreachable';
+    dbHealthy = false;
   }
 
   await api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: `🐼 alive · uptime ${fmtUptime(Date.now() - startedAt)} · ${dbStatus}`,
+    content: '',
+    embeds: [
+      buildEmbed({
+        title: '🐼 panda — health',
+        // Color flips red if any system is unreachable. Otherwise we
+        // stay on the bamboo-green "online" tone.
+        color: dbHealthy ? COLORS.ONLINE : COLORS.DANGER,
+        fields: [
+          field('Uptime', fmtUptime(Date.now() - startedAt), true),
+          field(
+            'Database',
+            dbHealthy ? `🟢 ${dbLatency}ms` : '🔴 unreachable',
+            true,
+          ),
+        ],
+      }),
+    ],
   });
 };

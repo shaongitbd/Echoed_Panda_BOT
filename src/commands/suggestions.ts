@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
 import { log } from '../log.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -105,14 +106,23 @@ export const handleSuggest: Handler = async (ctx, { api }) => {
     return;
   }
 
-  // Post to the configured channel and seed up/down reactions for voting.
+  // Post to the configured channel and seed up/down reactions for
+  // voting. The mention goes in the description (where mentions
+  // parse) — the embed timestamp gives a "submitted at" footer for
+  // free.
   let messageId: string;
   try {
-    const body = `💡 **Suggestion** from <@${ctx.senderId}>\n${tail}`;
     const sent = await api.sendMessage({
       serverId: ctx.serverId,
       channelId: cfg.suggestionsChannel,
-      content: body,
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: '💡 New suggestion',
+          description: `${tail}\n\n— from <@${ctx.senderId}>`,
+          color: COLORS.ACCENT,
+        }),
+      ],
     });
     messageId = sent.messageId;
   } catch (err) {

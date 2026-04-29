@@ -1,6 +1,7 @@
 import type { Handler } from './index.js';
 import { parseDuration, formatDuration } from '../mod/duration.js';
 import { addReminder, listForUser, cancelReminder } from '../reminders/store.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const MAX_MESSAGE = 500;
 const MAX_FUTURE_DAYS = 365; // refuse silly far-future reminders
@@ -18,17 +19,24 @@ export const handleRemind: Handler = async (ctx, { api }) => {
       });
       return;
     }
-    const lines = ['**Your reminders**'];
-    for (const r of all) {
-      const remaining = Math.max(0, Math.floor((r.dueAt.getTime() - Date.now()) / 1000));
-      lines.push(
-        `\`#${r.id}\` in ${formatDuration(remaining)} — ${r.message}`,
-      );
-    }
+    const description = all
+      .map((r) => {
+        const remaining = Math.max(0, Math.floor((r.dueAt.getTime() - Date.now()) / 1000));
+        return `\`#${r.id}\` in ${formatDuration(remaining)} — ${r.message}`;
+      })
+      .join('\n');
     await api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: '⏰ Your reminders',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${all.length} pending`,
+        }),
+      ],
     });
     return;
   }

@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addSub, removeSub, listForServer } from '../twitch/store.js';
 import { twitchEnabled } from '../config.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -58,18 +59,27 @@ export const handleTwitch: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Twitch subscriptions**'];
-    for (const s of all) {
-      const live = s.lastCheckLive ? ' 🔴' : '';
-      lines.push(`${s.twitchLogin}${live} → <#${s.channelId}>`);
-    }
-    if (!twitchEnabled()) {
-      lines.push('\n_Bot operator hasn\'t set Twitch credentials — these subscriptions won\'t fire until they do._');
-    }
+    const description = all
+      .map((s) => {
+        const live = s.lastCheckLive ? ' 🔴' : '';
+        return `**${s.twitchLogin}**${live} → <#${s.channelId}>`;
+      })
+      .join('\n');
+    const footer = twitchEnabled()
+      ? `${all.length} active`
+      : `${all.length} active · credentials missing`;
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: '◉ Twitch subscriptions',
+          description,
+          color: COLORS.ACCENT,
+          footer,
+        }),
+      ],
     });
     return;
   }

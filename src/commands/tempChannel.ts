@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import { parseDuration, formatDuration } from '../mod/duration.js';
 import { recordTemp, listForServer, cancelTemp } from '../tempChannels/store.js';
 import { EchoedApiError } from '../client/echoedClient.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 const MIN_DURATION = 5 * 60;          // 5 min
 const MAX_DURATION = 30 * 24 * 3600;  // 30 days
@@ -39,15 +40,24 @@ export const handleTempChannel: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const lines = ['**Pending temp channels**'];
-    for (const t of pending) {
-      const remaining = Math.max(0, Math.floor((t.expiresAt.getTime() - Date.now()) / 1000));
-      lines.push(`<#${t.channelId}> — expires in ${formatDuration(remaining)}`);
-    }
+    const description = pending
+      .map((t) => {
+        const remaining = Math.max(0, Math.floor((t.expiresAt.getTime() - Date.now()) / 1000));
+        return `<#${t.channelId}> — expires in ${formatDuration(remaining)}`;
+      })
+      .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: lines.join('\n'),
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: 'Pending temp channels',
+          description,
+          color: COLORS.ACCENT,
+          footer: `${pending.length} pending`,
+        }),
+      ],
     });
     return;
   }

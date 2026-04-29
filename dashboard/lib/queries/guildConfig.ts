@@ -12,8 +12,8 @@ export interface GuildConfig {
   modlogChannel: string | null;
   welcomeChannel: string | null;
   welcomeMessage: string | null;
-  goodbyeChannel: string | null;
-  goodbyeMessage: string | null;
+  // goodbye_channel + goodbye_message exist in Postgres but are
+  // unused — see the bot's guildConfig.ts comment for context.
   autoroleId: string | null;
   suggestionsChannel: string | null;
   antiRaidEnabled: boolean;
@@ -28,8 +28,6 @@ interface Row {
   modlog_channel: string | null;
   welcome_channel: string | null;
   welcome_message: string | null;
-  goodbye_channel: string | null;
-  goodbye_message: string | null;
   autorole_id: string | null;
   suggestions_channel: string | null;
   anti_raid_enabled: boolean;
@@ -44,8 +42,6 @@ const EMPTY = (serverId: string): GuildConfig => ({
   modlogChannel: null,
   welcomeChannel: null,
   welcomeMessage: null,
-  goodbyeChannel: null,
-  goodbyeMessage: null,
   autoroleId: null,
   suggestionsChannel: null,
   antiRaidEnabled: false,
@@ -61,8 +57,6 @@ function rowToConfig(row: Row): GuildConfig {
     modlogChannel: row.modlog_channel,
     welcomeChannel: row.welcome_channel,
     welcomeMessage: row.welcome_message,
-    goodbyeChannel: row.goodbye_channel,
-    goodbyeMessage: row.goodbye_message,
     autoroleId: row.autorole_id,
     suggestionsChannel: row.suggestions_channel,
     antiRaidEnabled: row.anti_raid_enabled ?? false,
@@ -74,7 +68,7 @@ function rowToConfig(row: Row): GuildConfig {
 
 const SELECT = `
   server_id, prefix, modlog_channel, welcome_channel, welcome_message,
-  goodbye_channel, goodbye_message, autorole_id, suggestions_channel,
+  autorole_id, suggestions_channel,
   anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
   anti_raid_lockdown_until
 `;
@@ -94,8 +88,6 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   modlogChannel: 'modlog_channel',
   welcomeChannel: 'welcome_channel',
   welcomeMessage: 'welcome_message',
-  goodbyeChannel: 'goodbye_channel',
-  goodbyeMessage: 'goodbye_message',
   autoroleId: 'autorole_id',
   suggestionsChannel: 'suggestions_channel',
   antiRaidEnabled: 'anti_raid_enabled',

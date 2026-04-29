@@ -11,6 +11,7 @@ import {
   setLevelReward,
   deleteLevelReward,
 } from '../levels/levelUp.js';
+import { buildEmbed, COLORS } from '../client/embeds.js';
 
 // ─── Mention parsing ────────────────────────────────────────────────────
 
@@ -68,7 +69,21 @@ export const handleLevelsToggle: Handler = async (ctx, svc) => {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: `Levels are currently **${settings.enabled ? 'enabled' : 'disabled'}** on this server.`,
+      content: '',
+      embeds: [
+        buildEmbed({
+          title: `Levels — ${settings.enabled ? '🟢 on' : '⚪ off'}`,
+          color: settings.enabled ? COLORS.ONLINE : COLORS.MUTED,
+          fields: [
+            { name: 'XP / msg', value: `${settings.xpPerMessageMin}-${settings.xpPerMessageMax}`, inline: true },
+            { name: 'Cooldown', value: `${settings.cooldownSeconds}s`, inline: true },
+            { name: 'No-XP channels', value: String(settings.noXpChannelIds.length), inline: true },
+          ],
+          footer: settings.enabled
+            ? `Toggle with \`${ctx.prefix}levels disable\``
+            : `Toggle with \`${ctx.prefix}levels enable\``,
+        }),
+      ],
     });
     return;
   }
@@ -87,7 +102,7 @@ export const handleLevelsToggle: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: `Levels are now **${sub}d**.`,
+    content: `✅ Levels **${sub}d**.`,
   });
 };
 
@@ -129,8 +144,8 @@ export const handleSetLevelChannel: Handler = async (ctx, svc) => {
     serverId: ctx.serverId,
     channelId: ctx.channelId,
     content: channelId
-      ? `Level-up announcements will go to <#${channelId}>.`
-      : 'Level-up announcements will go to the channel where the level-up happened.',
+      ? `✅ Level-up channel → <#${channelId}>`
+      : '✅ Level-ups will announce in the source channel.',
   });
 };
 
@@ -227,14 +242,21 @@ export const handleLevelRewards: Handler = async (ctx, svc) => {
     return;
   }
 
-  const lines = ['**Level rewards**'];
-  for (const r of rewards) {
-    lines.push(`Level **${r.level}** → <@&${r.roleId}>`);
-  }
+  const description = rewards
+    .map((r) => `Level **${r.level}** → <@&${r.roleId}>`)
+    .join('\n');
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: lines.join('\n'),
+    content: '',
+    embeds: [
+      buildEmbed({
+        title: 'Level rewards',
+        description,
+        color: COLORS.ACCENT,
+        footer: `${rewards.length} reward${rewards.length === 1 ? '' : 's'}`,
+      }),
+    ],
   });
 };
 
