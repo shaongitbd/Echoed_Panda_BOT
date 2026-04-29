@@ -80,31 +80,54 @@ async function requireDj(ctx: CommandContext, svc: Services): Promise<boolean> {
   return false;
 }
 
+// Resolve the voice channel the bot should play in. Resolution order:
+//   1. Explicit <#voice-channel> mention as the first arg.
+//   2. Bot's existing voice session for this server, if any.
+//   3. The caller's current voice channel (queried via the bot API).
+// Returns { channelId, queryStartIdx } so callers can adjust how they
+// slice the rest of the message. queryStartIdx is 1 only when the user
+// passed an explicit channel mention.
+async function resolveVoiceChannel(
+  ctx: CommandContext,
+  svc: Services,
+): Promise<{ channelId: string | null; queryStartIdx: number }> {
+  const explicit = parseChannelId(ctx.args[0]);
+  if (explicit) {
+    return { channelId: explicit, queryStartIdx: 1 };
+  }
+  const session = svc.voice.get(ctx.serverId);
+  if (session) {
+    return { channelId: session.channelId, queryStartIdx: 0 };
+  }
+  // Auto-resolve from the caller's voice state. Cheap (one lookup
+  // against active_calls_by_user) and only fires when the bot isn't
+  // already in voice.
+  try {
+    const resolved = await svc.api.getMemberVoiceChannel(ctx.serverId, ctx.senderId);
+    if (resolved) {
+      return { channelId: resolved, queryStartIdx: 0 };
+    }
+  } catch (err) {
+    log.warn({ err, userId: ctx.senderId }, 'Voice-state lookup failed');
+  }
+  return { channelId: null, queryStartIdx: 0 };
+}
+
 // ─── !play ────────────────────────────────────────────────────────────
 
 export const handlePlay: Handler = async (ctx, svc) => {
-  // Two forms:
-  //   !play <#voice-channel> <query>     — first call (or to switch channel)
-  //   !play <query>                       — bot must already be in a channel
-  let channelId: string | null = null;
-  let queryStartIdx = 0;
-  const channelArg = parseChannelId(ctx.args[0]);
-  if (channelArg) {
-    channelId = channelArg;
-    queryStartIdx = 1;
-  } else {
-    const session = svc.voice.get(ctx.serverId);
-    if (session) {
-      channelId = session.channelId;
-    }
-  }
+  // Three forms accepted:
+  //   !play <#voice-channel> <query>   — explicit channel
+  //   !play <query>                    — bot follows the caller, OR
+  //                                      uses its current channel if connected
+  const { channelId, queryStartIdx } = await resolveVoiceChannel(ctx, svc);
 
   if (!channelId) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `Usage: \`${ctx.prefix}play <#voice-channel> <url-or-search>\` for the first track. Once I'm connected, just \`${ctx.prefix}play <query>\`.`,
+      content: `Join a voice channel first, or pick one explicitly with \`${ctx.prefix}play <#voice-channel> <url-or-search>\`.`,
     });
     return;
   }

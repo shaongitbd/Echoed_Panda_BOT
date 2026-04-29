@@ -347,6 +347,20 @@ export class EchoedClient {
     return this.request('POST', `/v1/bots/${serverId}/voice/${channelId}/leave`);
   }
 
+  // Look up which voice channel a member is currently in, scoped to a
+  // server. Returns null when they aren't in any voice — used by !play
+  // to auto-follow the requester.
+  async getMemberVoiceChannel(
+    serverId: string,
+    userId: string,
+  ): Promise<string | null> {
+    const res = await this.request<{ channelId: string | null }>(
+      'GET',
+      `/v1/bots/${serverId}/members/${userId}/voice-channel`,
+    );
+    return res.channelId;
+  }
+
   // ─── Messaging ───────────────────────────────────────────────────────
   async sendMessage(input: SendMessageInput): Promise<SendMessageResponse> {
     const { serverId, channelId, content, replyToId, attachmentIds, embeds } = input;
