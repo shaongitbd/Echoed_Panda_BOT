@@ -266,14 +266,24 @@ async function ytDlpDownload(url: string): Promise<string> {
 
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
-    // Format priority: strict audio-only first (small, fast), then
-    // anything-with-audio (catches odd format lists), then any
-    // progressive stream as a last resort. The previous selector
-    // (`bestaudio*/best`) skipped strict audio-only and grabbed
-    // the combined video+audio mp4 — 70+ MB instead of 5–10 MB,
-    // wasting download time on video bytes ffmpeg discards.
+    // Format priority — medium-quality audio-only first.
+    //
+    // The bot ultimately transmits Opus at ~64 kbps over LiveKit, so
+    // downloading 160 kbps source audio is wasted bandwidth and CPU.
+    // Pulling the medium-quality variant (Opus ≤80 kbps / AAC
+    // ≤130 kbps) cuts file size 3–4× and shaves seconds off every
+    // download with no audible difference at the output bitrate.
+    //
+    // Fallback chain widens progressively in case the medium tier
+    // isn't surfaced for a given video:
+    //   1. opus audio-only ≤80 kbps     (typical: itag 250 ≈ 70 kbps)
+    //   2. m4a audio-only ≤130 kbps     (typical: itag 140 ≈ 128 kbps)
+    //   3. any opus audio-only           (catches itag 251 — 160 kbps)
+    //   4. any audio-only
+    //   5. anything-with-audio           (combined formats — last resort)
+    //   6. any best                      (truly anything that decodes)
     '-f',
-    'bestaudio[acodec=opus]/bestaudio[ext=m4a]/bestaudio/bestaudio*/best',
+    'bestaudio[acodec=opus][abr<=80]/bestaudio[ext=m4a][abr<=130]/bestaudio[acodec=opus]/bestaudio/bestaudio*/best',
     '-o',
     outputTemplate,
     '--no-progress',
