@@ -301,24 +301,23 @@ async function ytDlpDownload(url: string, infoJsonPath?: string): Promise<string
 
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
-    // Format priority — medium-quality audio-only first.
+    // Format priority — best available audio-only.
     //
-    // The bot ultimately transmits Opus at ~64 kbps over LiveKit, so
-    // downloading 160 kbps source audio is wasted bandwidth and CPU.
-    // Pulling the medium-quality variant (Opus ≤80 kbps / AAC
-    // ≤130 kbps) cuts file size 3–4× and shaves seconds off every
-    // download with no audible difference at the output bitrate.
+    // LiveKit now transmits at 128 kbps Opus (music-quality), so the
+    // source needs comparable headroom. Each transcode hop loses
+    // information, and a 70 kbps source fed into a 128 kbps encoder
+    // sounds dull — there's nothing for the encoder to preserve.
+    // Targeting itag 251 (160 kbps Opus) keeps the source above the
+    // transmit rate so the final Opus encode has room to breathe.
     //
-    // Fallback chain widens progressively in case the medium tier
-    // isn't surfaced for a given video:
-    //   1. opus audio-only ≤80 kbps     (typical: itag 250 ≈ 70 kbps)
-    //   2. m4a audio-only ≤130 kbps     (typical: itag 140 ≈ 128 kbps)
-    //   3. any opus audio-only           (catches itag 251 — 160 kbps)
-    //   4. any audio-only
-    //   5. anything-with-audio           (combined formats — last resort)
-    //   6. any best                      (truly anything that decodes)
+    // Fallback chain widens progressively:
+    //   1. opus audio-only        (typical: itag 251 ≈ 160 kbps)
+    //   2. m4a audio-only         (typical: itag 140 ≈ 128 kbps)
+    //   3. any audio-only
+    //   4. anything-with-audio    (combined formats — last resort)
+    //   5. any best               (truly anything that decodes)
     '-f',
-    'bestaudio[acodec=opus][abr<=80]/bestaudio[ext=m4a][abr<=130]/bestaudio[acodec=opus]/bestaudio/bestaudio*/best',
+    'bestaudio[acodec=opus]/bestaudio[ext=m4a]/bestaudio/bestaudio*/best',
     '-o',
     outputTemplate,
     '--no-progress',
@@ -400,6 +399,19 @@ async function httpDownload(url: string): Promise<string> {
 // Read a local audio file and emit 48kHz s16le stereo PCM. ffmpeg
 // auto-detects the input format. No HTTP, no reconnect, no segmenting
 // — just file → pcm.
+//
+// `loudnorm` normalizes to -14 LUFS (the streaming-platform standard
+// used by Spotify, YouTube, Apple Music). Source tracks vary wildly
+// in loudness — a quiet podcast vs. a mastered modern pop song can
+// differ by 15+ dB — and without normalization the user has to chase
+// !volume up and down per track. With it, everything sits at a
+// consistent perceived level and the player's volume control adjusts
+// from a sane baseline.
+//
+// Single-pass `loudnorm` is approximate (proper two-pass measures the
+// file first) but fast and good enough for streaming. `tp=-1.5` keeps
+// true-peak under -1.5 dBTP to avoid inter-sample clipping on the
+// LiveKit Opus encoder downstream.
 function openPcmFromFile(filePath: string): { pcm: Readable; close: () => void } {
   const ff = spawn(
     'ffmpeg',
@@ -410,6 +422,8 @@ function openPcmFromFile(filePath: string): { pcm: Readable; close: () => void }
       '-i',
       filePath,
       '-vn',
+      '-af',
+      'loudnorm=I=-14:LRA=11:TP=-1.5',
       '-f',
       's16le',
       '-acodec',

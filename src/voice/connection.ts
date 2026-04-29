@@ -12,6 +12,7 @@ import {
   TrackSource,
   AudioFrame,
 } from '@livekit/rtc-node';
+import { AudioEncoding } from '@livekit/rtc-ffi-bindings';
 import { log } from '../log.js';
 
 const SAMPLE_RATE = 48_000;
@@ -79,6 +80,20 @@ export class VoiceConnection {
     const track = LocalAudioTrack.createAudioTrack('panda-music', source);
     const opts = new TrackPublishOptions();
     opts.source = TrackSource.SOURCE_MICROPHONE;
+    // Bump Opus from speech-quality default (~32–64 kbps) to a music-
+    // quality 128 kbps. Below ~96 kbps stereo music sounds noticeably
+    // dull on Opus; 128 kbps is the standard "good music streaming"
+    // tier and matches what Discord uses for music bots.
+    opts.audioEncoding = new AudioEncoding({ maxBitrate: BigInt(128_000) });
+    // DTX (discontinuous transmission) cuts the audio stream during
+    // perceived silence — a great battery-saver for voice calls but
+    // disastrous for music, where it kills quiet intros, fade-outs,
+    // and any low-amplitude texture (string sustain, ambient noise).
+    opts.dtx = false;
+    // RED adds packet-level redundancy. Costs ~10% extra bandwidth
+    // but keeps audio intact when a packet is dropped, which a
+    // 128 kbps Opus stream is more sensitive to than a 32 kbps one.
+    opts.red = true;
 
     if (!room.localParticipant) {
       throw new Error('LiveKit local participant not available after connect');
