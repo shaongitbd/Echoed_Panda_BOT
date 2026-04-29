@@ -119,7 +119,19 @@ export class VoiceConnection {
   }
 
   clearAudioBuffer(): void {
-    this.audioSource?.clearQueue();
+    // Skip the FFI call when we know the room is gone — clearQueue
+    // fires a fire-and-forget request whose rejection we can't catch
+    // (rtc-node types it as `void` but the underlying FfiClient.request
+    // is async). When the room disconnects the source handle is freed,
+    // and any clearQueue at that point spits out an "Unhandled
+    // rejection — handle not found". Gating on `connected` keeps the
+    // log clean.
+    if (!this.connected) return;
+    try {
+      this.audioSource?.clearQueue();
+    } catch (err) {
+      log.debug({ err }, 'clearAudioBuffer threw (ignored)');
+    }
   }
 
   // Number of remote participants — use to decide if the bot should

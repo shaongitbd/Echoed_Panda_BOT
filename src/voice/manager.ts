@@ -83,6 +83,14 @@ export class VoiceManager {
       }
     };
     connection.onDisconnect = () => {
+      // Halt the player too — without this, run()'s while loop
+      // keeps spinning: each track downloads fine but pushFrame
+      // fails against the freed source handle, the push loop
+      // catches and calls settle('natural'), the next iteration
+      // grabs the next queued track, and the queue burns through
+      // in milliseconds. Looks like rapid "looping" from outside.
+      const session = sessions.get(serverId);
+      if (session) session.player.stop();
       sessions.delete(serverId);
     };
 
