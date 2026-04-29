@@ -33,15 +33,42 @@ const FRAME_DURATION_SEC = 1; // matches LiveKit's publish-wav example
 const FRAME_INTERLEAVED_LEN = SAMPLE_RATE * FRAME_DURATION_SEC * CHANNELS;
 
 export const handleTestAudio: Handler = async (ctx, svc) => {
-  const session = svc.voice.get(ctx.serverId);
+  // Resolve voice channel: prefer existing session, else find the
+  // caller's current voice channel and join it ourselves.
+  let session = svc.voice.get(ctx.serverId);
   if (!session) {
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      replyToId: ctx.messageId,
-      content: `Bot needs to be in a voice channel first. Join one yourself, then run \`${ctx.prefix}play\` (any URL — even one that fails) so the bot connects, then \`${ctx.prefix}stop\` to clear the queue, then run this command again.`,
-    });
-    return;
+    let channelId: string | null = null;
+    try {
+      channelId = await svc.api.getMemberVoiceChannel(ctx.serverId, ctx.senderId);
+    } catch (err) {
+      log.warn({ err, userId: ctx.senderId }, 'Voice-state lookup failed');
+    }
+    if (!channelId) {
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: 'Join a voice channel first, then run this again.',
+      });
+      return;
+    }
+    try {
+      session = await svc.voice.join(ctx.serverId, channelId, ctx.channelId);
+    } catch (err) {
+      log.warn({ err, channelId }, 'Voice join failed');
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: '❌ Couldn\'t join the voice channel. Make sure I have **Connect** + **Speak** there.',
+      });
+      return;
+    }
+  } else {
+    // Already in a session — stop any active playback so the test
+    // tone isn't mixed/queued behind music.
+    session.player.stop();
+    session.connection.clearAudioBuffer();
   }
 
   await svc.api.sendMessage({
@@ -94,7 +121,7 @@ export const handleTestAudio: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: '✓ Test WAV done. Did it sound like clean speech?',
+    content: '✓ Test WAV done. Did the music sound clean?',
   });
 };
 
