@@ -359,7 +359,7 @@ export class MusicPlayer extends EventEmitter {
 
       // Drain whatever's still in LiveKit's queue before advancing —
       // otherwise we cut off the last ~1s of audio (the queue depth).
-      if (this.trackComplete) {
+      if (this.trackComplete !== null) {
         await this.connection.waitForPlayout();
         settle('natural');
       }
