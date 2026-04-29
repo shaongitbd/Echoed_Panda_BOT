@@ -15,7 +15,6 @@
     "moduleResolution": "bundler",
     "module": "esnext",
     "jsx": "preserve",
-    "incremental": true,
     "noEmit": true,
     "plugins": [{ "name": "next" }],
     "paths": {
