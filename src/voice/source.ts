@@ -82,8 +82,10 @@ export async function resolveQuery(
   // in to confirm you're not a bot"); yt-dlp actively maintains the
   // signature workaround + supports cookies for accounts that hit
   // the prompt anyway.
-  const metas = await ytDlpSearch(trimmed, 5);
-  return metas.map((m) => youtubeMetaToTrack(m, requestedBy, requestedByName));
+  const entries = await ytDlpSearch(trimmed, 5);
+  return entries.map((e) =>
+    youtubeMetaToTrack(e.meta, requestedBy, requestedByName, e.infoJsonPath),
+  );
 }
 
 async function resolveYoutubeUrl(
@@ -91,8 +93,8 @@ async function resolveYoutubeUrl(
   requestedBy: string,
   requestedByName: string,
 ): Promise<Track> {
-  const meta = await ytDlpMetadata(url);
-  return youtubeMetaToTrack(meta, requestedBy, requestedByName);
+  const { meta, infoJsonPath } = await ytDlpMetadata(url);
+  return youtubeMetaToTrack(meta, requestedBy, requestedByName, infoJsonPath);
 }
 
 interface YtDlpMeta {
@@ -181,9 +183,10 @@ function youtubeMetaToTrack(
   m: YtDlpMeta,
   requestedBy: string,
   requestedByName: string,
+  infoJsonPath?: string,
 ): Track {
   const url = m.webpage_url ?? '';
-  return buildTrack(
+  const track = buildTrack(
     'youtube',
     {
       title: m.title ?? '(untitled)',
@@ -194,8 +197,18 @@ function youtubeMetaToTrack(
       requestedBy,
       requestedByName,
     },
-    () => ytDlpDownload(url),
+    () => ytDlpDownload(url, infoJsonPath),
   );
+  // Hook the info-json into the track's cleanup chain so the
+  // metadata file gets removed alongside the audio file.
+  if (infoJsonPath) {
+    const origCleanup = track.cleanup;
+    track.cleanup = async () => {
+      await origCleanup();
+      await fs.unlink(infoJsonPath).catch(() => {});
+    };
+  }
+  return track;
 }
 
 async function resolveSoundcloudUrl(
@@ -254,7 +267,12 @@ function resolveDirectUrl(
 // Run yt-dlp's downloader and return the final path on disk. yt-dlp
 // handles all the format selection, signature workarounds, HLS
 // segmenting, etc. — we just point ffmpeg at the resulting file later.
-async function ytDlpDownload(url: string): Promise<string> {
+//
+// `infoJsonPath` is the cached metadata from a prior ytDlpMetadata
+// call. Passed via --load-info-json, it skips info re-extraction
+// entirely (the player-client probe + signature solve costs ~2–5 s
+// per call). When absent we fall back to extracting from the URL.
+async function ytDlpDownload(url: string, infoJsonPath?: string): Promise<string> {
   const id = randomBytes(8).toString('hex');
   // %(ext)s lets yt-dlp pick the right extension (m4a / webm / opus).
   // We capture the final path via --print after_move:filepath so we
@@ -262,7 +280,24 @@ async function ytDlpDownload(url: string): Promise<string> {
   const outputTemplate = join(tmpdir(), `panda-yt-${id}.%(ext)s`);
 
   const startedAt = Date.now();
-  log.info({ url }, 'Starting yt-dlp download');
+  log.info({ url, hasCache: Boolean(infoJsonPath) }, 'Starting yt-dlp download');
+
+  // --load-info-json takes a JSON dict, not a URL, so the positional
+  // arg is omitted in that branch. Falling back to URL when the JSON
+  // is missing (or got reaped by /tmp cleanup) keeps long-queued
+  // tracks playable.
+  const sourceArgs: string[] = [];
+  let useInfoJson = false;
+  if (infoJsonPath) {
+    try {
+      await fs.access(infoJsonPath);
+      sourceArgs.push('--load-info-json', infoJsonPath);
+      useInfoJson = true;
+    } catch {
+      // Cached info-json gone — fall through to URL.
+    }
+  }
+  if (!useInfoJson) sourceArgs.push(url);
 
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
@@ -289,7 +324,7 @@ async function ytDlpDownload(url: string): Promise<string> {
     '--no-progress',
     '--print',
     'after_move:filepath',
-    url,
+    ...sourceArgs,
   ]);
 
   const path = out.trim().split('\n').pop()?.trim();
@@ -297,7 +332,13 @@ async function ytDlpDownload(url: string): Promise<string> {
 
   const sizeBytes = await fs.stat(path).then((s) => s.size).catch(() => 0);
   log.info(
-    { path, url, ms: Date.now() - startedAt, sizeKB: Math.round(sizeBytes / 1024) },
+    {
+      path,
+      url,
+      ms: Date.now() - startedAt,
+      sizeKB: Math.round(sizeBytes / 1024),
+      cached: useInfoJson,
+    },
     'yt-dlp download complete',
   );
   return path;
@@ -500,7 +541,9 @@ async function prepareCookiesFile(): Promise<string | null> {
   }
 }
 
-async function ytDlpMetadata(url: string): Promise<YtDlpMeta> {
+async function ytDlpMetadata(
+  url: string,
+): Promise<{ meta: YtDlpMeta; infoJsonPath: string }> {
   // --ignore-no-formats-error: yt-dlp's default format selector is
   // strict (`bv*+ba/b`) and will fail with "Requested format is not
   // available" on videos where YouTube hasn't surfaced the standard
@@ -514,10 +557,19 @@ async function ytDlpMetadata(url: string): Promise<YtDlpMeta> {
     '--ignore-no-formats-error',
     url,
   ]);
-  return JSON.parse(out) as YtDlpMeta;
+  const meta = JSON.parse(out) as YtDlpMeta;
+  // Persist the full info dict so ytDlpDownload can replay it via
+  // --load-info-json instead of re-extracting (skips player-client
+  // probe + signature solve, ~2–5 s per track).
+  const infoJsonPath = join(tmpdir(), `panda-info-${randomBytes(8).toString('hex')}.json`);
+  await fs.writeFile(infoJsonPath, out);
+  return { meta, infoJsonPath };
 }
 
-async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
+async function ytDlpSearch(
+  query: string,
+  limit: number,
+): Promise<{ meta: YtDlpMeta; infoJsonPath: string }[]> {
   // ytsearch5:<query> returns up to 5 hits. Same format-error
   // suppression as ytDlpMetadata — search hits the same default
   // format selector and would otherwise fail on any single
@@ -532,5 +584,18 @@ async function ytDlpSearch(query: string, limit: number): Promise<YtDlpMeta[]> {
   const parsed = JSON.parse(out) as { entries?: (YtDlpMeta | null)[] };
   // --ignore-errors / no-formats-error can leave nulls in entries
   // when a single result fails — drop them.
-  return (parsed.entries ?? []).filter((e): e is YtDlpMeta => e !== null);
+  const entries = (parsed.entries ?? []).filter((e): e is YtDlpMeta => e !== null);
+  // Each entry needs its own info-json file so --load-info-json
+  // works at download time. The search result JSON is one big
+  // playlist dict, so we write each entry separately.
+  return Promise.all(
+    entries.map(async (meta) => {
+      const infoJsonPath = join(
+        tmpdir(),
+        `panda-info-${randomBytes(8).toString('hex')}.json`,
+      );
+      await fs.writeFile(infoJsonPath, JSON.stringify(meta));
+      return { meta, infoJsonPath };
+    }),
+  );
 }
