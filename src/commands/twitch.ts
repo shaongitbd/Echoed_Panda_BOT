@@ -43,14 +43,14 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `**Usage:** \`${prefix}twitch follow <twitch link or username> <#channel>\`
+  `**Usage:** \`${prefix}twitch follow <twitch link or username> #channel\`
 
 Either of these works:
 \`${prefix}twitch follow shroud #live-alerts\`
 \`${prefix}twitch follow https://twitch.tv/shroud #live-alerts\`
 
 Other commands:
-\`${prefix}twitch unfollow <twitch link or username> <#channel>\`
+\`${prefix}twitch unfollow <twitch link or username> #channel\`
 \`${prefix}twitch list\``;
 
 export const handleTwitch: Handler = async (ctx, svc) => {

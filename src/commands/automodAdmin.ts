@@ -210,7 +210,7 @@ export const handleAutomod: Handler = async (ctx, svc) => {
           serverId: ctx.serverId,
           channelId: ctx.channelId,
           replyToId: ctx.messageId,
-          content: `Usage: \`${ctx.prefix}automod exempt channel <#channel>\`.`,
+          content: `Usage: \`${ctx.prefix}automod exempt channel #channel\`.`,
         });
         return;
       }
@@ -261,7 +261,7 @@ export const handleAutomod: Handler = async (ctx, svc) => {
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `Usage: \`${ctx.prefix}automod exempt <channel|role> <#c|@r>\`.`,
+      content: `Usage: \`${ctx.prefix}automod exempt <channel|role> #channel|@role\`.`,
     });
     return;
   }

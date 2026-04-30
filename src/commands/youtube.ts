@@ -111,7 +111,7 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `**Usage:** \`${prefix}youtube follow <youtube link> <#channel>\`
+  `**Usage:** \`${prefix}youtube follow <youtube link> #channel\`
 
 Paste any of these — panda figures out the channel ID:
 \`${prefix}youtube follow https://youtube.com/@MKBHD #yt-feed\`
@@ -119,7 +119,7 @@ Paste any of these — panda figures out the channel ID:
 \`${prefix}youtube follow @MKBHD #yt-feed\`
 
 Other commands:
-\`${prefix}youtube unfollow <youtube link> <#channel>\`
+\`${prefix}youtube unfollow <youtube link> #channel\`
 \`${prefix}youtube list\``;
 
 const NOT_RECOGNISED = (prefix: string, input: string | undefined): string =>

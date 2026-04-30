@@ -116,7 +116,7 @@ export const handleSetLevelChannel: Handler = async (ctx, svc) => {
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `Usage: \`${ctx.prefix}setlevelchannel <#channel|here|none>\`.\n\`here\` uses the source channel · \`none\` clears the override.`,
+      content: `Usage: \`${ctx.prefix}setlevelchannel #channel|here|none\`.\n\`here\` uses the source channel · \`none\` clears the override.`,
     });
     return;
   }
@@ -271,7 +271,7 @@ export const handleNoXpChannel: Handler = async (ctx, svc) => {
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `Usage: \`${ctx.prefix}noxpchannel <#channel>\` to toggle XP off/on for that channel.`,
+      content: `Usage: \`${ctx.prefix}noxpchannel #channel\` to toggle XP off/on for that channel.`,
     });
     return;
   }

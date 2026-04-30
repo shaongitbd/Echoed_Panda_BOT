@@ -48,7 +48,7 @@ export const handleSetWelcome: Handler = async (ctx, svc) => {
       channelId: ctx.channelId,
       content: cfg.welcomeChannel
         ? `Welcome channel: <#${cfg.welcomeChannel}>. Clear with \`${ctx.prefix}setwelcome none\`.`
-        : `No welcome channel set. Use \`${ctx.prefix}setwelcome <#channel>\` to enable.`,
+        : `No welcome channel set. Use \`${ctx.prefix}setwelcome #channel\` to enable.`,
     });
     return;
   }

@@ -29,8 +29,8 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 
 const USAGE = (prefix: string): string =>
   `Usage:
-\`${prefix}autoreact add <#channel> <emoji>\`
-\`${prefix}autoreact remove <#channel> <emoji>\`
+\`${prefix}autoreact add #channel <emoji>\`
+\`${prefix}autoreact remove #channel <emoji>\`
 \`${prefix}autoreact list\``;
 
 export const handleAutoReact: Handler = async (ctx, svc) => {
@@ -42,7 +42,7 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
       await svc.api.sendMessage({
         serverId: ctx.serverId,
         channelId: ctx.channelId,
-        content: `No auto-reacts configured. Add one with \`${ctx.prefix}autoreact add <#channel> <emoji>\`.`,
+        content: `No auto-reacts configured. Add one with \`${ctx.prefix}autoreact add #channel <emoji>\`.`,
       });
       return;
     }

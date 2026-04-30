@@ -34,8 +34,8 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 
 const USAGE = (prefix: string): string =>
   `Usage:
-\`${prefix}schedule add every <duration> <#channel> <message>\` — every 5m, 1h, 1d, …
-\`${prefix}schedule add daily <HH:MM> <#channel> <message>\` — daily at HH:MM (UTC)
+\`${prefix}schedule add every <duration> #channel <message>\` — every 5m, 1h, 1d, …
+\`${prefix}schedule add daily <HH:MM> #channel <message>\` — daily at HH:MM (UTC)
 \`${prefix}schedule remove <id>\`
 \`${prefix}schedule list\``;
 
@@ -135,7 +135,7 @@ export const handleSchedule: Handler = async (ctx, svc) => {
     return;
   }
 
-  // schedule add <every|daily> <duration|HH:MM> <#channel> <message>
+  // schedule add <every|daily> <duration|HH:MM> #channel <message>
   const kind = ctx.args[1]?.toLowerCase();
   const cadenceArg = ctx.args[2];
   const channelId = parseChannelId(ctx.args[3]);

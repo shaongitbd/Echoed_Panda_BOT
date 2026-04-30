@@ -220,7 +220,7 @@ export const handlePlay: Handler = async (ctx, svc) => {
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `Join a voice channel first, or pick one explicitly with \`${ctx.prefix}play <#voice-channel> <url-or-search>\`.`,
+      content: `Join a voice channel first, or pick one explicitly with \`${ctx.prefix}play #voice-channel <url-or-search>\`.`,
     });
     return;
   }

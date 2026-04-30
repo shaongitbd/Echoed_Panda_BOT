@@ -49,7 +49,7 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `**Usage:** \`${prefix}reddit follow <subreddit or link> <#channel>\`
+  `**Usage:** \`${prefix}reddit follow <subreddit or link> #channel\`
 
 Any of these forms work:
 \`${prefix}reddit follow programming #news\`
@@ -57,7 +57,7 @@ Any of these forms work:
 \`${prefix}reddit follow https://reddit.com/r/programming #news\`
 
 Other commands:
-\`${prefix}reddit unfollow <subreddit or link> <#channel>\`
+\`${prefix}reddit unfollow <subreddit or link> #channel\`
 \`${prefix}reddit list\``;
 
 export const handleReddit: Handler = async (ctx, svc) => {

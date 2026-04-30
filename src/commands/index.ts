@@ -121,7 +121,7 @@ export const registry: readonly Registered[] = [
     name: 'setlevelchannel',
     aliases: [],
     handler: handleSetLevelChannel,
-    help: 'set level-up announcement channel — `setlevelchannel <#channel|here|none>`',
+    help: 'set level-up announcement channel — `setlevelchannel #channel|here|none`',
   },
   {
     name: 'setlevelmsg',
@@ -207,7 +207,7 @@ export const registry: readonly Registered[] = [
     name: 'setmodlog',
     aliases: ['modlogchannel'],
     handler: handleSetModlog,
-    help: 'set mod-log channel — `setmodlog <#channel|here|none>`',
+    help: 'set mod-log channel — `setmodlog #channel|here|none`',
   },
   {
     name: 'nick',
@@ -351,7 +351,7 @@ export const registry: readonly Registered[] = [
     name: 'autoreact',
     aliases: [],
     handler: handleAutoReact,
-    help: 'auto-react in a channel — `autoreact add|remove|list <#channel> <emoji>`',
+    help: 'auto-react in a channel — `autoreact add|remove|list #channel <emoji>`',
   },
   {
     name: 'keyword',
@@ -363,7 +363,7 @@ export const registry: readonly Registered[] = [
     name: 'schedule',
     aliases: ['sched'],
     handler: handleSchedule,
-    help: 'scheduled messages — `schedule add every|daily … <#channel> <message>`',
+    help: 'scheduled messages — `schedule add every|daily … #channel <message>`',
   },
 
   // ─── Welcome admin (Manage Server) ────────────────────────────────
@@ -371,7 +371,7 @@ export const registry: readonly Registered[] = [
     name: 'setwelcome',
     aliases: ['welcomechannel'],
     handler: handleSetWelcome,
-    help: 'set welcome channel — `setwelcome <#channel|none>`',
+    help: 'set welcome channel — `setwelcome #channel|none`',
   },
   {
     name: 'welcomemsg',
@@ -391,7 +391,7 @@ export const registry: readonly Registered[] = [
     name: 'play',
     aliases: ['p'],
     handler: handlePlay,
-    help: 'play music — `play <#voice-channel> <url-or-search>`',
+    help: 'play music — `play #voice-channel <url-or-search>`',
   },
   {
     name: 'skip',
