@@ -365,7 +365,7 @@ export const handleSetModlog: Handler = async (ctx, svc) => {
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `Usage: \`${ctx.prefix}setmodlog #channel|here|none\`.`,
+      content: `Usage: \`${ctx.prefix}setmodlog <channel|here|none>\`.`,
     });
     return;
   }

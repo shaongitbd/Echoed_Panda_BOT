@@ -33,7 +33,7 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 
 const USAGE = (prefix: string): string =>
   `Usage:
-\`${prefix}keyword add "phrase" "response" [#channel]\` — quotes required around the two fields
+\`${prefix}keyword add "phrase" "response" [<channel>]\` — quotes required around the two fields
 \`${prefix}keyword remove <id>\`
 \`${prefix}keyword list\``;
 

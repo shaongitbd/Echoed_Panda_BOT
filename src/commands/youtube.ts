@@ -111,15 +111,17 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `**Usage:** \`${prefix}youtube follow <youtube link> #channel\`
+  `**Usage:** \`${prefix}youtube follow <youtube link> <channel>\`
 
-Paste any of these — panda figures out the channel ID:
-\`${prefix}youtube follow https://youtube.com/@MKBHD #yt-feed\`
-\`${prefix}youtube follow youtube.com/channel/UCBJycsmduvYEL83R_U4JriQ #yt-feed\`
-\`${prefix}youtube follow @MKBHD #yt-feed\`
+YouTube link can be:
+• \`https://youtube.com/@MKBHD\`
+• \`youtube.com/channel/UCBJycsmduvYEL83R_U4JriQ\`
+• \`@MKBHD\` (handle on its own)
+
+For \`<channel>\`, type \`#\` and pick the destination from autocomplete.
 
 Other commands:
-\`${prefix}youtube unfollow <youtube link> #channel\`
+\`${prefix}youtube unfollow <youtube link> <channel>\`
 \`${prefix}youtube list\``;
 
 const NOT_RECOGNISED = (prefix: string, input: string | undefined): string =>
@@ -136,8 +138,8 @@ export const handleYoutube: Handler = async (ctx, svc) => {
       await svc.api.sendMessage({
         serverId: ctx.serverId,
         channelId: ctx.channelId,
-        content: `No YouTube subscriptions yet. Add one by pasting any channel link:
-\`${ctx.prefix}youtube follow https://youtube.com/@MKBHD #yt-feed\``,
+        content: `No YouTube subscriptions yet. Add one by pasting any channel link, then mention the destination channel:
+\`${ctx.prefix}youtube follow https://youtube.com/@MKBHD <channel>\``,
       });
       return;
     }

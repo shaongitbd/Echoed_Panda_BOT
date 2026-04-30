@@ -43,14 +43,16 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `**Usage:** \`${prefix}twitch follow <twitch link or username> #channel\`
+  `**Usage:** \`${prefix}twitch follow <twitch link or username> <channel>\`
 
-Either of these works:
-\`${prefix}twitch follow shroud #live-alerts\`
-\`${prefix}twitch follow https://twitch.tv/shroud #live-alerts\`
+Username can be:
+• \`shroud\`
+• \`https://twitch.tv/shroud\`
+
+For \`<channel>\`, type \`#\` and pick the destination from autocomplete.
 
 Other commands:
-\`${prefix}twitch unfollow <twitch link or username> #channel\`
+\`${prefix}twitch unfollow <twitch link or username> <channel>\`
 \`${prefix}twitch list\``;
 
 export const handleTwitch: Handler = async (ctx, svc) => {
@@ -60,8 +62,8 @@ export const handleTwitch: Handler = async (ctx, svc) => {
     const all = await listForServer(ctx.serverId);
     if (all.length === 0) {
       const config = twitchEnabled()
-        ? `No Twitch subscriptions yet. Add one by pasting a Twitch link:
-\`${ctx.prefix}twitch follow https://twitch.tv/shroud #live-alerts\``
+        ? `No Twitch subscriptions yet. Add one by pasting a Twitch link, then mention the destination channel:
+\`${ctx.prefix}twitch follow https://twitch.tv/shroud <channel>\``
         : 'Twitch integration isn\'t configured on this bot. Ask the bot operator to set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`.';
       await svc.api.sendMessage({
         serverId: ctx.serverId,

@@ -37,8 +37,8 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 
 const USAGE = (prefix: string): string =>
   `Usage:
-\`${prefix}statcounter add #channel <members|channels> [format]\`
-\`${prefix}statcounter remove #channel\`
+\`${prefix}statcounter add <channel> <members|channels> [format]\`
+\`${prefix}statcounter remove <channel>\`
 \`${prefix}statcounter list\`
 
 Format supports \`{count}\`. Default: "Members: {count}".`;
@@ -122,7 +122,7 @@ export const handleStatCounter: Handler = async (ctx, svc) => {
         serverId: ctx.serverId,
         channelId: ctx.channelId,
         replyToId: ctx.messageId,
-        content: `Usage: \`${ctx.prefix}statcounter remove #channel\`.`,
+        content: `Usage: \`${ctx.prefix}statcounter remove <channel>\`.`,
       });
       return;
     }

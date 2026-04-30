@@ -49,15 +49,17 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `**Usage:** \`${prefix}reddit follow <subreddit or link> #channel\`
+  `**Usage:** \`${prefix}reddit follow <subreddit or link> <channel>\`
 
-Any of these forms work:
-\`${prefix}reddit follow programming #news\`
-\`${prefix}reddit follow r/programming #news\`
-\`${prefix}reddit follow https://reddit.com/r/programming #news\`
+Subreddit can be:
+• \`programming\`
+• \`r/programming\`
+• \`https://reddit.com/r/programming\`
+
+For \`<channel>\`, type \`#\` and pick the destination from autocomplete.
 
 Other commands:
-\`${prefix}reddit unfollow <subreddit or link> #channel\`
+\`${prefix}reddit unfollow <subreddit or link> <channel>\`
 \`${prefix}reddit list\``;
 
 export const handleReddit: Handler = async (ctx, svc) => {
@@ -69,8 +71,8 @@ export const handleReddit: Handler = async (ctx, svc) => {
       await svc.api.sendMessage({
         serverId: ctx.serverId,
         channelId: ctx.channelId,
-        content: `No Reddit subscriptions yet. Add one by pasting a subreddit or its link:
-\`${ctx.prefix}reddit follow https://reddit.com/r/programming #news\``,
+        content: `No Reddit subscriptions yet. Add one by pasting a subreddit or its link, then mention the destination channel:
+\`${ctx.prefix}reddit follow https://reddit.com/r/programming <channel>\``,
       });
       return;
     }

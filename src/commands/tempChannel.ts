@@ -45,7 +45,7 @@ const USAGE = (prefix: string): string =>
   `Usage:
 \`${prefix}tempchannel <name> <duration>\` — create (e.g. \`30m\`, \`2h\`, \`1d\`)
 \`${prefix}tempchannel list\` — show pending expirations
-\`${prefix}tempchannel cancel #channel\` — keep a channel that was scheduled to delete`;
+\`${prefix}tempchannel cancel <channel>\` — keep a channel that was scheduled to delete`;
 
 export const handleTempChannel: Handler = async (ctx, svc) => {
   const sub = ctx.args[0]?.toLowerCase();
@@ -91,7 +91,7 @@ export const handleTempChannel: Handler = async (ctx, svc) => {
         serverId: ctx.serverId,
         channelId: ctx.channelId,
         replyToId: ctx.messageId,
-        content: `Usage: \`${ctx.prefix}tempchannel cancel #channel\`.`,
+        content: `Usage: \`${ctx.prefix}tempchannel cancel <channel>\`.`,
       });
       return;
     }

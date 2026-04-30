@@ -43,7 +43,7 @@ export const handleSetSuggestions: Handler = async (ctx, svc) => {
       channelId: ctx.channelId,
       content: cfg.suggestionsChannel
         ? `Suggestions go to <#${cfg.suggestionsChannel}>. Clear with \`${ctx.prefix}setsuggestions none\`.`
-        : `No suggestions channel set. Use \`${ctx.prefix}setsuggestions #channel\`.`,
+        : `No suggestions channel set. Use \`${ctx.prefix}setsuggestions <channel>\`.`,
     });
     return;
   }
