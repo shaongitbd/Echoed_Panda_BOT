@@ -126,7 +126,11 @@ const EMPTY = (serverId: string): GuildConfig => ({
 // (after `set`, other instances of the bot — if any — read the old value
 // for up to TTL_MS) for absorbing the read traffic from the message
 // hot path. Writes invalidate the local entry immediately.
-const TTL_MS = 5 * 60 * 1000;
+//
+// Kept at 60s to match the rest of the codebase. The dashboard writes
+// directly to Postgres, so anything longer means scope/automod/welcome
+// changes lag behind the UI by up to a full TTL on the bot side.
+const TTL_MS = 60 * 1000;
 const cache = new Map<string, { config: GuildConfig; expiresAt: number }>();
 
 export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
