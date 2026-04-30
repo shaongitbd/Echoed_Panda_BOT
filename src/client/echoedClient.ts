@@ -107,6 +107,19 @@ interface TimeoutResponse {
   reason?: string;
 }
 
+// Bare-minimum profile data used by heuristic anti-raid checks. Only
+// what the bot needs — explicitly excludes email and any PII the bot
+// shouldn't see.
+export interface MemberProfileResponse {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  hasAvatar: boolean;
+  accountAgeSeconds: number;
+  createdAt?: string;
+}
+
 export interface ChannelMessage {
   id: string;
   channelId: string;
@@ -484,6 +497,46 @@ export class EchoedClient {
 
   async clearTimeout(serverId: string, userId: string): Promise<DeleteResponse> {
     return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/timeout`);
+  }
+
+  // ─── Trust & Safety ────────────────────────────────────────────────
+  //
+  // These hit the platform-level safety knobs introduced for the
+  // anti-raid system: server lockdown (rejects all joins at the API
+  // edge), verification-level bump (raises the entry bar without a
+  // full halt), and a member-profile fetch (used for heuristic checks
+  // on join — account age, avatar presence). The detector calls these
+  // when its rolling join window trips.
+
+  async setLockdown(
+    serverId: string,
+    untilSeconds: number,
+    reason: string,
+  ): Promise<{ until: string; reason: string }> {
+    return this.request('POST', `/v1/bots/${serverId}/lockdown`, {
+      untilSeconds,
+      reason,
+    });
+  }
+
+  async clearLockdown(serverId: string): Promise<{ success: boolean }> {
+    return this.request('DELETE', `/v1/bots/${serverId}/lockdown`);
+  }
+
+  // Returns { level, previous } so the caller can snapshot the prior
+  // value and restore it when the lockdown ends.
+  async setVerificationLevel(
+    serverId: string,
+    level: 0 | 1 | 2 | 3,
+  ): Promise<{ level: number; previous: number }> {
+    return this.request('PATCH', `/v1/bots/${serverId}/verification-level`, { level });
+  }
+
+  async getMemberProfile(
+    serverId: string,
+    userId: string,
+  ): Promise<MemberProfileResponse> {
+    return this.request('GET', `/v1/bots/${serverId}/members/${userId}/profile`);
   }
 
   // ─── Roles ───────────────────────────────────────────────────────────

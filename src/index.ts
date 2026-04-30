@@ -103,10 +103,12 @@ async function main(): Promise<void> {
   socket.setBotUserId(botUserId);
   socket.onMemberJoined(async (data) => {
     // Anti-raid runs first — if it auto-kicks the joiner during a
-    // lockdown, the welcome flow has nothing to do.
+    // lockdown, the welcome flow has nothing to do. Pass the bot's
+    // user ID so mod-log entries are attributed to the bot itself
+    // and not to the new joiner who tripped the threshold.
     let kicked = false;
     try {
-      kicked = await antiRaidProcessJoin(api, data);
+      kicked = await antiRaidProcessJoin(api, data, botUserId);
     } catch (err) {
       log.error({ err, serverId: data.serverId, userId: data.userId }, 'Anti-raid check failed');
     }

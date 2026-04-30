@@ -577,6 +577,20 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS music_exempt_role_ids     TEXT[] NOT NULL DEFAULT '{}'
     `,
   },
+  {
+    // Anti-raid: snapshot of the server's verification_level at the
+    // moment we engage a lockdown, so we can restore it to its
+    // original value when the lockdown clears. Without this, bumping
+    // verification_level during a raid permanently changes admin
+    // intent — we'd elevate to "Medium" on first raid and never come
+    // back down. NULL = no snapshot pending (no active lockdown or
+    // lockdown was cleared cleanly).
+    name: 'guild_config + pre-lockdown verification level snapshot',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS pre_lockdown_verification_level INT
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

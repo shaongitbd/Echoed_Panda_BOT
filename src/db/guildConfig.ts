@@ -34,6 +34,11 @@ export interface GuildConfig {
   musicExemptChannelIds: string[];
   musicAllowedRoleIds: string[];
   musicExemptRoleIds: string[];
+  // Anti-raid: snapshot of the server's verification_level taken at
+  // lockdown engage time so we can restore on clear. null = no
+  // snapshot pending. See db/migrate.ts: 'pre-lockdown verification
+  // level snapshot'.
+  preLockdownVerificationLevel: number | null;
 }
 
 interface ConfigRow {
@@ -53,6 +58,7 @@ interface ConfigRow {
   music_exempt_channel_ids: string[] | null;
   music_allowed_role_ids: string[] | null;
   music_exempt_role_ids: string[] | null;
+  pre_lockdown_verification_level: number | null;
 }
 
 function rowToConfig(row: ConfigRow): GuildConfig {
@@ -73,6 +79,7 @@ function rowToConfig(row: ConfigRow): GuildConfig {
     musicExemptChannelIds: row.music_exempt_channel_ids ?? [],
     musicAllowedRoleIds: row.music_allowed_role_ids ?? [],
     musicExemptRoleIds: row.music_exempt_role_ids ?? [],
+    preLockdownVerificationLevel: row.pre_lockdown_verification_level ?? null,
   };
 }
 
@@ -93,6 +100,7 @@ const EMPTY = (serverId: string): GuildConfig => ({
   musicExemptChannelIds: [],
   musicAllowedRoleIds: [],
   musicExemptRoleIds: [],
+  preLockdownVerificationLevel: null,
 });
 
 // Cache resolved configs in-process. TTL trades a tiny staleness window
@@ -114,7 +122,8 @@ export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
             anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
             anti_raid_lockdown_until, dj_role_id,
             music_allowed_channel_ids, music_exempt_channel_ids,
-            music_allowed_role_ids,    music_exempt_role_ids
+            music_allowed_role_ids,    music_exempt_role_ids,
+            pre_lockdown_verification_level
        FROM panda.guild_config
       WHERE server_id = $1`,
     [serverId],
@@ -145,6 +154,7 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   musicExemptChannelIds: 'music_exempt_channel_ids',
   musicAllowedRoleIds: 'music_allowed_role_ids',
   musicExemptRoleIds: 'music_exempt_role_ids',
+  preLockdownVerificationLevel: 'pre_lockdown_verification_level',
 };
 
 export async function setGuildConfig(
@@ -153,7 +163,7 @@ export async function setGuildConfig(
 ): Promise<GuildConfig> {
   const entries = Object.entries(fields).filter(([, v]) => v !== undefined) as [
     keyof UpsertableFields,
-    string | null | string[],
+    string | number | boolean | Date | null | string[],
   ][];
 
   if (entries.length === 0) {
@@ -174,7 +184,8 @@ export async function setGuildConfig(
                anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
                anti_raid_lockdown_until, dj_role_id,
                music_allowed_channel_ids, music_exempt_channel_ids,
-               music_allowed_role_ids,    music_exempt_role_ids`,
+               music_allowed_role_ids,    music_exempt_role_ids,
+               pre_lockdown_verification_level`,
     [serverId, ...values],
   );
 

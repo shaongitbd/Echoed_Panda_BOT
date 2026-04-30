@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
+import { liftLockdown } from '../antiRaid/detector.js';
 
 async function requireManageServer(ctx: CommandContext, svc: Services): Promise<boolean> {
   const ok = await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER');
@@ -128,11 +129,27 @@ export const handleAntiRaid: Handler = async (ctx, svc) => {
   }
 
   if (sub === 'clear' || sub === 'unlock') {
-    await setGuildConfig(ctx.serverId, { antiRaidLockdownUntil: null });
+    // Goes through liftLockdown rather than a direct config write so
+    // we also clear the platform-level lockdown on the backend AND
+    // restore the snapshotted verification_level. A bare config flip
+    // would leave the server permanently bumped to the elevated
+    // verification level.
+    try {
+      await liftLockdown(svc.api, ctx.serverId);
+    } catch (err) {
+      // liftLockdown logs internally; surface a generic failure.
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: 'Failed to clear lockdown — check the bot logs.',
+      });
+      return;
+    }
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: 'Lockdown cleared.',
+      content: 'Lockdown cleared. Backend lockdown released and verification level restored.',
     });
     return;
   }
