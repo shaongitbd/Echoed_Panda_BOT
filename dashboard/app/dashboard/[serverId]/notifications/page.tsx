@@ -49,7 +49,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
           description="Watch a subreddit's /new feed and post updates to a channel. No API key required."
         >
           <AddSubForm
-            action={(fd) => addReddit(serverId, fd)}
+            action={addReddit.bind(null, serverId)}
             idLabel="Subreddit"
             idName="subreddit"
             idPlaceholder="memes, programmerhumor, …"
@@ -82,7 +82,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
             </div>
           ) : null}
           <AddSubForm
-            action={(fd) => addTwitch(serverId, fd)}
+            action={addTwitch.bind(null, serverId)}
             idLabel="Twitch username"
             idName="twitchLogin"
             idPlaceholder="username (no @)"
@@ -115,7 +115,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
           description="New uploads via the public RSS feed. No API key required, but the channel ID must be the UC… form (not @handle)."
         >
           <AddSubForm
-            action={(fd) => addYouTube(serverId, fd)}
+            action={addYouTube.bind(null, serverId)}
             idLabel="YouTube channel ID"
             idName="youtubeChannelId"
             idPlaceholder="UCxxxxxxxxxxxxxxxxxxxx"
