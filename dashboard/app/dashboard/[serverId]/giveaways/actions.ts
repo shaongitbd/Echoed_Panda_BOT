@@ -2,10 +2,36 @@
 
 import { revalidatePath } from 'next/cache';
 import { listActive, nudgeEndNow, insertGiveaway } from '@/lib/queries/giveaways';
+import { setGuildConfig } from '@/lib/queries/guildConfig';
 import { botSendMessage, botAddReaction } from '@/lib/botApi';
-import { requireOwner, parseChannelId, parseTrimmedString, parseBoundedInt } from '@/lib/forms';
+import {
+  requireOwner,
+  parseChannelId,
+  parseTrimmedString,
+  parseBoundedInt,
+  parseBool,
+  parseRoleId,
+  collectIds,
+} from '@/lib/forms';
 import { getSession } from '@/lib/auth';
 import { fetchUserinfo } from '@/lib/echoed';
+
+// Bare ID parser for the user-exempt list. We don't have a "user
+// picker" component (servers can have thousands of members and the
+// usual trick — paste IDs separated by space/comma — is fine for the
+// rare cooldown / specific-person carve-out). Same shape as
+// parseChannelId/parseRoleId but without a mention regex.
+function parseUserIdLoose(raw: FormDataEntryValue | null): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Accept either bare IDs or <@userId> mention format. Echoed user
+  // IDs are alphanumeric+underscore+dash, ≥8 chars.
+  const m = /^<@!?([a-zA-Z0-9_-]{8,})>$/.exec(trimmed);
+  if (m?.[1]) return m[1];
+  if (/^[a-zA-Z0-9_-]{8,}$/.test(trimmed)) return trimmed;
+  return null;
+}
 
 const GIVEAWAY_EMOJI = '🎉';
 const ACCENT_COLOR = 0xffc928;
@@ -70,15 +96,18 @@ export async function startGiveaway(
     embeds: [
       {
         type: 'rich',
-        title: `🎉 ${prize}`,
-        description: `React with ${GIVEAWAY_EMOJI} to enter!`,
+        title: `🎁 Giveaway: ${prize}`,
+        description: `Tap ${GIVEAWAY_EMOJI} below to enter. ${
+          winnerCount === 1 ? 'One winner' : `${winnerCount} winners`
+        } picked at random when the timer hits zero.`,
         color: ACCENT_COLOR,
         fields: [
+          { name: 'Prize', value: prize, inline: true },
           { name: 'Winners', value: String(winnerCount), inline: true },
           { name: 'Ends in', value: human, inline: true },
-          ...(hostId ? [{ name: 'Hosted by', value: `<@${hostId}>`, inline: true }] : []),
+          ...(hostId ? [{ name: 'Hosted by', value: `<@${hostId}>`, inline: false }] : []),
         ],
-        footer: { text: 'Giveaway ends' },
+        footer: { text: 'Drawing held at' },
         timestamp: endAt.toISOString(),
       },
     ],
@@ -109,6 +138,24 @@ export async function startGiveaway(
 export async function endGiveawayNow(serverId: string, id: number): Promise<void> {
   await requireOwner(serverId);
   await nudgeEndNow(serverId, id);
+  revalidatePath(`/dashboard/${serverId}/giveaways`);
+}
+
+// Persist the per-server giveaway scope rules (allowed roles, exempt
+// roles, exempt user IDs, exclude-admins toggle). Applied at pick
+// time by the bot's pickAndAnnounce, so changes take effect on the
+// next giveaway draw without restarting in-flight giveaways.
+export async function saveGiveawayScope(
+  serverId: string,
+  formData: FormData,
+): Promise<void> {
+  await requireOwner(serverId);
+  await setGuildConfig(serverId, {
+    giveawayExcludeAdmins: parseBool(formData.get('giveawayExcludeAdmins')),
+    giveawayAllowedRoleIds: collectIds(formData, 'giveawayAllowedRoleIds', parseRoleId),
+    giveawayExemptRoleIds: collectIds(formData, 'giveawayExemptRoleIds', parseRoleId),
+    giveawayExemptUserIds: collectIds(formData, 'giveawayExemptUserIds', parseUserIdLoose),
+  });
   revalidatePath(`/dashboard/${serverId}/giveaways`);
 }
 

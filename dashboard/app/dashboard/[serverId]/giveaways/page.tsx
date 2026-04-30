@@ -1,8 +1,11 @@
 import { listActive, listRecentEnded, type Giveaway } from '@/lib/queries/giveaways';
-import { getServerChannels, type BotChannel } from '@/lib/botApi';
-import { FormCard } from '@/components/FormCard';
+import { getGuildConfig } from '@/lib/queries/guildConfig';
+import { getServerChannels, getServerRoles, type BotChannel } from '@/lib/botApi';
+import { FormCard, Field } from '@/components/FormCard';
+import { RoleAllowIgnore } from '@/components/AllowIgnoreLists';
+import { SaveBar } from '@/components/SaveBar';
 import { StartGiveawayForm } from './StartForm';
-import { endGiveawayNow } from './actions';
+import { endGiveawayNow, saveGiveawayScope } from './actions';
 
 interface PageProps {
   params: Promise<{ serverId: string }>;
@@ -10,12 +13,15 @@ interface PageProps {
 
 export default async function GiveawaysPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [active, recent, channels] = await Promise.all([
+  const [active, recent, channels, roles, config] = await Promise.all([
     listActive(serverId),
     listRecentEnded(serverId),
     getServerChannels(serverId),
+    getServerRoles(serverId),
+    getGuildConfig(serverId),
   ]);
   const channelById = new Map(channels.map((c) => [c.id, c]));
+  const saveScope = saveGiveawayScope.bind(null, serverId);
 
   return (
     <div>

@@ -114,15 +114,18 @@ export const handleGiveawayStart: Handler = async (ctx, svc) => {
       content: '',
       embeds: [
         buildEmbed({
-          title: `🎉 ${prize}`,
-          description: `React with ${GIVEAWAY_EMOJI} to enter!`,
+          title: `🎁 Giveaway: ${prize}`,
+          description: `Tap ${GIVEAWAY_EMOJI} below to enter. ${
+            winnerCount === 1 ? 'One winner' : `${winnerCount} winners`
+          } picked at random when the timer hits zero.`,
           color: COLORS.ACCENT,
           fields: [
+            field('Prize', prize, true),
             field('Winners', String(winnerCount), true),
             field('Ends in', human, true),
-            field('Hosted by', `<@${ctx.senderId}>`, true),
+            field('Hosted by', `<@${ctx.senderId}>`, false),
           ],
-          footer: 'Giveaway ends',
+          footer: 'Drawing held at',
           // Setting the embed timestamp to the end-time gives clients
           // a "ends at <localized time>" footer rendering for free.
           timestamp: endAt,
@@ -183,8 +186,9 @@ export const handleGiveawayEnd: Handler = async (ctx, svc) => {
     return;
   }
   // Pick winners now since we just marked it ended (the tick won't
-  // re-pick a giveaway that's already `ended`).
-  await pickAndAnnounce(svc.api, ended);
+  // re-pick a giveaway that's already `ended`). Pass perms so the
+  // "exclude admins" scope rule applies on the early-end path too.
+  await pickAndAnnounce(svc.api, ended, { perms: svc.perms });
 };
 
 // `!greroll <messageId>` — pick another winner from the same pool,
@@ -225,6 +229,7 @@ export const handleGiveawayReroll: Handler = async (ctx, svc) => {
   await pickAndAnnounce(svc.api, single, {
     excludeUserIds: g.winners,
     isReroll: true,
+    perms: svc.perms,
   });
 };
 

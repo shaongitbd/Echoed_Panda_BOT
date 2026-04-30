@@ -591,6 +591,30 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS pre_lockdown_verification_level INT
     `,
   },
+  {
+    // Giveaway entry scope. Applied at end-of-giveaway pick time so
+    // changes affect in-flight giveaways too — admins don't have to
+    // restart anything.
+    //   - exclude_admins: drop members holding MANAGE_SERVER (owner /
+    //     additional_admins / role with the bit). Default TRUE because
+    //     admins picking themselves looks rigged regardless of intent.
+    //   - allowed_role_ids: empty = anyone may win; non-empty
+    //     restricts the winner pool to members holding ≥1 of these
+    //     roles.
+    //   - exempt_role_ids: members with any of these roles can never
+    //     win. Overrides allowed_role_ids (same semantics as automod
+    //     scope lists).
+    //   - exempt_user_ids: specific user IDs that can never win.
+    //     For "this person already won the last 5 in a row" cooldowns.
+    name: 'guild_config + giveaway scope',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS giveaway_exclude_admins   BOOLEAN  NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS giveaway_allowed_role_ids TEXT[]   NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS giveaway_exempt_role_ids  TEXT[]   NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS giveaway_exempt_user_ids  TEXT[]   NOT NULL DEFAULT '{}'
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

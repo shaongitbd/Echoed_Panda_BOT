@@ -249,7 +249,7 @@ async function main(): Promise<void> {
   // 4. Background scheduler — fires due reminders + closes finished
   //    giveaways. Started after socket so first ticks can use the
   //    bot identity for self-skip filtering.
-  startScheduler(api, botUserId);
+  startScheduler(api, botUserId, services.perms);
 
   const shutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, 'Shutting down');

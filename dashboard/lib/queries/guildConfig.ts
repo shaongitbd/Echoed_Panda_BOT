@@ -30,6 +30,14 @@ export interface GuildConfig {
   musicExemptChannelIds: string[];
   musicAllowedRoleIds: string[];
   musicExemptRoleIds: string[];
+  // Giveaway entry scope. Same conventions: empty allow-list = no
+  // restriction; exempt overrides allow. excludeAdmins flag is
+  // separate because "admin" is computed (MANAGE_SERVER bit), not
+  // role-list membership.
+  giveawayExcludeAdmins: boolean;
+  giveawayAllowedRoleIds: string[];
+  giveawayExemptRoleIds: string[];
+  giveawayExemptUserIds: string[];
 }
 
 interface Row {
@@ -49,6 +57,10 @@ interface Row {
   music_exempt_channel_ids: string[] | null;
   music_allowed_role_ids: string[] | null;
   music_exempt_role_ids: string[] | null;
+  giveaway_exclude_admins: boolean | null;
+  giveaway_allowed_role_ids: string[] | null;
+  giveaway_exempt_role_ids: string[] | null;
+  giveaway_exempt_user_ids: string[] | null;
 }
 
 const EMPTY = (serverId: string): GuildConfig => ({
@@ -68,6 +80,10 @@ const EMPTY = (serverId: string): GuildConfig => ({
   musicExemptChannelIds: [],
   musicAllowedRoleIds: [],
   musicExemptRoleIds: [],
+  giveawayExcludeAdmins: true,
+  giveawayAllowedRoleIds: [],
+  giveawayExemptRoleIds: [],
+  giveawayExemptUserIds: [],
 });
 
 function rowToConfig(row: Row): GuildConfig {
@@ -88,6 +104,10 @@ function rowToConfig(row: Row): GuildConfig {
     musicExemptChannelIds: row.music_exempt_channel_ids ?? [],
     musicAllowedRoleIds: row.music_allowed_role_ids ?? [],
     musicExemptRoleIds: row.music_exempt_role_ids ?? [],
+    giveawayExcludeAdmins: row.giveaway_exclude_admins ?? true,
+    giveawayAllowedRoleIds: row.giveaway_allowed_role_ids ?? [],
+    giveawayExemptRoleIds: row.giveaway_exempt_role_ids ?? [],
+    giveawayExemptUserIds: row.giveaway_exempt_user_ids ?? [],
   };
 }
 
@@ -97,7 +117,10 @@ const SELECT = `
   anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
   anti_raid_lockdown_until, dj_role_id,
   music_allowed_channel_ids, music_exempt_channel_ids,
-  music_allowed_role_ids,    music_exempt_role_ids
+  music_allowed_role_ids,    music_exempt_role_ids,
+  giveaway_exclude_admins,
+  giveaway_allowed_role_ids, giveaway_exempt_role_ids,
+  giveaway_exempt_user_ids
 `;
 
 export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
@@ -126,6 +149,10 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   musicExemptChannelIds: 'music_exempt_channel_ids',
   musicAllowedRoleIds: 'music_allowed_role_ids',
   musicExemptRoleIds: 'music_exempt_role_ids',
+  giveawayExcludeAdmins: 'giveaway_exclude_admins',
+  giveawayAllowedRoleIds: 'giveaway_allowed_role_ids',
+  giveawayExemptRoleIds: 'giveaway_exempt_role_ids',
+  giveawayExemptUserIds: 'giveaway_exempt_user_ids',
 };
 
 // upsert with dynamic column list — only writes the fields the form

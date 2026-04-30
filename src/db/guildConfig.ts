@@ -39,6 +39,13 @@ export interface GuildConfig {
   // snapshot pending. See db/migrate.ts: 'pre-lockdown verification
   // level snapshot'.
   preLockdownVerificationLevel: number | null;
+  // Giveaway entry scope. Applied at pick time (not at !gstart), so
+  // changing the rules affects in-flight giveaways too. See
+  // migrate.ts: 'guild_config + giveaway scope'.
+  giveawayExcludeAdmins: boolean;
+  giveawayAllowedRoleIds: string[];
+  giveawayExemptRoleIds: string[];
+  giveawayExemptUserIds: string[];
 }
 
 interface ConfigRow {
@@ -59,6 +66,10 @@ interface ConfigRow {
   music_allowed_role_ids: string[] | null;
   music_exempt_role_ids: string[] | null;
   pre_lockdown_verification_level: number | null;
+  giveaway_exclude_admins: boolean | null;
+  giveaway_allowed_role_ids: string[] | null;
+  giveaway_exempt_role_ids: string[] | null;
+  giveaway_exempt_user_ids: string[] | null;
 }
 
 function rowToConfig(row: ConfigRow): GuildConfig {
@@ -80,6 +91,10 @@ function rowToConfig(row: ConfigRow): GuildConfig {
     musicAllowedRoleIds: row.music_allowed_role_ids ?? [],
     musicExemptRoleIds: row.music_exempt_role_ids ?? [],
     preLockdownVerificationLevel: row.pre_lockdown_verification_level ?? null,
+    giveawayExcludeAdmins: row.giveaway_exclude_admins ?? true,
+    giveawayAllowedRoleIds: row.giveaway_allowed_role_ids ?? [],
+    giveawayExemptRoleIds: row.giveaway_exempt_role_ids ?? [],
+    giveawayExemptUserIds: row.giveaway_exempt_user_ids ?? [],
   };
 }
 
@@ -101,6 +116,10 @@ const EMPTY = (serverId: string): GuildConfig => ({
   musicAllowedRoleIds: [],
   musicExemptRoleIds: [],
   preLockdownVerificationLevel: null,
+  giveawayExcludeAdmins: true,
+  giveawayAllowedRoleIds: [],
+  giveawayExemptRoleIds: [],
+  giveawayExemptUserIds: [],
 });
 
 // Cache resolved configs in-process. TTL trades a tiny staleness window
@@ -123,7 +142,10 @@ export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
             anti_raid_lockdown_until, dj_role_id,
             music_allowed_channel_ids, music_exempt_channel_ids,
             music_allowed_role_ids,    music_exempt_role_ids,
-            pre_lockdown_verification_level
+            pre_lockdown_verification_level,
+            giveaway_exclude_admins,
+            giveaway_allowed_role_ids, giveaway_exempt_role_ids,
+            giveaway_exempt_user_ids
        FROM panda.guild_config
       WHERE server_id = $1`,
     [serverId],
@@ -155,6 +177,10 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   musicAllowedRoleIds: 'music_allowed_role_ids',
   musicExemptRoleIds: 'music_exempt_role_ids',
   preLockdownVerificationLevel: 'pre_lockdown_verification_level',
+  giveawayExcludeAdmins: 'giveaway_exclude_admins',
+  giveawayAllowedRoleIds: 'giveaway_allowed_role_ids',
+  giveawayExemptRoleIds: 'giveaway_exempt_role_ids',
+  giveawayExemptUserIds: 'giveaway_exempt_user_ids',
 };
 
 export async function setGuildConfig(
@@ -185,7 +211,10 @@ export async function setGuildConfig(
                anti_raid_lockdown_until, dj_role_id,
                music_allowed_channel_ids, music_exempt_channel_ids,
                music_allowed_role_ids,    music_exempt_role_ids,
-               pre_lockdown_verification_level`,
+               pre_lockdown_verification_level,
+               giveaway_exclude_admins,
+               giveaway_allowed_role_ids, giveaway_exempt_role_ids,
+               giveaway_exempt_user_ids`,
     [serverId, ...values],
   );
 

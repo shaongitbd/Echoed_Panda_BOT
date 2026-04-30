@@ -1,4 +1,5 @@
 import type { EchoedClient } from './client/echoedClient.js';
+import type { PermissionService } from './auth/permissions.js';
 import { reminderTick } from './reminders/tick.js';
 import { giveawayTick } from './giveaways/tick.js';
 import { tempChannelTick } from './tempChannels/tick.js';
@@ -26,7 +27,11 @@ let timer: NodeJS.Timeout | null = null;
 let runningTick: Promise<void> | null = null;
 let tickCount = 0;
 
-async function tick(api: EchoedClient, botUserId: string | null): Promise<void> {
+async function tick(
+  api: EchoedClient,
+  botUserId: string | null,
+  perms: PermissionService | null,
+): Promise<void> {
   tickCount++;
 
   // Always-on: reminders, giveaways, temp-channel cleanup, scheduled
@@ -36,7 +41,7 @@ async function tick(api: EchoedClient, botUserId: string | null): Promise<void> 
     reminderTick(api).catch((err: unknown) => {
       log.error({ err }, 'reminderTick threw');
     }),
-    giveawayTick(api, botUserId).catch((err: unknown) => {
+    giveawayTick(api, botUserId, perms).catch((err: unknown) => {
       log.error({ err }, 'giveawayTick threw');
     }),
     tempChannelTick(api).catch((err: unknown) => {
@@ -80,12 +85,17 @@ async function tick(api: EchoedClient, botUserId: string | null): Promise<void> 
 
 // Start the scheduler. Idempotent; calling twice doesn't double-tick.
 // `botUserId` is needed by the giveaway picker to filter out the bot's
-// seeded reaction from the entry pool.
-export function startScheduler(api: EchoedClient, botUserId: string | null): void {
+// seeded reaction from the entry pool. `perms` is used by the picker
+// to apply the optional "exclude admins" giveaway scope rule.
+export function startScheduler(
+  api: EchoedClient,
+  botUserId: string | null,
+  perms: PermissionService | null,
+): void {
   if (timer) return;
   timer = setInterval(() => {
     if (runningTick) return; // skip if previous tick is still running
-    runningTick = tick(api, botUserId).finally(() => {
+    runningTick = tick(api, botUserId, perms).finally(() => {
       runningTick = null;
     });
   }, TICK_INTERVAL_MS);
