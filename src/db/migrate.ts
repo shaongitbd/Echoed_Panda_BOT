@@ -563,6 +563,20 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS allowed_role_ids    TEXT[] NOT NULL DEFAULT '{}'
     `,
   },
+  {
+    // Music command scope. Empty arrays mean "no restriction" — the
+    // bot answers everywhere / to everyone, matching pre-existing
+    // behavior. Populating either allow list locks the feature down.
+    // Ignore lists override allow lists (same semantics as automod).
+    name: 'guild_config + music scope lists',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS music_allowed_channel_ids TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS music_exempt_channel_ids  TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS music_allowed_role_ids    TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS music_exempt_role_ids     TEXT[] NOT NULL DEFAULT '{}'
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

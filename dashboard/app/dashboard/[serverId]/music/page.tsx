@@ -1,8 +1,9 @@
 import { getGuildConfig } from '@/lib/queries/guildConfig';
-import { getServerRoles } from '@/lib/botApi';
+import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field } from '@/components/FormCard';
 import { RolePicker } from '@/components/RolePicker';
 import { SaveBar } from '@/components/SaveBar';
+import { ChannelAllowIgnore, RoleAllowIgnore } from '@/components/AllowIgnoreLists';
 import { saveMusic } from './actions';
 
 interface PageProps {
@@ -11,8 +12,9 @@ interface PageProps {
 
 export default async function MusicPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [config, roles] = await Promise.all([
+  const [config, channels, roles] = await Promise.all([
     getGuildConfig(serverId),
+    getServerChannels(serverId),
     getServerRoles(serverId),
   ]);
   const action = saveMusic.bind(null, serverId);
@@ -49,6 +51,43 @@ export default async function MusicPage({ params }: PageProps): Promise<JSX.Elem
               placeholder="(no DJ role — Manage Server only)"
             />
           </Field>
+        </FormCard>
+
+        {/* ─── Channel scope ─────────────────────────────────────────── */}
+        <FormCard
+          title="Channel scope"
+          description="Restrict where music commands respond. Allowed list narrows the surface; ignored list overrides allowed. Leave both empty to apply everywhere. Manage Server bypasses both lists."
+        >
+          <ChannelAllowIgnore
+            channels={channels}
+            allowedTypes={['text']}
+            allowedName="musicAllowedChannelIds"
+            ignoredName="musicExemptChannelIds"
+            initialAllowed={config.musicAllowedChannelIds}
+            initialIgnored={config.musicExemptChannelIds}
+            allowedLabel="Channels where music commands work"
+            allowedHint="Empty = music commands work in any channel."
+            ignoredLabel="Channels where music commands are blocked"
+            ignoredHint="Wins over the allowed list. Use for #general, #announcements, etc."
+          />
+        </FormCard>
+
+        {/* ─── Role scope ────────────────────────────────────────────── */}
+        <FormCard
+          title="Role scope"
+          description="Restrict who can run music commands. Members holding any allowed role can use music; members holding any blocked role cannot (overrides allowed). Manage Server bypasses both."
+        >
+          <RoleAllowIgnore
+            roles={roles}
+            allowedName="musicAllowedRoleIds"
+            ignoredName="musicExemptRoleIds"
+            initialAllowed={config.musicAllowedRoleIds}
+            initialIgnored={config.musicExemptRoleIds}
+            allowedLabel="Roles allowed to use music"
+            allowedHint="Empty = anyone can use music. Add roles here to restrict access."
+            ignoredLabel="Roles blocked from music"
+            ignoredHint="Useful for muted / probation roles. Wins over the allowed list."
+          />
         </FormCard>
 
         <FormCard

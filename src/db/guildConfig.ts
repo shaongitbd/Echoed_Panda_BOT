@@ -21,6 +21,19 @@ export interface GuildConfig {
   // skip / pause / volume / loop without holding MANAGE_SERVER. null →
   // fall back to MANAGE_SERVER only.
   djRoleId: string | null;
+  // Music command scope. Empty array means "no restriction".
+  //   - musicAllowedChannelIds: if non-empty, music commands work ONLY
+  //     in these text channels.
+  //   - musicExemptChannelIds:  music commands NEVER respond in these
+  //     channels (overrides allowed list).
+  //   - musicAllowedRoleIds:    if non-empty, only members holding
+  //     one of these roles can run music commands.
+  //   - musicExemptRoleIds:     members with any of these roles are
+  //     blocked from music commands (overrides allowed list).
+  musicAllowedChannelIds: string[];
+  musicExemptChannelIds: string[];
+  musicAllowedRoleIds: string[];
+  musicExemptRoleIds: string[];
 }
 
 interface ConfigRow {
@@ -36,6 +49,10 @@ interface ConfigRow {
   anti_raid_window_seconds: number;
   anti_raid_lockdown_until: Date | null;
   dj_role_id: string | null;
+  music_allowed_channel_ids: string[] | null;
+  music_exempt_channel_ids: string[] | null;
+  music_allowed_role_ids: string[] | null;
+  music_exempt_role_ids: string[] | null;
 }
 
 function rowToConfig(row: ConfigRow): GuildConfig {
@@ -52,6 +69,10 @@ function rowToConfig(row: ConfigRow): GuildConfig {
     antiRaidWindowSeconds: row.anti_raid_window_seconds ?? 30,
     antiRaidLockdownUntil: row.anti_raid_lockdown_until,
     djRoleId: row.dj_role_id,
+    musicAllowedChannelIds: row.music_allowed_channel_ids ?? [],
+    musicExemptChannelIds: row.music_exempt_channel_ids ?? [],
+    musicAllowedRoleIds: row.music_allowed_role_ids ?? [],
+    musicExemptRoleIds: row.music_exempt_role_ids ?? [],
   };
 }
 
@@ -68,6 +89,10 @@ const EMPTY = (serverId: string): GuildConfig => ({
   antiRaidWindowSeconds: 30,
   antiRaidLockdownUntil: null,
   djRoleId: null,
+  musicAllowedChannelIds: [],
+  musicExemptChannelIds: [],
+  musicAllowedRoleIds: [],
+  musicExemptRoleIds: [],
 });
 
 // Cache resolved configs in-process. TTL trades a tiny staleness window
@@ -87,7 +112,9 @@ export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
     `SELECT server_id, prefix, modlog_channel, welcome_channel, welcome_message,
             autorole_id, suggestions_channel,
             anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
-            anti_raid_lockdown_until, dj_role_id
+            anti_raid_lockdown_until, dj_role_id,
+            music_allowed_channel_ids, music_exempt_channel_ids,
+            music_allowed_role_ids,    music_exempt_role_ids
        FROM panda.guild_config
       WHERE server_id = $1`,
     [serverId],
@@ -114,6 +141,10 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   antiRaidWindowSeconds: 'anti_raid_window_seconds',
   antiRaidLockdownUntil: 'anti_raid_lockdown_until',
   djRoleId: 'dj_role_id',
+  musicAllowedChannelIds: 'music_allowed_channel_ids',
+  musicExemptChannelIds: 'music_exempt_channel_ids',
+  musicAllowedRoleIds: 'music_allowed_role_ids',
+  musicExemptRoleIds: 'music_exempt_role_ids',
 };
 
 export async function setGuildConfig(
@@ -122,7 +153,7 @@ export async function setGuildConfig(
 ): Promise<GuildConfig> {
   const entries = Object.entries(fields).filter(([, v]) => v !== undefined) as [
     keyof UpsertableFields,
-    string | null,
+    string | null | string[],
   ][];
 
   if (entries.length === 0) {
@@ -141,7 +172,9 @@ export async function setGuildConfig(
      RETURNING server_id, prefix, modlog_channel, welcome_channel, welcome_message,
                autorole_id, suggestions_channel,
                anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
-               anti_raid_lockdown_until, dj_role_id`,
+               anti_raid_lockdown_until, dj_role_id,
+               music_allowed_channel_ids, music_exempt_channel_ids,
+               music_allowed_role_ids,    music_exempt_role_ids`,
     [serverId, ...values],
   );
 

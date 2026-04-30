@@ -24,6 +24,12 @@ export interface GuildConfig {
   // skip / pause / volume / loop without Manage Server. null → fall
   // back to Manage Server only.
   djRoleId: string | null;
+  // Music command scope. Empty array means "no restriction".
+  // Allow lists narrow the surface; ignore lists override allow.
+  musicAllowedChannelIds: string[];
+  musicExemptChannelIds: string[];
+  musicAllowedRoleIds: string[];
+  musicExemptRoleIds: string[];
 }
 
 interface Row {
@@ -39,6 +45,10 @@ interface Row {
   anti_raid_window_seconds: number;
   anti_raid_lockdown_until: Date | null;
   dj_role_id: string | null;
+  music_allowed_channel_ids: string[] | null;
+  music_exempt_channel_ids: string[] | null;
+  music_allowed_role_ids: string[] | null;
+  music_exempt_role_ids: string[] | null;
 }
 
 const EMPTY = (serverId: string): GuildConfig => ({
@@ -54,6 +64,10 @@ const EMPTY = (serverId: string): GuildConfig => ({
   antiRaidWindowSeconds: 30,
   antiRaidLockdownUntil: null,
   djRoleId: null,
+  musicAllowedChannelIds: [],
+  musicExemptChannelIds: [],
+  musicAllowedRoleIds: [],
+  musicExemptRoleIds: [],
 });
 
 function rowToConfig(row: Row): GuildConfig {
@@ -70,6 +84,10 @@ function rowToConfig(row: Row): GuildConfig {
     antiRaidWindowSeconds: row.anti_raid_window_seconds ?? 30,
     antiRaidLockdownUntil: row.anti_raid_lockdown_until,
     djRoleId: row.dj_role_id,
+    musicAllowedChannelIds: row.music_allowed_channel_ids ?? [],
+    musicExemptChannelIds: row.music_exempt_channel_ids ?? [],
+    musicAllowedRoleIds: row.music_allowed_role_ids ?? [],
+    musicExemptRoleIds: row.music_exempt_role_ids ?? [],
   };
 }
 
@@ -77,7 +95,9 @@ const SELECT = `
   server_id, prefix, modlog_channel, welcome_channel, welcome_message,
   autorole_id, suggestions_channel,
   anti_raid_enabled, anti_raid_threshold, anti_raid_window_seconds,
-  anti_raid_lockdown_until, dj_role_id
+  anti_raid_lockdown_until, dj_role_id,
+  music_allowed_channel_ids, music_exempt_channel_ids,
+  music_allowed_role_ids,    music_exempt_role_ids
 `;
 
 export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
@@ -102,6 +122,10 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   antiRaidWindowSeconds: 'anti_raid_window_seconds',
   antiRaidLockdownUntil: 'anti_raid_lockdown_until',
   djRoleId: 'dj_role_id',
+  musicAllowedChannelIds: 'music_allowed_channel_ids',
+  musicExemptChannelIds: 'music_exempt_channel_ids',
+  musicAllowedRoleIds: 'music_allowed_role_ids',
+  musicExemptRoleIds: 'music_exempt_role_ids',
 };
 
 // upsert with dynamic column list — only writes the fields the form

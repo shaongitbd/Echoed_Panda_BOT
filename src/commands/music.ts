@@ -52,6 +52,98 @@ function progressBar(positionMs: number, durationSeconds: number): string {
   return '▰'.repeat(filled) + '▱'.repeat(20 - filled);
 }
 
+// musicScopeOk applies the channel + role allow/ignore lists from
+// guild_config. Returns true if the command may proceed; false if the
+// caller should bail (in which case we've already emitted a short
+// reason message). MANAGE_SERVER bypasses everything — the same
+// admins who configure the lists shouldn't lock themselves out.
+//
+// Semantics:
+//   - allow list empty → no restriction on that axis.
+//   - allow list non-empty + match → ok (so far).
+//   - allow list non-empty + no match → reject.
+//   - ignore list match → reject regardless of allow list.
+async function musicScopeOk(ctx: CommandContext, svc: Services): Promise<boolean> {
+  // Admin bypass. Avoids a deadlock-shaped UX where someone shape-shifts
+  // the lists incorrectly and locks the music feature out of every
+  // channel; staff can still set things back via !djrole / dashboard.
+  if (await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER')) return true;
+
+  const config = await getGuildConfig(ctx.serverId);
+
+  // Channel scope
+  if (config.musicExemptChannelIds.includes(ctx.channelId)) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: '🚫 Music commands are disabled in this channel.',
+    });
+    return false;
+  }
+  if (
+    config.musicAllowedChannelIds.length > 0 &&
+    !config.musicAllowedChannelIds.includes(ctx.channelId)
+  ) {
+    const list = config.musicAllowedChannelIds.map((id) => `<#${id}>`).join(' · ');
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: `🎶 Music commands only work in: ${list}`,
+    });
+    return false;
+  }
+
+  // Role scope. Only fetch member roles when there's a list to check
+  // against — the API call is cheap but skipping it keeps the
+  // unconfigured-server fast path fast.
+  const hasRoleScope =
+    config.musicAllowedRoleIds.length > 0 || config.musicExemptRoleIds.length > 0;
+  if (hasRoleScope) {
+    let memberRoles: string[] = [];
+    try {
+      const res = await svc.api.getMemberRoles(ctx.serverId, ctx.senderId);
+      memberRoles = res.roles;
+    } catch (err) {
+      log.warn({ err, userId: ctx.senderId }, 'Music role-scope lookup failed — denying');
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: 'Couldn\'t verify your roles right now. Try again in a moment.',
+      });
+      return false;
+    }
+
+    const exempt = config.musicExemptRoleIds.find((r) => memberRoles.includes(r));
+    if (exempt) {
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: '🚫 Your role is blocked from using music commands.',
+      });
+      return false;
+    }
+    if (
+      config.musicAllowedRoleIds.length > 0 &&
+      !config.musicAllowedRoleIds.some((r) => memberRoles.includes(r))
+    ) {
+      const list = config.musicAllowedRoleIds.map((id) => `<@&${id}>`).join(' · ');
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: `🎶 Music commands require one of these roles: ${list}`,
+      });
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // DJ check: MANAGE_SERVER OR holding the configured DJ role. The role
 // check is a single Echoed API call cached behind PermissionService's
 // own cache (we re-issue per-command for simplicity; the perm path is
@@ -116,6 +208,7 @@ async function resolveVoiceChannel(
 // ─── !play ────────────────────────────────────────────────────────────
 
 export const handlePlay: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   // Three forms accepted:
   //   !play <#voice-channel> <query>   — explicit channel
   //   !play <query>                    — bot follows the caller, OR
@@ -240,6 +333,7 @@ export const handlePlay: Handler = async (ctx, svc) => {
 // ─── !skip ────────────────────────────────────────────────────────────
 
 export const handleSkip: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   const np = session?.player.nowPlaying();
   if (!session || !np) {
@@ -266,6 +360,7 @@ export const handleSkip: Handler = async (ctx, svc) => {
 // ─── !stop ────────────────────────────────────────────────────────────
 
 export const handleStop: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) {
@@ -287,6 +382,7 @@ export const handleStop: Handler = async (ctx, svc) => {
 // ─── !pause / !resume ────────────────────────────────────────────────
 
 export const handlePause: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session?.player.pause()) {
@@ -305,6 +401,7 @@ export const handlePause: Handler = async (ctx, svc) => {
 };
 
 export const handleResume: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session?.player.resume()) {
@@ -325,6 +422,7 @@ export const handleResume: Handler = async (ctx, svc) => {
 // ─── !queue ──────────────────────────────────────────────────────────
 
 export const handleQueue: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) {
     await svc.api.sendMessage({
@@ -374,6 +472,7 @@ export const handleQueue: Handler = async (ctx, svc) => {
 // ─── !nowplaying ─────────────────────────────────────────────────────
 
 export const handleNowPlaying: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   const np = session?.player.nowPlaying();
   if (!session || !np) {
@@ -411,6 +510,7 @@ export const handleNowPlaying: Handler = async (ctx, svc) => {
 // ─── !volume ─────────────────────────────────────────────────────────
 
 export const handleVolume: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) {
     await svc.api.sendMessage({
@@ -451,6 +551,7 @@ export const handleVolume: Handler = async (ctx, svc) => {
 // ─── !loop ───────────────────────────────────────────────────────────
 
 export const handleLoop: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) {
@@ -482,6 +583,7 @@ export const handleLoop: Handler = async (ctx, svc) => {
 // ─── !shuffle ────────────────────────────────────────────────────────
 
 export const handleShuffle: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) {
@@ -503,6 +605,7 @@ export const handleShuffle: Handler = async (ctx, svc) => {
 // ─── !remove ─────────────────────────────────────────────────────────
 
 export const handleRemove: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) {
     await svc.api.sendMessage({
@@ -605,6 +708,7 @@ export const handleDjRole: Handler = async (ctx, svc) => {
 // ─── !clearqueue ─────────────────────────────────────────────────────
 
 export const handleClearQueue: Handler = async (ctx, svc) => {
+  if (!(await musicScopeOk(ctx, svc))) return;
   if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
   if (!session) return;
