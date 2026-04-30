@@ -2,6 +2,7 @@ import type { Handler } from './index.js';
 import { getUserXp, getUserRank } from '../levels/grant.js';
 import { progressToNext } from '../levels/curve.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
+import { log } from '../log.js';
 
 // `<@userId>` is Echoed's mention wire format. We accept either a
 // raw mention or a bare ID string so `!rank @someone` and
@@ -48,11 +49,21 @@ export const handleRank: Handler = async (ctx, { api }) => {
   const progress = progressToNext(xp.totalXp);
   const rank = await getUserRank(ctx.serverId, target);
 
-  // Embed titles render plain text — mentions only parse in the
-  // description. Lead the description with the mention so the user
-  // sees a clickable name; the bar follows for visual rhythm.
+  // Echoed doesn't resolve `<@id>` mentions inside embed descriptions
+  // (only in regular message content), so we have to fetch the
+  // displayName ourselves — otherwise the card shows the raw user ID.
+  // Best-effort: if the lookup fails, fall back to "Unknown user"
+  // rather than leaking the ID.
+  let displayName = isSelf ? ctx.senderName : 'Unknown user';
+  try {
+    const profile = await api.getMemberProfile(ctx.serverId, target);
+    displayName = profile.displayName || profile.username || displayName;
+  } catch (err) {
+    log.debug({ err, target }, 'Rank: getMemberProfile failed, falling back');
+  }
+
   const description = [
-    `<@${target}>`,
+    `**${displayName}**`,
     `\`${progressBar(progress.fraction)}\` ${fmtXp(progress.intoLevel)} / ${fmtXp(progress.levelTotal)} XP`,
   ].join('\n');
 

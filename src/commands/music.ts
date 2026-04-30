@@ -167,7 +167,7 @@ async function requireDj(ctx: CommandContext, svc: Services): Promise<boolean> {
     replyToId: ctx.messageId,
     content: config.djRoleId
       ? `You need the **DJ** role (<@&${config.djRoleId}>) or **Manage Server** for this.`
-      : 'You need the **Manage Server** permission for this. (Or to be the user who queued the current track for `skip`.)',
+      : 'You need the **Manage Server** permission for this. (Or to be the user who queued the current track for `skip` / `pause` / `resume`.)',
   });
   return false;
 }
@@ -383,8 +383,11 @@ export const handleStop: Handler = async (ctx, svc) => {
 
 export const handlePause: Handler = async (ctx, svc) => {
   if (!(await musicScopeOk(ctx, svc))) return;
-  if (!(await requireDj(ctx, svc))) return;
+  // Same bypass as !skip — the user who queued the current track owns
+  // it for pause/resume too. Anyone else needs DJ / Manage Server.
   const session = svc.voice.get(ctx.serverId);
+  const ownsTrack = session?.player.nowPlaying()?.track.requestedBy === ctx.senderId;
+  if (!ownsTrack && !(await requireDj(ctx, svc))) return;
   if (!session?.player.pause()) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
@@ -402,8 +405,9 @@ export const handlePause: Handler = async (ctx, svc) => {
 
 export const handleResume: Handler = async (ctx, svc) => {
   if (!(await musicScopeOk(ctx, svc))) return;
-  if (!(await requireDj(ctx, svc))) return;
   const session = svc.voice.get(ctx.serverId);
+  const ownsTrack = session?.player.nowPlaying()?.track.requestedBy === ctx.senderId;
+  if (!ownsTrack && !(await requireDj(ctx, svc))) return;
   if (!session?.player.resume()) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,

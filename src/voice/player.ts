@@ -326,14 +326,24 @@ export class MusicPlayer extends EventEmitter {
       return;
     }
 
+    // Identity check the loop uses to know "this push loop owns the
+    // current track". `this.trackComplete` flips to null on settle, then
+    // gets reassigned to the NEXT track's settle when run() advances. A
+    // bare truthy check would let the outgoing loop see the new track's
+    // settle and keep pushing the OLD PCM — which manifests as "skip
+    // does nothing, queued songs never start" because LiveKit's audio
+    // queue is serialized and the old loop hogs it until naturally
+    // exhausted.
+    const stillCurrent = (): boolean => this.trackComplete === settle;
+
     try {
       const decodeStart = Date.now();
       const chunks: Buffer[] = [];
       for await (const chunk of stream) {
-        if (!this.trackComplete) return;
+        if (!stillCurrent()) return;
         chunks.push(chunk as Buffer);
       }
-      if (!this.trackComplete) return;
+      if (!stillCurrent()) return;
       const pcm = Buffer.concat(chunks);
       log.info(
         {
@@ -345,7 +355,7 @@ export class MusicPlayer extends EventEmitter {
       );
 
       let written = 0;
-      while (written < pcm.length && this.trackComplete) {
+      while (written < pcm.length && stillCurrent()) {
         if (this.paused) {
           await this.connection.pushFrame(SILENT_FRAME_1S);
           continue; // don't advance written while paused
@@ -359,13 +369,13 @@ export class MusicPlayer extends EventEmitter {
 
       // Drain whatever's still in LiveKit's queue before advancing —
       // otherwise we cut off the last ~1s of audio (the queue depth).
-      if (this.trackComplete !== null) {
+      if (stillCurrent()) {
         await this.connection.waitForPlayout();
         settle('natural');
       }
     } catch (err) {
       log.warn({ err }, 'Push loop errored — ending track');
-      settle('natural');
+      if (stillCurrent()) settle('natural');
     }
   }
 
