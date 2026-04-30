@@ -17,11 +17,16 @@ function parseChannelId(arg: string | undefined): string | null {
   return null;
 }
 
+// Accept the bare username, a twitch.tv URL with or without protocol,
+// and tolerate trailing paths / query strings / hashes (e.g. links
+// shared from a stream page).
 function parseTwitchLogin(arg: string | undefined): string | null {
   if (!arg) return null;
-  // Strip a trailing slash from URLs like `https://twitch.tv/<login>`.
-  const stripped = arg.trim().replace(/^https?:\/\/(?:www\.)?twitch\.tv\//i, '').replace(/\/.*$/, '');
-  return TWITCH_LOGIN_RE.test(stripped) ? stripped.toLowerCase() : null;
+  let t = arg.trim();
+  t = t.replace(/^https?:\/\/(?:www\.)?twitch\.tv\//i, '');
+  t = t.replace(/^(?:www\.)?twitch\.tv\//i, '');
+  t = t.split(/[\/?#]/)[0] ?? '';
+  return TWITCH_LOGIN_RE.test(t) ? t.toLowerCase() : null;
 }
 
 async function requireManageServer(ctx: CommandContext, svc: Services): Promise<boolean> {
@@ -38,9 +43,14 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `Usage:
-\`${prefix}twitch follow <username> <#channel>\`
-\`${prefix}twitch unfollow <username> <#channel>\`
+  `**Usage:** \`${prefix}twitch follow <twitch link or username> <#channel>\`
+
+Either of these works:
+\`${prefix}twitch follow shroud #live-alerts\`
+\`${prefix}twitch follow https://twitch.tv/shroud #live-alerts\`
+
+Other commands:
+\`${prefix}twitch unfollow <twitch link or username> <#channel>\`
 \`${prefix}twitch list\``;
 
 export const handleTwitch: Handler = async (ctx, svc) => {
@@ -50,7 +60,8 @@ export const handleTwitch: Handler = async (ctx, svc) => {
     const all = await listForServer(ctx.serverId);
     if (all.length === 0) {
       const config = twitchEnabled()
-        ? `No Twitch subscriptions yet. Add one with \`${ctx.prefix}twitch follow <username> <#channel>\`.`
+        ? `No Twitch subscriptions yet. Add one by pasting a Twitch link:
+\`${ctx.prefix}twitch follow https://twitch.tv/shroud #live-alerts\``
         : 'Twitch integration isn\'t configured on this bot. Ask the bot operator to set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`.';
       await svc.api.sendMessage({
         serverId: ctx.serverId,

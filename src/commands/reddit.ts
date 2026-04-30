@@ -15,12 +15,24 @@ function parseChannelId(arg: string | undefined): string | null {
   return null;
 }
 
-// Accept "memes", "r/memes", or "/r/memes". Validates against Reddit's
-// subreddit naming rules (2-21 chars, alphanumeric + underscore).
+// Accept any of these — Reddit's naming rules apply (2-21 chars,
+// alphanumeric + underscore):
+//   • bare:        memes
+//   • prefixed:    r/memes,  /r/memes
+//   • full URL:    https://reddit.com/r/memes,  https://www.reddit.com/r/memes/,
+//                  https://old.reddit.com/r/memes,  reddit.com/r/memes
 function parseSubreddit(arg: string | undefined): string | null {
   if (!arg) return null;
-  const stripped = arg.replace(/^\/?r\//i, '').toLowerCase();
-  return SUBREDDIT_RE.test(stripped) ? stripped : null;
+  let t = arg.trim();
+  // Strip protocol + reddit.com host (and any subdomain like old/new/www).
+  t = t.replace(/^https?:\/\/(?:[a-z0-9-]+\.)*reddit\.com\//i, '');
+  t = t.replace(/^(?:[a-z0-9-]+\.)*reddit\.com\//i, '');
+  // Strip "r/" or "/r/" prefix.
+  t = t.replace(/^\/?r\//i, '');
+  // Drop trailing path / query / hash.
+  t = t.split(/[\/?#]/)[0] ?? '';
+  t = t.toLowerCase();
+  return SUBREDDIT_RE.test(t) ? t : null;
 }
 
 async function requireManageServer(ctx: CommandContext, svc: Services): Promise<boolean> {
@@ -37,9 +49,15 @@ async function requireManageServer(ctx: CommandContext, svc: Services): Promise<
 }
 
 const USAGE = (prefix: string): string =>
-  `Usage:
-\`${prefix}reddit follow <subreddit> <#channel>\`
-\`${prefix}reddit unfollow <subreddit> <#channel>\`
+  `**Usage:** \`${prefix}reddit follow <subreddit or link> <#channel>\`
+
+Any of these forms work:
+\`${prefix}reddit follow programming #news\`
+\`${prefix}reddit follow r/programming #news\`
+\`${prefix}reddit follow https://reddit.com/r/programming #news\`
+
+Other commands:
+\`${prefix}reddit unfollow <subreddit or link> <#channel>\`
 \`${prefix}reddit list\``;
 
 export const handleReddit: Handler = async (ctx, svc) => {
@@ -51,7 +69,8 @@ export const handleReddit: Handler = async (ctx, svc) => {
       await svc.api.sendMessage({
         serverId: ctx.serverId,
         channelId: ctx.channelId,
-        content: `No Reddit subscriptions yet. Add one with \`${ctx.prefix}reddit follow <subreddit> <#channel>\`.`,
+        content: `No Reddit subscriptions yet. Add one by pasting a subreddit or its link:
+\`${ctx.prefix}reddit follow https://reddit.com/r/programming #news\``,
       });
       return;
     }
