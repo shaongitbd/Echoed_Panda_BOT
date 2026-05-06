@@ -5,7 +5,7 @@
 /* Fonts via Google Fonts CDN — kept inline rather than in app/layout
    so the entire stylesheet is self-contained. preconnect happens in
    the document <head> for performance. */
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 /* ─── Design tokens ─────────────────────────────────────────────────
    Single source of truth. Aliased into Tailwind via tailwind.config.ts
@@ -23,9 +23,10 @@
   --bg-hover: #35353a;
   --bg-input: #1d1e22;
 
-  /* Text — light-grey hierarchy, no pure white. */
-  --text-primary: #ebebed;
-  --text-secondary: #9ca3af;
+  /* Text — pure white at the top of the hierarchy for crisper
+     contrast on the dark surface stack, then steps down to grays. */
+  --text-primary: #ffffff;
+  --text-secondary: #b5b6bb;
   --text-muted: #6b6c74;
 
   /* Accent — crimson, shared with tempvoice. Used sparingly: primary
@@ -112,17 +113,3 @@ body {
   font-weight: 400;
 }
 
-/* Decorative gradient halo behind the hero illustration. Single
-   accent-tinted glow, positioned by the consumer. */
-.hero-glow::before {
-  content: '';
-  position: absolute;
-  inset: -20%;
-  background: radial-gradient(
-    closest-side,
-    var(--accent-muted),
-    transparent 70%
-  );
-  z-index: -1;
-  pointer-events: none;
-}

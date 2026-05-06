@@ -16,12 +16,12 @@ export async function Header(): Promise<JSX.Element> {
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-8 text-sm text-text-secondary md:flex">
+        <nav className="hidden items-center gap-8 text-sm font-medium text-text-secondary md:flex">
           <Link href="/#features" className="hover:text-text-primary transition-colors duration-150">
             Features
           </Link>
-          <Link href="/#commands" className="hover:text-text-primary transition-colors duration-150">
-            Commands
+          <Link href="/docs" className="hover:text-text-primary transition-colors duration-150">
+            Docs
           </Link>
           <Link
             href="https://github.com/shaongitbd/panda"
