@@ -30,7 +30,8 @@
         "./*"
       ]
     },
-    "incremental": true
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo/.tsbuildinfo"
   },
   "include": [
     "next-env.d.ts",
