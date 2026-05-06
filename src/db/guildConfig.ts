@@ -237,3 +237,39 @@ export async function setGuildConfig(
 export function invalidateGuildConfig(serverId: string): void {
   cache.delete(serverId);
 }
+
+/**
+ * Atomically claim the "we welcomed this server" flag. Returns true the
+ * first time it's called for a given server (the caller should then send
+ * the welcome message), false on every subsequent call.
+ *
+ * Implemented as a single round-trip:
+ *
+ *   - If no guild_config row exists  → INSERT with bot_welcomed_at=NOW(),
+ *                                       returning row → true.
+ *   - Row exists, NULL marker        → UPDATE to NOW(), returning row
+ *                                       (the WHERE on DO UPDATE filters
+ *                                       no-ops out of RETURNING) → true.
+ *   - Row exists, non-NULL marker    → DO UPDATE's WHERE evaluates false,
+ *                                       no row returned → false.
+ *
+ * Atomic against concurrent SERVER_MEMBER_ADD events for the same server
+ * (e.g. socket-reconnect duplicates) — the unique server_id PK serializes
+ * the inserts and the WHERE clause prevents double-claiming.
+ */
+export async function claimBotWelcome(serverId: string): Promise<boolean> {
+  const res = await pool.query<{ server_id: string }>(
+    `INSERT INTO panda.guild_config (server_id, bot_welcomed_at)
+     VALUES ($1, NOW())
+     ON CONFLICT (server_id) DO UPDATE
+       SET bot_welcomed_at = EXCLUDED.bot_welcomed_at
+       WHERE panda.guild_config.bot_welcomed_at IS NULL
+     RETURNING server_id`,
+    [serverId],
+  );
+  if (res.rowCount && res.rowCount > 0) {
+    cache.delete(serverId); // ensure next read sees the new bot_welcomed_at
+    return true;
+  }
+  return false;
+}

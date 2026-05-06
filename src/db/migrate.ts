@@ -615,6 +615,20 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS giveaway_exempt_user_ids  TEXT[]   NOT NULL DEFAULT '{}'
     `,
   },
+  {
+    // bot_welcomed_at: timestamp the bot first sent its welcome card to
+    // this server. Used as a one-shot flag — the welcome flow only fires
+    // when this column is NULL, so socket reconnects / event replays /
+    // server-leave-rejoin cycles never re-send the message. NULL by
+    // default for every existing server (they were already invited
+    // before this migration ran, so they don't need a retroactive
+    // welcome). New servers get the welcome on first SERVER_MEMBER_ADD.
+    name: 'guild_config + bot welcome marker',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS bot_welcomed_at TIMESTAMPTZ
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

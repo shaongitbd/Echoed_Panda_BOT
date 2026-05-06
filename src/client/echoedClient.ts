@@ -562,6 +562,19 @@ export class EchoedClient {
     return this.request('GET', `/v1/bots/${serverId}/info`);
   }
 
+  // List every channel the bot can see on the server. Used by the
+  // first-install welcome flow to find a channel to post the welcome
+  // card in (the system/general channel isn't a first-class concept on
+  // Echoed, so we pick the first text channel by position).
+  async listChannels(serverId: string): Promise<ChannelInfo[]> {
+    const res = await this.request<{ channels?: ChannelInfo[] } | ChannelInfo[]>(
+      'GET',
+      `/v1/bots/${serverId}/channels`,
+    );
+    if (Array.isArray(res)) return res;
+    return res.channels ?? [];
+  }
+
   async createChannel(input: {
     serverId: string;
     name: string;

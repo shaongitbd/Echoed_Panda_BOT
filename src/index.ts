@@ -10,6 +10,7 @@ import { dispatch, type Services } from './commands/index.js';
 import { awardXp } from './levels/grant.js';
 import { handleLevelUp } from './levels/levelUp.js';
 import { handleMemberJoined } from './welcome/onJoin.js';
+import { handleBotJoinedServer } from './welcome/onBotJoin.js';
 import { processMessage as automodProcess } from './automod/pipeline.js';
 import { handleReactionAdded, handleReactionRemoved } from './reactRoles/handler.js';
 import { processAfk } from './afk/handler.js';
@@ -102,6 +103,19 @@ async function main(): Promise<void> {
   const socket = new EchoedSocket();
   socket.setBotUserId(botUserId);
   socket.onMemberJoined(async (data) => {
+    // First-install case: this event fires for the bot's own user ID
+    // when an admin invites Panda to a new server. Run the one-time
+    // welcome flow and exit — anti-raid + member-welcome don't apply
+    // when the new "member" IS the bot.
+    if (data.userId === botUserId) {
+      try {
+        await handleBotJoinedServer(api, data);
+      } catch (err) {
+        log.error({ err, serverId: data.serverId }, 'Bot welcome flow failed');
+      }
+      return;
+    }
+
     // Anti-raid runs first — if it auto-kicks the joiner during a
     // lockdown, the welcome flow has nothing to do. Pass the bot's
     // user ID so mod-log entries are attributed to the bot itself
