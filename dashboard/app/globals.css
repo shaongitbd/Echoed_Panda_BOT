@@ -13,26 +13,28 @@
    we agreed on for panda — Echoed family palette, panda-themed
    bamboo green for status. */
 :root {
-  /* Backgrounds — descend in lightness; "base" is the page bg, "card"
-     is the default surface, "elevated" lifts modals/hover. */
-  --bg-base: #0e0e10;
-  --bg-card: #18181c;
-  --bg-elevated: #1f1f24;
-  --bg-hover: #232329;
-  --bg-input: #14141a;
+  /* Surfaces step from near-black up. Shared brand palette with
+     tempvoice.xyz — same author, same family. The surface stack is
+     deliberately dark so the crimson accent has room to actually pop;
+     a warmer-grey base would mute it. */
+  --bg-base: #18181b;
+  --bg-card: #24252b;
+  --bg-elevated: #2b2c32;
+  --bg-hover: #35353a;
+  --bg-input: #1d1e22;
 
-  /* Text — never pure white; pure white on a dark bg looks brittle. */
-  --text-primary: #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  /* Text — light-grey hierarchy, no pure white. */
+  --text-primary: #ebebed;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b6c74;
 
-  /* Accent — Echoed's gold. Used sparingly: primary CTAs, active
-     navigation, key status emphasis. Anything more diluted goes into
-     --accent-muted. */
-  --accent: #FFC928;
-  --accent-hover: #ffd54a;
-  --accent-muted: rgba(255, 201, 40, 0.12);
-  --accent-fg: #1a1a0d;
+  /* Accent — crimson, shared with tempvoice. Used sparingly: primary
+     CTAs and a handful of emphatic words in headlines. Anything more
+     dilute drops to `--accent-muted`. */
+  --accent: #d53254;
+  --accent-hover: #e04766;
+  --accent-muted: rgba(213, 50, 84, 0.14);
+  --accent-fg: #ffffff;
 
   /* Status — bamboo green for online/live, off-the-shelf reds/yellows
      for danger/warning. */
