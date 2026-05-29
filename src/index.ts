@@ -10,7 +10,7 @@ import { dispatch, type Services } from './commands/index.js';
 import { awardXp } from './levels/grant.js';
 import { handleLevelUp } from './levels/levelUp.js';
 import { handleMemberJoined } from './welcome/onJoin.js';
-import { handleBotJoinedServer } from './welcome/onBotJoin.js';
+import { handleBotJoinedServer, provisionLevelRoles } from './welcome/onBotJoin.js';
 import { processMessage as automodProcess } from './automod/pipeline.js';
 import { handleReactionAdded, handleReactionRemoved } from './reactRoles/handler.js';
 import { processAfk } from './afk/handler.js';
@@ -164,6 +164,12 @@ async function main(): Promise<void> {
       } else {
         services.perms.invalidateServer(data.serverId);
       }
+      // Self-heal: a role/permission change may have just granted the bot
+      // MANAGE_ROLES. Re-attempt level provisioning — idempotent, so it's a
+      // no-op if already provisioned or if the bot still lacks the permission.
+      void provisionLevelRoles(api, data.serverId).catch((err) =>
+        log.warn({ err, serverId: data.serverId }, 'Self-heal level provision failed'),
+      );
       return;
     }
     // channel_permission_updated.
@@ -264,6 +270,27 @@ async function main(): Promise<void> {
   //    giveaways. Started after socket so first ticks can use the
   //    bot identity for self-skip filtering.
   startScheduler(api, botUserId, services.perms);
+
+  // 5. Startup reconcile — ensure level roles are provisioned for every server
+  //    the bot is in. Idempotent (skips servers that already have rewards), so
+  //    it's safe to run every boot. Catches servers added while the bot was
+  //    offline and any install event that didn't fire. Best-effort + sequential
+  //    to stay gentle on the API.
+  void (async () => {
+    try {
+      const { servers } = await api.listServers();
+      log.info({ count: servers.length }, 'Reconciling level provisioning across servers');
+      for (const s of servers) {
+        try {
+          await provisionLevelRoles(api, s.id);
+        } catch (err) {
+          log.warn({ err, serverId: s.id }, 'Reconcile provision failed for server');
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, 'Startup reconcile could not list servers');
+    }
+  })();
 
   const shutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, 'Shutting down');

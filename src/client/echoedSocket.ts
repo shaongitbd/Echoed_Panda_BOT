@@ -116,13 +116,14 @@ export class EchoedSocket {
     });
 
     // Member-join: payload is { serverId, userId, memberCount, updatedAt }.
-    // Skip if the joining user is the bot itself (sometimes fires on
-    // bot-invite). Goodbye flow is intentionally absent — Echoed
-    // currently does not broadcast SERVER_MEMBER_REMOVE to remaining
-    // members, so the bot can't reliably observe leaves yet.
+    // We forward the bot's OWN join too — that's the first-install signal
+    // (fired by InviteBotToServer's PublishMemberJoined), which index.ts routes
+    // to handleBotJoinedServer for welcome + level auto-provision. The handler
+    // is idempotent (claimBotWelcome), so duplicate/replayed events are safe.
+    // Goodbye flow is intentionally absent — Echoed currently does not broadcast
+    // SERVER_MEMBER_REMOVE to remaining members.
     socket.on('SERVER_MEMBER_ADD', (data: MemberJoinedData) => {
       if (!data || !data.serverId || !data.userId) return;
-      if (this.botUserId && data.userId === this.botUserId) return;
       Promise.resolve(this.memberJoinedHandler?.(data)).catch((err) => {
         log.error({ err }, 'Member-joined handler threw');
       });

@@ -1,9 +1,70 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import type { MemberJoinedData } from '../types.js';
 import { claimBotWelcome } from '../db/guildConfig.js';
+import { setLevelSettings } from '../db/levelSettings.js';
+import { setLevelReward, getRewardsInRange } from '../levels/levelUp.js';
 import { log } from '../log.js';
 
 const DASHBOARD_URL = 'https://memebot.echoed.gg';
+
+// Default level ladder auto-created on first install. Hoisted + colored so the
+// member's current tier shows as a badge next to their name in chat (the
+// "visible level" status hook). Warm gradient gray→green→blue→purple→amber→
+// orange→red. Replace-mode (set below) keeps exactly one tier role per member,
+// so the badge is always the current level — not a stack.
+const LEVEL_LADDER: ReadonlyArray<{ level: number; name: string; color: string }> = [
+  { level: 5, name: 'Level 5', color: '#9CA3AF' },
+  { level: 10, name: 'Level 10', color: '#34D399' },
+  { level: 20, name: 'Level 20', color: '#60A5FA' },
+  { level: 35, name: 'Level 35', color: '#A78BFA' },
+  { level: 50, name: 'Level 50', color: '#FBBF24' },
+  { level: 75, name: 'Level 75', color: '#F97316' },
+  { level: 100, name: 'Level 100', color: '#EF4444' },
+];
+
+// Auto-provision the level ladder: create each tier role (hoisted + colored)
+// and register it as a level reward. Best-effort — if the bot lacks
+// MANAGE_ROLES (admin unticked it on the consent screen) createRole 403s; we
+// stop and return false so the welcome can nudge them to grant it. Runs once
+// (guarded by claimBotWelcome upstream), so no duplicate roles.
+export async function provisionLevelRoles(api: EchoedClient, serverId: string): Promise<boolean> {
+  // Idempotent gate: if any level rewards already exist — because we provisioned
+  // before, OR an admin configured their own ladder — do nothing. This lets the
+  // startup reconcile and the permission self-heal call this repeatedly without
+  // duplicating roles or clobbering an admin's setup.
+  try {
+    const existing = await getRewardsInRange(serverId, 1, 1000);
+    if (existing.length > 0) return true;
+  } catch (err) {
+    log.warn({ err, serverId }, 'Could not read existing level rewards — skipping provision');
+    return false;
+  }
+
+  // Enable leveling + replace-mode so only the current tier role sticks.
+  try {
+    await setLevelSettings(serverId, { enabled: true, stackRewards: false });
+  } catch (err) {
+    log.warn({ err, serverId }, 'Failed to enable leveling during provision');
+  }
+
+  for (const tier of LEVEL_LADDER) {
+    try {
+      const res = await api.createRole(serverId, {
+        name: tier.name,
+        color: tier.color,
+        hoist: true,
+        mentionable: false,
+        position: 1,
+      });
+      if (res?.roleId) await setLevelReward(serverId, tier.level, res.roleId);
+    } catch (err) {
+      log.warn({ err, serverId, level: tier.level }, 'Level-role provision failed (missing Manage Roles?)');
+      return false;
+    }
+  }
+  log.info({ serverId, count: LEVEL_LADDER.length }, 'Provisioned level roles');
+  return true;
+}
 
 // Posted once per server, the first time the bot is added. Atomic claim
 // in `claimBotWelcome` prevents double-sending on socket reconnects /
@@ -75,6 +136,11 @@ export async function handleBotJoinedServer(
     return;
   }
 
+  // Auto-provision the level ladder (hoisted/colored roles + rewards). Runs
+  // once per server (guarded above). Best-effort — needs MANAGE_ROLES, granted
+  // via the invite consent screen. Result tunes the welcome message.
+  const levelsReady = await provisionLevelRoles(api, serverId);
+
   // Best-effort lookups. If either fails we degrade gracefully —
   // server name falls back to "this server", owner mention falls back
   // to nothing.
@@ -107,7 +173,10 @@ export async function handleBotJoinedServer(
     return;
   }
 
-  const content = buildWelcomeContent(serverName, ownerMention);
+  let content = buildWelcomeContent(serverName, ownerMention);
+  content += levelsReady
+    ? `\n\n✅ **Levels are live** — members earn XP as they chat and unlock a colored level badge next to their name.`
+    : `\n\n⚠️ I couldn't set up level roles. Grant me **Manage Roles** (Server Settings → Roles) so I can create the level badges.`;
 
   try {
     await api.sendMessage({

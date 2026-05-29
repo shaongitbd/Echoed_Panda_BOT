@@ -540,6 +540,18 @@ export class EchoedClient {
   }
 
   // ─── Roles ───────────────────────────────────────────────────────────
+
+  // Create a new guild role. Requires the bot to hold MANAGE_ROLES on the
+  // server (granted via the invite consent screen). `hoist` makes the role
+  // display separately + surface as a badge next to names in chat — used by
+  // the level-role auto-provision so levels become visible status.
+  async createRole(
+    serverId: string,
+    role: { name: string; color?: string; permissions?: number; position?: number; hoist?: boolean; mentionable?: boolean },
+  ): Promise<{ success: boolean; roleId: string }> {
+    return this.request('POST', `/v1/bots/${serverId}/roles`, role);
+  }
+
   async addRole(serverId: string, userId: string, roleId: string): Promise<DeleteResponse> {
     return this.request('POST', `/v1/bots/${serverId}/members/${userId}/roles/${roleId}`);
   }
@@ -560,6 +572,13 @@ export class EchoedClient {
   // ─── Server / Channels ───────────────────────────────────────────────
   async getServerInfo(serverId: string): Promise<ServerInfo> {
     return this.request('GET', `/v1/bots/${serverId}/info`);
+  }
+
+  // Every server this bot is in. Used by the startup reconcile so level roles
+  // get provisioned even for servers added while the bot was offline (or where
+  // the install event didn't fire).
+  async listServers(): Promise<{ servers: Array<{ id: string; name?: string }>; total: number }> {
+    return this.request('GET', '/v1/bots/servers');
   }
 
   // List every channel the bot can see on the server. Used by the
