@@ -191,6 +191,48 @@ export async function awardXp(input: GrantInput): Promise<GrantResult> {
   };
 }
 
+export interface BonusResult {
+  oldLevel: number;
+  newLevel: number;
+  totalXp: number;
+  leveledUp: boolean;
+}
+
+// Award a flat XP amount outside the message hot path — used by features like
+// the daily check-in that grant XP for an explicit action rather than for
+// chatting. No cooldown, no channel/role scope (the caller decides eligibility);
+// just the same upsert + level recompute awardXp does, so level-ups stay
+// consistent. Caller is responsible for the level-up announce (handleLevelUp).
+export async function addBonusXp(
+  serverId: string,
+  userId: string,
+  amount: number,
+): Promise<BonusResult> {
+  const upsertRes = await pool.query<{ total_xp: string; level: number }>(
+    `INSERT INTO panda.xp (server_id, user_id, total_xp, level, last_msg_at, updated_at)
+     VALUES ($1, $2, $3, 0, now(), now())
+     ON CONFLICT (server_id, user_id) DO UPDATE
+       SET total_xp = panda.xp.total_xp + EXCLUDED.total_xp,
+           updated_at = now()
+     RETURNING total_xp, level`,
+    [serverId, userId, amount],
+  );
+  const row = upsertRes.rows[0];
+  if (!row) return { oldLevel: 0, newLevel: 0, totalXp: 0, leveledUp: false };
+
+  const totalXp = Number(row.total_xp);
+  const oldLevel = row.level;
+  const newLevel = levelForTotalXp(totalXp);
+  if (newLevel !== oldLevel) {
+    await pool.query(
+      `UPDATE panda.xp SET level = $3, updated_at = now()
+        WHERE server_id = $1 AND user_id = $2 AND level < $3`,
+      [serverId, userId, newLevel],
+    );
+  }
+  return { oldLevel, newLevel, totalXp, leveledUp: newLevel > oldLevel };
+}
+
 // Read a user's current XP/level without granting. Used by !rank.
 export async function getUserXp(
   serverId: string,

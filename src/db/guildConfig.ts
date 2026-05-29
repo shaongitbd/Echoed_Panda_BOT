@@ -273,3 +273,35 @@ export async function claimBotWelcome(serverId: string): Promise<boolean> {
   }
   return false;
 }
+
+/**
+ * Atomically claim the "we told this server we need Manage Roles for levels"
+ * flag. Returns true the first time (caller should post the notice), false
+ * afterwards — so the reconcile/self-heal loops don't re-nag every boot or
+ * permission-change. Same one-shot pattern as claimBotWelcome.
+ */
+export async function claimLevelPermsNag(serverId: string): Promise<boolean> {
+  const res = await pool.query<{ server_id: string }>(
+    `INSERT INTO panda.guild_config (server_id, level_perms_nagged_at)
+     VALUES ($1, NOW())
+     ON CONFLICT (server_id) DO UPDATE
+       SET level_perms_nagged_at = EXCLUDED.level_perms_nagged_at
+       WHERE panda.guild_config.level_perms_nagged_at IS NULL
+     RETURNING server_id`,
+    [serverId],
+  );
+  if (res.rowCount && res.rowCount > 0) {
+    cache.delete(serverId);
+    return true;
+  }
+  return false;
+}
+
+/** Reset the level-perms nag (call once provisioning succeeds) so a future
+ *  permission loss can notify again. */
+export async function clearLevelPermsNag(serverId: string): Promise<void> {
+  await pool.query(
+    `UPDATE panda.guild_config SET level_perms_nagged_at = NULL WHERE server_id = $1`,
+    [serverId],
+  );
+}

@@ -187,8 +187,10 @@ export const handleGiveawayEnd: Handler = async (ctx, svc) => {
   }
   // Pick winners now since we just marked it ended (the tick won't
   // re-pick a giveaway that's already `ended`). Pass perms so the
-  // "exclude admins" scope rule applies on the early-end path too.
-  await pickAndAnnounce(svc.api, ended, { perms: svc.perms });
+  // "exclude admins" scope rule applies on the early-end path too, and
+  // botUserId so the bot's own seed reaction is excluded (the timer path
+  // passes this — the manual end must too, or the bot can "win").
+  await pickAndAnnounce(svc.api, ended, { perms: svc.perms, botUserId: svc.botUserId });
 };
 
 // `!greroll <messageId>` — pick another winner from the same pool,
@@ -230,6 +232,7 @@ export const handleGiveawayReroll: Handler = async (ctx, svc) => {
     excludeUserIds: g.winners,
     isReroll: true,
     perms: svc.perms,
+    botUserId: svc.botUserId,
   });
 };
 

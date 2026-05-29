@@ -629,6 +629,188 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS bot_welcomed_at TIMESTAMPTZ
     `,
   },
+  {
+    // level_perms_nagged_at: one-shot flag for the "I need Manage Roles to set
+    // up levels" notice. Set when level provisioning fails for lack of
+    // permission, so the reconcile + self-heal paths don't re-post the notice
+    // on every boot/permission-change. Cleared once provisioning succeeds, so a
+    // later permission loss can notify again.
+    name: 'guild_config + level perms nag marker',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS level_perms_nagged_at TIMESTAMPTZ
+    `,
+  },
+
+  // ─── Engagement features ──────────────────────────────────────────────
+
+  {
+    // Question of the Day. One config row per server (where to post, at
+    // what UTC time, on/off) plus a scheduling cursor (next_run_at) that
+    // the tick advances by a day on each fire — same model as
+    // scheduled_messages. last_question stops the immediate repeat.
+    name: 'qotd_config table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.qotd_config (
+        server_id      TEXT PRIMARY KEY,
+        channel_id     TEXT,
+        enabled        BOOLEAN NOT NULL DEFAULT FALSE,
+        daily_time     TEXT NOT NULL DEFAULT '12:00',
+        next_run_at    TIMESTAMPTZ,
+        last_question  TEXT,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
+  {
+    name: 'qotd_config due index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS qotd_config_due_idx
+        ON panda.qotd_config (next_run_at)
+        WHERE enabled = TRUE
+    `,
+  },
+  {
+    // Per-server custom question bank. When empty, the bot falls back to
+    // a built-in default list so QOTD works the moment it's switched on.
+    name: 'qotd_questions table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.qotd_questions (
+        id          BIGSERIAL PRIMARY KEY,
+        server_id   TEXT NOT NULL,
+        question    TEXT NOT NULL,
+        created_by  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
+  {
+    name: 'qotd_questions by_server index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS qotd_questions_by_server_idx
+        ON panda.qotd_questions (server_id)
+    `,
+  },
+  {
+    // Members' birthdays (month/day; year optional so age stays private).
+    name: 'birthdays table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.birthdays (
+        server_id    TEXT NOT NULL,
+        user_id      TEXT NOT NULL,
+        birth_month  INT NOT NULL,
+        birth_day    INT NOT NULL,
+        birth_year   INT,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (server_id, user_id)
+      )
+    `,
+  },
+  {
+    name: 'birthdays by_date index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS birthdays_by_date_idx
+        ON panda.birthdays (server_id, birth_month, birth_day)
+    `,
+  },
+  {
+    // Birthday announcement config. Same daily scheduling cursor as QOTD.
+    // role_id (optional) is granted on the member's birthday and removed
+    // the next day. message is an optional template ({user} placeholder).
+    name: 'birthday_config table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.birthday_config (
+        server_id    TEXT PRIMARY KEY,
+        channel_id   TEXT,
+        enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+        daily_time   TEXT NOT NULL DEFAULT '09:00',
+        role_id      TEXT,
+        message      TEXT,
+        next_run_at  TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
+  {
+    name: 'birthday_config due index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS birthday_config_due_idx
+        ON panda.birthday_config (next_run_at)
+        WHERE enabled = TRUE
+    `,
+  },
+  {
+    // Starboard config: which emoji + how many of it reposts a message to
+    // which channel.
+    name: 'starboard_config table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.starboard_config (
+        server_id   TEXT PRIMARY KEY,
+        channel_id  TEXT,
+        emoji       TEXT NOT NULL DEFAULT '⭐',
+        threshold   INT NOT NULL DEFAULT 3,
+        enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
+  {
+    // Tracks which source messages already have a starboard entry (so we
+    // edit the existing post's count rather than reposting) keyed by the
+    // original message.
+    name: 'starboard_posts table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.starboard_posts (
+        server_id             TEXT NOT NULL,
+        source_message_id     TEXT NOT NULL,
+        source_channel_id     TEXT NOT NULL,
+        starboard_message_id  TEXT NOT NULL,
+        star_count            INT NOT NULL DEFAULT 0,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (server_id, source_message_id)
+      )
+    `,
+  },
+  {
+    // Daily check-in streaks. last_claim_date is a DATE (UTC day) so the
+    // "already claimed today / continued yesterday / streak broken" logic
+    // is a plain date comparison.
+    name: 'daily_checkins table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.daily_checkins (
+        server_id        TEXT NOT NULL,
+        user_id          TEXT NOT NULL,
+        last_claim_date  DATE,
+        streak           INT NOT NULL DEFAULT 0,
+        best_streak      INT NOT NULL DEFAULT 0,
+        total_claims     INT NOT NULL DEFAULT 0,
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (server_id, user_id)
+      )
+    `,
+  },
+  {
+    // Counting game: one channel per server where the community counts up.
+    // current_count is the last valid number; last_user_id enforces the
+    // no-double-counting rule; high_score is the all-time best run.
+    name: 'counting_config table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.counting_config (
+        server_id      TEXT PRIMARY KEY,
+        channel_id     TEXT,
+        current_count  INT NOT NULL DEFAULT 0,
+        last_user_id   TEXT,
+        high_score     INT NOT NULL DEFAULT 0,
+        enabled        BOOLEAN NOT NULL DEFAULT FALSE,
+        reset_on_fail  BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
 ];
 
 export async function runMigrations(): Promise<void> {

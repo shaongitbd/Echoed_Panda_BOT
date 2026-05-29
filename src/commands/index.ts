@@ -71,12 +71,21 @@ import {
   handleDjRole,
 } from './music.js';
 import { handleTestAudio } from './testTone.js';
+import { handleCheckPerms } from './checkPerms.js';
+import { handleQotd } from './qotd.js';
+import { handleBirthday } from './birthday.js';
+import { handleStarboard } from './starboard.js';
+import { handleDaily } from './daily.js';
+import { handleCounting } from './counting.js';
 
 export interface Services {
   api: EchoedClient;
   perms: PermissionService;
   voice: VoiceManager;
   startedAt: number;
+  // The bot's own user ID — needed by commands that report on the bot's own
+  // permissions (e.g. `!checkperms`) rather than the invoking user's.
+  botUserId: string;
 }
 
 export type Handler = (ctx: CommandContext, svc: Services) => Promise<void>;
@@ -472,12 +481,50 @@ export const registry: readonly Registered[] = [
     help: 'diagnostic: play LiveKit\'s example WAV through the pipeline (bypasses yt-dlp)',
   },
 
+  // ─── Engagement ───────────────────────────────────────────────────
+  {
+    name: 'qotd',
+    aliases: ['questionoftheday'],
+    handler: handleQotd,
+    help: 'question of the day — `qotd channel|time|on|off|add|remove|list|now`',
+  },
+  {
+    name: 'birthday',
+    aliases: ['bday', 'birthdays'],
+    handler: handleBirthday,
+    help: 'birthdays — `birthday set <MM-DD>` · admin: `channel|time|role|message|on|off`',
+  },
+  {
+    name: 'starboard',
+    aliases: ['star'],
+    handler: handleStarboard,
+    help: 'reaction highlights — `starboard channel|emoji|threshold|on|off` (Manage Server)',
+  },
+  {
+    name: 'daily',
+    aliases: ['checkin', 'streak'],
+    handler: handleDaily,
+    help: 'daily check-in for an XP bonus + streak',
+  },
+  {
+    name: 'counting',
+    aliases: ['count'],
+    handler: handleCounting,
+    help: 'counting game — `counting channel|on|off|reset|strict` (Manage Server)',
+  },
+
   // ─── Meta ─────────────────────────────────────────────────────────
   {
     name: 'ping',
     aliases: [],
     handler: handlePing,
     help: 'health check + uptime',
+  },
+  {
+    name: 'checkperms',
+    aliases: ['permissions', 'permcheck', 'checkpermissions'],
+    handler: handleCheckPerms,
+    help: 'audit what permissions I have on this server (Manage Server)',
   },
   {
     name: 'help',

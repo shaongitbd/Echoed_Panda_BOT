@@ -1,11 +1,20 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import type { MemberJoinedData } from '../types.js';
-import { claimBotWelcome } from '../db/guildConfig.js';
-import { setLevelSettings } from '../db/levelSettings.js';
+import type { PermissionService, Permission } from '../auth/permissions.js';
+import { claimBotWelcome, claimLevelPermsNag, clearLevelPermsNag } from '../db/guildConfig.js';
+import { setLevelSettings, getLevelSettings } from '../db/levelSettings.js';
 import { setLevelReward, getRewardsInRange } from '../levels/levelUp.js';
 import { log } from '../log.js';
 
 const DASHBOARD_URL = 'https://memebot.echoed.gg';
+
+// Posted in-channel when the bot can't create the level roles for lack of
+// permission. Gives the two concrete fixes an admin can take.
+const MISSING_PERMS_MESSAGE =
+  `⚠️ I can't set up the **level system** here yet — I'm missing the **Manage Roles** permission.\n\n` +
+  `**To fix it, do either:**\n` +
+  `• Create a role with **Manage Roles** (or **Manage Server**) and assign it to me — I'll finish setting up automatically, **or**\n` +
+  `• Remove me, then re-invite me and tick **Manage Roles** on the permission screen — that grants it for me automatically.`;
 
 // Default level ladder auto-created on first install. Hoisted + colored so the
 // member's current tier shows as a badge next to their name in chat (the
@@ -40,7 +49,41 @@ export async function provisionLevelRoles(api: EchoedClient, serverId: string): 
     return false;
   }
 
-  // Enable leveling + replace-mode so only the current tier role sticks.
+  // Respect an admin who has already configured leveling themselves — never
+  // seed default roles or flip their settings under them. The only fields
+  // provisioning ITSELF writes are `enabled` (→true) and `stackRewards`
+  // (→false), so any OTHER non-default field can only be a human's doing.
+  // `enabled === false` is the explicit `!levels disable` case (the DB default
+  // is true, so a false value can't come from us or a fresh row).
+  //
+  // Deliberately NOT gated on "a level_settings row exists": provisioning
+  // creates that row (with the two defaults above) BEFORE the role loop, so a
+  // bot that joined without Manage Roles would have a row but no roles — a
+  // row-exists bail would then block the permission self-heal from ever
+  // finishing once Manage Roles is granted. Checking human-set fields instead
+  // keeps self-heal working while honoring real admin config.
+  try {
+    const settings = await getLevelSettings(serverId);
+    const adminConfigured =
+      settings.enabled === false ||
+      settings.levelUpChannel !== null ||
+      settings.levelUpMessage !== null ||
+      settings.noXpChannelIds.length > 0 ||
+      settings.allowedXpChannelIds.length > 0 ||
+      settings.allowedXpRoleIds.length > 0 ||
+      settings.ignoredXpRoleIds.length > 0;
+    if (adminConfigured) {
+      log.info({ serverId }, 'Leveling already configured by an admin — skipping auto-provision');
+      return true;
+    }
+  } catch (err) {
+    log.warn({ err, serverId }, 'Could not read level settings — skipping provision to avoid clobbering admin config');
+    return false;
+  }
+
+  // Enable leveling + replace-mode so only the current tier role sticks. Safe
+  // to force here: we've established above this is a fresh, admin-untouched
+  // server (no rewards, no human-set settings).
   try {
     await setLevelSettings(serverId, { enabled: true, stackRewards: false });
   } catch (err) {
@@ -64,6 +107,42 @@ export async function provisionLevelRoles(api: EchoedClient, serverId: string): 
   }
   log.info({ serverId, count: LEVEL_LADDER.length }, 'Provisioned level roles');
   return true;
+}
+
+/**
+ * provisionLevelRoles + a one-time in-channel notice when it fails for lack of
+ * permission. Used by the startup reconcile and the permission self-heal. (The
+ * fresh-invite welcome flow reports status in its welcome card and manages the
+ * nag flag itself, so it doesn't go through here.) Spam-safe via
+ * claimLevelPermsNag — the notice posts at most once until levels succeed.
+ */
+export async function provisionAndNotify(api: EchoedClient, serverId: string): Promise<boolean> {
+  const ok = await provisionLevelRoles(api, serverId);
+  if (ok) {
+    try { await clearLevelPermsNag(serverId); } catch (err) { log.warn({ err, serverId }, 'clearLevelPermsNag failed'); }
+    return true;
+  }
+  // Couldn't provision — almost always because the bot lacks Manage Roles.
+  // Tell the server ONCE so an admin can grant it; the self-heal finishes later.
+  let firstTime = false;
+  try { firstTime = await claimLevelPermsNag(serverId); } catch (err) { log.warn({ err, serverId }, 'claimLevelPermsNag failed'); }
+  if (!firstTime) return false;
+  try {
+    const channels = await api.listChannels(serverId);
+    const target = channels
+      .filter((c) => c.type === 'text')
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+    if (target) {
+      await api.sendMessage({
+        serverId,
+        channelId: target.id,
+        content: MISSING_PERMS_MESSAGE,
+      });
+    }
+  } catch (err) {
+    log.warn({ err, serverId }, 'Failed to post missing-perms notice');
+  }
+  return false;
 }
 
 // Posted once per server, the first time the bot is added. Atomic claim
@@ -103,97 +182,179 @@ function buildWelcomeContent(serverName: string, ownerMention: string | null): s
   ].join('\n');
 }
 
+// The capabilities Panda uses, the permission each needs, and what breaks
+// without it. Drives the per-invite permission checklist so an admin who
+// granted, say, everything-except-Manage-Server sees exactly what's on, what's
+// off, and the consequence of each gap.
+const CAPABILITIES: ReadonlyArray<{ perm: Permission; label: string; without: string }> = [
+  // Foundational
+  { perm: 'VIEW_CHANNELS',        label: 'View Channels',        without: "I can't see channels here — most features won't work" },
+  { perm: 'SEND_MESSAGES',        label: 'Send Messages',        without: "I can't reply or post anything at all" },
+  { perm: 'READ_MESSAGE_HISTORY', label: 'Read Message History', without: 'I miss context for commands & auto-mod' },
+  { perm: 'EMBED_LINKS',          label: 'Embed Links',          without: 'leaderboards & rich cards show as plain text' },
+  { perm: 'ADD_REACTIONS',        label: 'Add Reactions',        without: "reaction-roles, polls & giveaways can't seed reactions" },
+  // Management. NOTE: Echoed has no standalone "Manage Messages" — Manage
+  // Channels is the umbrella and *implies* message moderation (delete/purge),
+  // task & event management, and member-move, both in the role editor and in
+  // the permission service (isImpliedByManageChannels). So we list Manage
+  // Channels once and spell out everything it unlocks; a separate Manage
+  // Messages line would just mirror it and read as a second thing to grant.
+  { perm: 'MANAGE_ROLES',        label: 'Manage Roles',         without: 'no level rewards, reaction roles, or auto-roles' },
+  { perm: 'MANAGE_CHANNELS',      label: 'Manage Channels',      without: "auto-mod can't delete flagged messages, no purge, and temp voice/text channels can't be created" },
+  // Moderation
+  { perm: 'KICK_MEMBERS',         label: 'Kick Members',         without: 'no kicks, and anti-raid auto-kick is disabled' },
+  { perm: 'BAN_MEMBERS',          label: 'Ban Members',          without: 'no bans' },
+  { perm: 'MUTE_MEMBERS',         label: 'Mute Members',         without: "I can't timeout / untimeout members" },
+  { perm: 'MANAGE_SERVER',        label: 'Manage Server',        without: "I can't engage raid lockdown" },
+  // Voice (music)
+  { perm: 'CONNECT',              label: 'Connect to Voice',     without: "I can't join voice to play music" },
+  { perm: 'SPEAK',                label: 'Speak',                without: "I can't play music" },
+];
+
+// Build the per-permission checklist for the bot on a server. Granted perms get
+// a ✅; missing ones get a ❌ plus the feature impact. Returns the message body.
+// Exported so the on-demand `!checkperms` admin command can render the same
+// report the auto-post uses — one source of truth for what Panda needs.
+export async function buildPermissionReport(
+  perms: PermissionService,
+  botUserId: string,
+  serverId: string,
+): Promise<string> {
+  const lines: string[] = [];
+  let missing = 0;
+  for (const cap of CAPABILITIES) {
+    // Best-effort per perm — a check that errors counts as "not granted" so we
+    // surface it rather than silently claiming the feature works.
+    let ok = false;
+    try {
+      ok = await perms.has(serverId, botUserId, cap.perm);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      lines.push(`✅ **${cap.label}**`);
+    } else {
+      missing++;
+      lines.push(`❌ **${cap.label}** — without it, ${cap.without}`);
+    }
+  }
+
+  const header =
+    missing === 0
+      ? `## ✅ Permissions — all good!\nEverything I do is enabled here:`
+      : `## ⚠️ Permission check — ${missing} missing\nHere's what I can and can't do right now:`;
+  const footer =
+    missing === 0
+      ? ''
+      : `\n\n**To grant the missing ones, either:**\n` +
+        `• Add them to a role assigned to me, **or**\n` +
+        `• Remove me and re-invite me, ticking them on the permission screen.`;
+  // The checks above are SERVER-WIDE. Per-channel overrides can grant access in
+  // specific channels that this server-level view won't reflect — say so, so a
+  // channel-only grant doesn't look like the feature is fully dead.
+  const channelNote =
+    `\n\n_This reflects my **server-wide** access. If you grant a permission in only certain channels ` +
+    `(via channel overrides), I'll still work in those channels even if it shows ❌ above._`;
+  return `${header}\n\n${lines.join('\n')}${footer}${channelNote}`;
+}
+
 /**
- * Fired when SERVER_MEMBER_ADD arrives with the bot's own user ID — i.e.
- * the bot was just invited to this server. Sends a welcome card to the
- * first text channel the bot can post in.
+ * Fired when SERVER_MEMBER_ADD arrives with the bot's own user ID — i.e. the
+ * bot was just invited. Posts (to the lowest-position text channel):
+ *   - a one-time welcome card (first invite only, via claimBotWelcome), and
+ *   - a permission checklist EVERY invite — so re-invites (after a remove)
+ *     re-report the bot's current capabilities, which is exactly when an admin
+ *     wants to confirm what they granted this time.
+ * Also auto-provisions the level ladder (idempotent; non-destructive removal
+ * means a re-invite finds the existing rewards and leaves ranks intact).
  *
- * Idempotent across reconnects via `claimBotWelcome`. Channel selection
- * picks the lowest-position text channel — no "system" channel concept
- * exists in Echoed, so this is the closest analogue to "the place the
- * server owner expects bot announcements".
- *
- * Errors are logged but never thrown — a failed welcome shouldn't block
- * the rest of the bot's onboarding (auto-role assignment, etc.).
+ * Errors are logged, never thrown.
  */
 export async function handleBotJoinedServer(
   api: EchoedClient,
+  perms: PermissionService,
+  botUserId: string,
   data: MemberJoinedData,
 ): Promise<void> {
   const { serverId } = data;
 
-  // Atomic dedup. If another worker / replay already welcomed this
-  // server, claim returns false and we exit silently.
-  let isFirstTime: boolean;
+  // One-shot welcome card vs. always-posted permission report. claimBotWelcome
+  // is true only the first time; the report posts on every invite regardless.
+  let isFirstTime = false;
   try {
     isFirstTime = await claimBotWelcome(serverId);
   } catch (err) {
-    log.error({ err, serverId }, 'claimBotWelcome failed — skipping welcome');
-    return;
-  }
-  if (!isFirstTime) {
-    log.debug({ serverId }, 'Bot already welcomed this server, skipping');
-    return;
+    log.warn({ err, serverId }, 'claimBotWelcome failed — posting report without welcome card');
   }
 
-  // Auto-provision the level ladder (hoisted/colored roles + rewards). Runs
-  // once per server (guarded above). Best-effort — needs MANAGE_ROLES, granted
-  // via the invite consent screen. Result tunes the welcome message.
+  // Auto-provision the level ladder (idempotent; best-effort, needs Manage Roles).
   const levelsReady = await provisionLevelRoles(api, serverId);
-
-  // Best-effort lookups. If either fails we degrade gracefully —
-  // server name falls back to "this server", owner mention falls back
-  // to nothing.
-  let serverName = 'this server';
-  let ownerMention: string | null = null;
   try {
-    const info = await api.getServerInfo(serverId);
-    if (info.name) serverName = info.name;
-    if (info.ownerId) ownerMention = `<@${info.ownerId}>`;
+    if (levelsReady) await clearLevelPermsNag(serverId);
+    else await claimLevelPermsNag(serverId); // report below covers the "missing" case
   } catch (err) {
-    log.warn({ err, serverId }, 'getServerInfo failed during bot welcome — using fallbacks');
+    log.warn({ err, serverId }, 'level perms nag flag update failed');
   }
 
-  // Find a text channel to post in. Pick the lowest-position text
-  // channel — that's typically what users think of as "general".
+  // Permission checklist — always built. Owner mention / server name only
+  // needed for the first-time welcome card.
+  const report = await buildPermissionReport(perms, botUserId, serverId);
+
+  let content: string;
+  if (isFirstTime) {
+    let serverName = 'this server';
+    let ownerMention: string | null = null;
+    try {
+      const info = await api.getServerInfo(serverId);
+      if (info.name) serverName = info.name;
+      if (info.ownerId) ownerMention = `<@${info.ownerId}>`;
+    } catch (err) {
+      log.warn({ err, serverId }, 'getServerInfo failed during bot welcome — using fallbacks');
+    }
+    content = buildWelcomeContent(serverName, ownerMention);
+    if (levelsReady) {
+      content += `\n\n✅ **Levels are live** — members earn XP as they chat and unlock a colored level badge next to their name.`;
+    }
+    content += `\n\n${report}`;
+  } else {
+    content = report;
+  }
+
+  // Lowest-position text channel the bot can actually post in. Checking SEND
+  // per-channel matters when Send Messages was granted only via a channel
+  // override (not server-wide) — otherwise we'd post to a channel we can't
+  // speak in and the message would silently 403. Falls back to the first text
+  // channel if we can't confirm any (best-effort).
   let channels;
   try {
     channels = await api.listChannels(serverId);
   } catch (err) {
-    log.warn({ err, serverId }, 'listChannels failed — bot welcome will not post');
+    log.warn({ err, serverId }, 'listChannels failed — bot join message will not post');
     return;
   }
-
-  const targetChannel = channels
+  const textChannels = channels
     .filter((c) => c.type === 'text')
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
-
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  let targetChannel = textChannels[0];
   if (!targetChannel) {
-    log.warn({ serverId }, 'No text channel found for bot welcome');
+    log.warn({ serverId }, 'No text channel found for bot join message');
     return;
   }
-
-  let content = buildWelcomeContent(serverName, ownerMention);
-  content += levelsReady
-    ? `\n\n✅ **Levels are live** — members earn XP as they chat and unlock a colored level badge next to their name.`
-    : `\n\n⚠️ I couldn't set up level roles. Grant me **Manage Roles** (Server Settings → Roles) so I can create the level badges.`;
+  for (const ch of textChannels) {
+    try {
+      if (await perms.hasIn(serverId, ch.id, botUserId, 'SEND_MESSAGES')) {
+        targetChannel = ch;
+        break;
+      }
+    } catch {
+      /* fall through — keep the default */
+    }
+  }
 
   try {
-    await api.sendMessage({
-      serverId,
-      channelId: targetChannel.id,
-      content,
-    });
-    log.info(
-      { serverId, channelId: targetChannel.id, channelName: targetChannel.name },
-      'Bot welcome message sent',
-    );
+    await api.sendMessage({ serverId, channelId: targetChannel.id, content });
+    log.info({ serverId, channelId: targetChannel.id, firstTime: isFirstTime }, 'Bot join message sent');
   } catch (err) {
-    // We already claimed the welcome flag, so we won't retry on next
-    // event. This is intentional — if posting fails for permission
-    // reasons (bot can't see/post in any channel), retrying every
-    // reconnect would just spam errors. The owner can re-invite or
-    // run /help manually.
-    log.warn({ err, serverId, channelId: targetChannel.id }, 'Bot welcome message send failed');
+    log.warn({ err, serverId, channelId: targetChannel.id }, 'Bot join message send failed');
   }
 }

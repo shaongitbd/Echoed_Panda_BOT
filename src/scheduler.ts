@@ -8,6 +8,8 @@ import { redditTick } from './reddit/tick.js';
 import { twitchTick } from './twitch/tick.js';
 import { youtubeTick } from './youtube/tick.js';
 import { schedMsgTick } from './schedMsg/tick.js';
+import { qotdTick } from './qotd/tick.js';
+import { birthdayTick } from './birthday/tick.js';
 import { log } from './log.js';
 
 // Base tick cadence. Slower-cadence tasks fire every N base ticks
@@ -22,6 +24,11 @@ const STATS_EVERY_N_TICKS = 4;
 // Run every 5 min (20 base ticks). Reddit's ToS asks for ≤1 req/sec
 // per source; we batch by subreddit so this is well within bounds.
 const REDDIT_EVERY_N_TICKS = 20;
+
+// Run every 60s (4 base ticks). QOTD + birthdays fire at most once/day per
+// server; they self-gate on next_run_at, so a minute of granularity lands the
+// post within a minute of the configured HH:MM — plenty precise for a daily.
+const ENGAGEMENT_EVERY_N_TICKS = 4;
 
 let timer: NodeJS.Timeout | null = null;
 let runningTick: Promise<void> | null = null;
@@ -56,6 +63,18 @@ async function tick(
     branches.push(
       statTick(api).catch((err: unknown) => {
         log.error({ err }, 'statTick threw');
+      }),
+    );
+  }
+  if (tickCount % ENGAGEMENT_EVERY_N_TICKS === 0) {
+    branches.push(
+      qotdTick(api).catch((err: unknown) => {
+        log.error({ err }, 'qotdTick threw');
+      }),
+    );
+    branches.push(
+      birthdayTick(api).catch((err: unknown) => {
+        log.error({ err }, 'birthdayTick threw');
       }),
     );
   }

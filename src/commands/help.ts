@@ -100,10 +100,16 @@ const CATEGORIES: readonly Category[] = [
     commands: ['autoreact', 'keyword', 'schedule'],
   },
   {
+    name: 'engagement',
+    emoji: '🎉',
+    blurb: 'Question of the day, birthdays, starboard, daily streaks, counting',
+    commands: ['qotd', 'birthday', 'starboard', 'daily', 'counting'],
+  },
+  {
     name: 'meta',
     emoji: '🐼',
-    blurb: 'Help and health',
-    commands: ['ping', 'help'],
+    blurb: 'Help, health, permission check',
+    commands: ['ping', 'help', 'checkperms'],
   },
 ];
 

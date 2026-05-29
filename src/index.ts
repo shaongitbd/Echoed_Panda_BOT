@@ -10,7 +10,7 @@ import { dispatch, type Services } from './commands/index.js';
 import { awardXp } from './levels/grant.js';
 import { handleLevelUp } from './levels/levelUp.js';
 import { handleMemberJoined } from './welcome/onJoin.js';
-import { handleBotJoinedServer, provisionLevelRoles } from './welcome/onBotJoin.js';
+import { handleBotJoinedServer, provisionAndNotify } from './welcome/onBotJoin.js';
 import { processMessage as automodProcess } from './automod/pipeline.js';
 import { handleReactionAdded, handleReactionRemoved } from './reactRoles/handler.js';
 import { processAfk } from './afk/handler.js';
@@ -18,6 +18,8 @@ import { processJoin as antiRaidProcessJoin } from './antiRaid/detector.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { processAutoReact } from './autoReact/handler.js';
 import { processKeywords } from './keywords/handler.js';
+import { processCounting } from './counting/handler.js';
+import { processStarboardReaction } from './starboard/handler.js';
 import { promises as fs } from 'node:fs';
 
 // One-time boot-time check that the music feature is configured correctly.
@@ -96,6 +98,7 @@ async function main(): Promise<void> {
     perms: new PermissionService(api),
     voice: new VoiceManager(api),
     startedAt: Date.now(),
+    botUserId,
   };
 
   // 3. Socket — auto-subscribed to every server room on auth, so we
@@ -109,7 +112,7 @@ async function main(): Promise<void> {
     // when the new "member" IS the bot.
     if (data.userId === botUserId) {
       try {
-        await handleBotJoinedServer(api, data);
+        await handleBotJoinedServer(api, services.perms, botUserId, data);
       } catch (err) {
         log.error({ err, serverId: data.serverId }, 'Bot welcome flow failed');
       }
@@ -140,6 +143,13 @@ async function main(): Promise<void> {
     } catch (err) {
       log.error({ err, msgId: data.messageId }, 'Reaction-add flow failed');
     }
+    // Starboard is independent of reaction-roles — a ⭐ can land on any
+    // message, not just tracked ones. Run it regardless of the above.
+    try {
+      await processStarboardReaction(api, data);
+    } catch (err) {
+      log.error({ err, msgId: data.messageId }, 'Starboard add flow failed');
+    }
   });
 
   socket.onReactionRemoved(async (data) => {
@@ -147,6 +157,12 @@ async function main(): Promise<void> {
       await handleReactionRemoved(api, data);
     } catch (err) {
       log.error({ err, msgId: data.messageId }, 'Reaction-remove flow failed');
+    }
+    // Keep the starboard count in sync when stars are taken back.
+    try {
+      await processStarboardReaction(api, data);
+    } catch (err) {
+      log.error({ err, msgId: data.messageId }, 'Starboard remove flow failed');
     }
   });
 
@@ -167,7 +183,7 @@ async function main(): Promise<void> {
       // Self-heal: a role/permission change may have just granted the bot
       // MANAGE_ROLES. Re-attempt level provisioning — idempotent, so it's a
       // no-op if already provisioned or if the bot still lacks the permission.
-      void provisionLevelRoles(api, data.serverId).catch((err) =>
+      void provisionAndNotify(api, data.serverId).catch((err) =>
         log.warn({ err, serverId: data.serverId }, 'Self-heal level provision failed'),
       );
       return;
@@ -223,6 +239,16 @@ async function main(): Promise<void> {
         await processKeywords(api, msg);
       } catch (err) {
         log.error({ err, msgId: msg.id }, 'Keyword pipeline failed');
+      }
+    })();
+    // Counting game: validate/advance the number in the configured channel.
+    // Background — a number message still earns XP and can co-exist with the
+    // rest of the pipeline.
+    void (async () => {
+      try {
+        await processCounting(api, msg);
+      } catch (err) {
+        log.error({ err, msgId: msg.id }, 'Counting pipeline failed');
       }
     })();
 
@@ -282,7 +308,7 @@ async function main(): Promise<void> {
       log.info({ count: servers.length }, 'Reconciling level provisioning across servers');
       for (const s of servers) {
         try {
-          await provisionLevelRoles(api, s.id);
+          await provisionAndNotify(api, s.id);
         } catch (err) {
           log.warn({ err, serverId: s.id }, 'Reconcile provision failed for server');
         }
