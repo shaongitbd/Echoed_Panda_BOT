@@ -1,9 +1,10 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import type { MemberJoinedData } from '../types.js';
 import type { PermissionService, Permission } from '../auth/permissions.js';
+import { config } from '../config.js';
 import { claimBotWelcome, claimLevelPermsNag, clearLevelPermsNag } from '../db/guildConfig.js';
-import { setLevelSettings, getLevelSettings } from '../db/levelSettings.js';
-import { setLevelReward, getRewardsInRange } from '../levels/levelUp.js';
+import { provisionLevelRoles } from '../levels/provision.js';
+import { runEngagementSetup } from '../engagement/autoSetup.js';
 import { log } from '../log.js';
 
 const DASHBOARD_URL = 'https://memebot.echoed.gg';
@@ -15,99 +16,6 @@ const MISSING_PERMS_MESSAGE =
   `**To fix it, do either:**\n` +
   `• Create a role with **Manage Roles** (or **Manage Server**) and assign it to me — I'll finish setting up automatically, **or**\n` +
   `• Remove me, then re-invite me and tick **Manage Roles** on the permission screen — that grants it for me automatically.`;
-
-// Default level ladder auto-created on first install. Hoisted + colored so the
-// member's current tier shows as a badge next to their name in chat (the
-// "visible level" status hook). Warm gradient gray→green→blue→purple→amber→
-// orange→red. Replace-mode (set below) keeps exactly one tier role per member,
-// so the badge is always the current level — not a stack.
-const LEVEL_LADDER: ReadonlyArray<{ level: number; name: string; color: string }> = [
-  { level: 5, name: 'Level 5', color: '#9CA3AF' },
-  { level: 10, name: 'Level 10', color: '#34D399' },
-  { level: 20, name: 'Level 20', color: '#60A5FA' },
-  { level: 35, name: 'Level 35', color: '#A78BFA' },
-  { level: 50, name: 'Level 50', color: '#FBBF24' },
-  { level: 75, name: 'Level 75', color: '#F97316' },
-  { level: 100, name: 'Level 100', color: '#EF4444' },
-];
-
-// Auto-provision the level ladder: create each tier role (hoisted + colored)
-// and register it as a level reward. Best-effort — if the bot lacks
-// MANAGE_ROLES (admin unticked it on the consent screen) createRole 403s; we
-// stop and return false so the welcome can nudge them to grant it. Runs once
-// (guarded by claimBotWelcome upstream), so no duplicate roles.
-export async function provisionLevelRoles(api: EchoedClient, serverId: string): Promise<boolean> {
-  // Idempotent gate: if any level rewards already exist — because we provisioned
-  // before, OR an admin configured their own ladder — do nothing. This lets the
-  // startup reconcile and the permission self-heal call this repeatedly without
-  // duplicating roles or clobbering an admin's setup.
-  try {
-    const existing = await getRewardsInRange(serverId, 1, 1000);
-    if (existing.length > 0) return true;
-  } catch (err) {
-    log.warn({ err, serverId }, 'Could not read existing level rewards — skipping provision');
-    return false;
-  }
-
-  // Respect an admin who has already configured leveling themselves — never
-  // seed default roles or flip their settings under them. The only fields
-  // provisioning ITSELF writes are `enabled` (→true) and `stackRewards`
-  // (→false), so any OTHER non-default field can only be a human's doing.
-  // `enabled === false` is the explicit `!levels disable` case (the DB default
-  // is true, so a false value can't come from us or a fresh row).
-  //
-  // Deliberately NOT gated on "a level_settings row exists": provisioning
-  // creates that row (with the two defaults above) BEFORE the role loop, so a
-  // bot that joined without Manage Roles would have a row but no roles — a
-  // row-exists bail would then block the permission self-heal from ever
-  // finishing once Manage Roles is granted. Checking human-set fields instead
-  // keeps self-heal working while honoring real admin config.
-  try {
-    const settings = await getLevelSettings(serverId);
-    const adminConfigured =
-      settings.enabled === false ||
-      settings.levelUpChannel !== null ||
-      settings.levelUpMessage !== null ||
-      settings.noXpChannelIds.length > 0 ||
-      settings.allowedXpChannelIds.length > 0 ||
-      settings.allowedXpRoleIds.length > 0 ||
-      settings.ignoredXpRoleIds.length > 0;
-    if (adminConfigured) {
-      log.info({ serverId }, 'Leveling already configured by an admin — skipping auto-provision');
-      return true;
-    }
-  } catch (err) {
-    log.warn({ err, serverId }, 'Could not read level settings — skipping provision to avoid clobbering admin config');
-    return false;
-  }
-
-  // Enable leveling + replace-mode so only the current tier role sticks. Safe
-  // to force here: we've established above this is a fresh, admin-untouched
-  // server (no rewards, no human-set settings).
-  try {
-    await setLevelSettings(serverId, { enabled: true, stackRewards: false });
-  } catch (err) {
-    log.warn({ err, serverId }, 'Failed to enable leveling during provision');
-  }
-
-  for (const tier of LEVEL_LADDER) {
-    try {
-      const res = await api.createRole(serverId, {
-        name: tier.name,
-        color: tier.color,
-        hoist: true,
-        mentionable: false,
-        position: 1,
-      });
-      if (res?.roleId) await setLevelReward(serverId, tier.level, res.roleId);
-    } catch (err) {
-      log.warn({ err, serverId, level: tier.level }, 'Level-role provision failed (missing Manage Roles?)');
-      return false;
-    }
-  }
-  log.info({ serverId, count: LEVEL_LADDER.length }, 'Provisioned level roles');
-  return true;
-}
 
 /**
  * provisionLevelRoles + a one-time in-channel notice when it fails for lack of
@@ -287,8 +195,41 @@ export async function handleBotJoinedServer(
     log.warn({ err, serverId }, 'claimBotWelcome failed — posting report without welcome card');
   }
 
-  // Auto-provision the level ladder (idempotent; best-effort, needs Manage Roles).
-  const levelsReady = await provisionLevelRoles(api, serverId);
+  // First-ever invite + the bot actually has the perms to finish → run the FULL
+  // engagement auto-setup (levels + QOTD + birthdays + starboard + counting +
+  // daily). Gated because a half-done setup on a fresh server reads as broken:
+  // we require Manage Roles (reward roles) AND Manage Channels (to create the
+  // #starboard / #counting channels). Without both, we DON'T impose a partial
+  // setup — we provision just levels (if we can) and nudge the admin to grant
+  // perms + run !setup. Only on the first invite (claimBotWelcome), so a remove
+  // + re-invite never re-creates channels or re-runs setup (configs persist via
+  // non-destructive removal anyway).
+  let autoSetupLines: string[] | null = null;
+  let levelsReady = false;
+  if (isFirstTime) {
+    const [hasRoles, hasChannels] = await Promise.all([
+      perms.has(serverId, botUserId, 'MANAGE_ROLES').catch(() => false),
+      perms.has(serverId, botUserId, 'MANAGE_CHANNELS').catch(() => false),
+    ]);
+    if (hasRoles && hasChannels) {
+      try {
+        autoSetupLines = await runEngagementSetup(api, serverId, {
+          override: false,
+          prefix: config.defaultPrefix,
+        });
+        levelsReady = true; // gated on Manage Roles, so the ladder provisioned
+      } catch (err) {
+        log.warn({ err, serverId }, 'First-join auto-setup failed');
+      }
+    }
+  }
+
+  // Fallback when we didn't run the full setup (re-invite, or first join without
+  // enough perms): still provision the level ladder (idempotent, needs only
+  // Manage Roles) so the visible-badge hook works.
+  if (autoSetupLines === null) {
+    levelsReady = await provisionLevelRoles(api, serverId);
+  }
   try {
     if (levelsReady) await clearLevelPermsNag(serverId);
     else await claimLevelPermsNag(serverId); // report below covers the "missing" case
@@ -312,8 +253,15 @@ export async function handleBotJoinedServer(
       log.warn({ err, serverId }, 'getServerInfo failed during bot welcome — using fallbacks');
     }
     content = buildWelcomeContent(serverName, ownerMention);
-    if (levelsReady) {
-      content += `\n\n✅ **Levels are live** — members earn XP as they chat and unlock a colored level badge next to their name.`;
+    if (autoSetupLines) {
+      // Full auto-setup ran — show what got configured.
+      content += `\n\n## ✅ I set everything up for you\n${autoSetupLines.join('\n')}`;
+    } else {
+      // Couldn't full-auto — note levels (if they provisioned) + nudge.
+      if (levelsReady) {
+        content += `\n\n✅ **Levels are live** — members earn XP as they chat and unlock a colored level badge next to their name.`;
+      }
+      content += `\n\n💡 **Want the full experience?** Grant me **Manage Roles** + **Manage Channels**, then run \`${config.defaultPrefix}setup\` — I'll auto-configure daily questions, a starboard, a counting game & birthdays.`;
     }
     content += `\n\n${report}`;
   } else {

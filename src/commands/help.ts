@@ -102,8 +102,8 @@ const CATEGORIES: readonly Category[] = [
   {
     name: 'engagement',
     emoji: '🎉',
-    blurb: 'Question of the day, birthdays, starboard, daily streaks, counting',
-    commands: ['qotd', 'birthday', 'starboard', 'daily', 'counting'],
+    blurb: 'One-shot setup, question of the day, birthdays, starboard, daily streaks, counting',
+    commands: ['setup', 'qotd', 'birthday', 'starboard', 'daily', 'counting'],
   },
   {
     name: 'meta',

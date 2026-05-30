@@ -77,6 +77,7 @@ import { handleBirthday } from './birthday.js';
 import { handleStarboard } from './starboard.js';
 import { handleDaily } from './daily.js';
 import { handleCounting } from './counting.js';
+import { handleSetup } from './setup.js';
 
 export interface Services {
   api: EchoedClient;
@@ -482,6 +483,12 @@ export const registry: readonly Registered[] = [
   },
 
   // ─── Engagement ───────────────────────────────────────────────────
+  {
+    name: 'setup',
+    aliases: ['autosetup'],
+    handler: handleSetup,
+    help: 'one-shot engagement setup — `setup` (safe) or `setup override` (reset to defaults)',
+  },
   {
     name: 'qotd',
     aliases: ['questionoftheday'],

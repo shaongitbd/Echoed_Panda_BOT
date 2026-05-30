@@ -47,6 +47,16 @@ export async function deleteLevelReward(serverId: string, level: number): Promis
   return (res.rowCount ?? 0) > 0;
 }
 
+// Wipe every level-reward mapping for a server. Used by `!setup override` to
+// replace an old reward ladder with the new one. Only clears the panda
+// reward→level mapping rows — it does NOT delete the underlying Echoed roles
+// (members may already hold them; auto-deleting roles members wear is too
+// destructive to do silently). The orphaned old roles can be removed by hand.
+export async function clearLevelRewards(serverId: string): Promise<number> {
+  const res = await pool.query(`DELETE FROM panda.level_rewards WHERE server_id = $1`, [serverId]);
+  return res.rowCount ?? 0;
+}
+
 // Substitution for level-up message templates. Echoed's plain-text
 // mention syntax is `<@userId>`; substituting `{user}` to that turns
 // the announcement into a mention. `{level}` → the new level number.
