@@ -171,6 +171,24 @@ export async function pickAndAnnounce(
   } catch (err) {
     log.warn({ err, giveawayId: g.id }, 'Giveaway announcement failed');
   }
+
+  // DM each winner so they don't miss it. Best-effort + parallel: the DM
+  // endpoint takes a username, so resolve each winner's profile first. A winner
+  // who can't be DMed (left the server, DMs closed) just doesn't get one — the
+  // channel announcement already covers them.
+  await Promise.allSettled(
+    winners.map(async (uid) => {
+      try {
+        const profile = await api.getMemberProfile(g.serverId, uid);
+        if (profile?.username) {
+          await api.sendDM(profile.username, `🎉 Congrats — you won **${g.prize}**! 🎁`);
+        }
+      } catch (err) {
+        log.debug({ err, giveawayId: g.id, userId: uid }, 'Giveaway winner DM failed');
+      }
+    }),
+  );
+
   return winners;
 }
 

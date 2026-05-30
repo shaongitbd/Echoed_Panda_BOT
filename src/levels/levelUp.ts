@@ -132,9 +132,28 @@ export async function handleLevelUp(
     }
   }
 
+  // Name the reward role(s) earned this level-up so the congrats actually
+  // tells them what they unlocked (not just the number). Best-effort — skip the
+  // mention on lookup failure rather than block the announcement.
+  let rewardNote = '';
+  if (rewards.length > 0) {
+    try {
+      const allRoles = await api.listServerRoles(serverId);
+      const nameById = new Map(allRoles.map((r) => [r.id, r.name]));
+      const names = rewards
+        .map((r) => nameById.get(r.roleId))
+        .filter((n): n is string => !!n);
+      if (names.length > 0) {
+        rewardNote = `\n🎁 You unlocked ${names.map((n) => `**${n}**`).join(', ')}!`;
+      }
+    } catch (err) {
+      log.debug({ err, serverId, userId }, 'Could not resolve reward role names for level-up message');
+    }
+  }
+
   const channelId = settings.levelUpChannel ?? fallbackChannelId;
   const template = settings.levelUpMessage ?? DEFAULT_LEVEL_UP_MESSAGE;
-  const content = renderTemplate(template, { userId, level: newLevel });
+  const content = renderTemplate(template, { userId, level: newLevel }) + rewardNote;
 
   try {
     await api.sendMessage({ serverId, channelId, content });

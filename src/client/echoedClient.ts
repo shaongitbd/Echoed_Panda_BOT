@@ -569,6 +569,23 @@ export class EchoedClient {
     return this.request('GET', `/v1/bots/${serverId}/members/${userId}/roles`);
   }
 
+  // List the server's roles (id + name). Used to resolve a reward role's
+  // display name for the level-up announcement.
+  async listServerRoles(serverId: string): Promise<Array<{ id: string; name: string }>> {
+    const res = await this.request<{ roles?: Array<{ id: string; name: string }> }>(
+      'GET',
+      `/v1/bots/${serverId}/roles`,
+    );
+    return res.roles ?? [];
+  }
+
+  // Send a direct message from the bot. The endpoint takes a USERNAME (not a
+  // user ID) and requires the recipient to share a server with the bot — both
+  // hold for giveaway winners. Best-effort at the call site.
+  async sendDM(username: string, content: string): Promise<{ success?: boolean }> {
+    return this.request('POST', `/v1/bots/dm/send`, { username, content });
+  }
+
   // ─── Server / Channels ───────────────────────────────────────────────
   async getServerInfo(serverId: string): Promise<ServerInfo> {
     return this.request('GET', `/v1/bots/${serverId}/info`);
