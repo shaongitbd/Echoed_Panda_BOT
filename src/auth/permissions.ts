@@ -1,5 +1,6 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { EchoedApiError } from '../client/echoedClient.js';
+import { config } from '../config.js';
 import { log } from '../log.js';
 
 // Echoed permission names — the strings the API returns from
@@ -132,15 +133,21 @@ export class PermissionService {
     channelId?: string,
   ): Promise<ReadonlySet<Permission> | null> {
     const key = cacheKey(serverId, userId, channelId);
-    const cached = cache.get(key);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.permissions;
+    // When the permission cache is disabled (PERMISSION_CACHE_ENABLED=false),
+    // skip both the read and the write so every check hits the backend live —
+    // role grants reflect instantly, no 60s staleness window.
+    const useCache = config.permissionCacheEnabled;
+    if (useCache) {
+      const cached = cache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.permissions;
+      }
     }
 
     try {
       const res = await this.api.getMemberPermissions(serverId, userId, channelId);
       const set = new Set(res.permissions as Permission[]);
-      cache.set(key, { permissions: set, expiresAt: Date.now() + TTL_MS });
+      if (useCache) cache.set(key, { permissions: set, expiresAt: Date.now() + TTL_MS });
       return set;
     } catch (err) {
       // 404 = not a member. We treat that as "no perms" and cache a brief
@@ -148,7 +155,7 @@ export class PermissionService {
       // the API.
       if (err instanceof EchoedApiError && err.status === 404) {
         const empty = new Set<Permission>();
-        cache.set(key, { permissions: empty, expiresAt: Date.now() + TTL_MS });
+        if (useCache) cache.set(key, { permissions: empty, expiresAt: Date.now() + TTL_MS });
         return empty;
       }
       log.warn(

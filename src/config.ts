@@ -22,6 +22,12 @@ function optionalInt(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function optionalBool(name: string, fallback: boolean): boolean {
+  const v = process.env[name]?.trim().toLowerCase();
+  if (v == null || v === '') return fallback;
+  return !(v === 'false' || v === '0' || v === 'no' || v === 'off' || v === 'disabled');
+}
+
 function trimTrailingSlash(s: string): string {
   return s.replace(/\/+$/, '');
 }
@@ -34,6 +40,13 @@ export const config = {
   // Default prefix; per-guild overrides come from panda.guild_config.
   defaultPrefix: optional('COMMAND_PREFIX', '!'),
   perChannelCooldownMs: optionalInt('PER_CHANNEL_COOLDOWN_MS', 2000),
+  // Gate the in-process PERMISSION cache (auth/permissions.ts) only. Set
+  // PERMISSION_CACHE_ENABLED=false to make every perms.has() hit the backend
+  // live so role grants reflect instantly (matches the backend's own
+  // PERMISSION_CACHE_ENABLED flag — set both to the same value). Default ON.
+  // Does NOT affect the per-message config caches (level settings, automod,
+  // counting route) — disabling those would hit the DB on every message.
+  permissionCacheEnabled: optionalBool('PERMISSION_CACHE_ENABLED', true),
   // Optional Twitch app credentials (client-credentials flow). Leave
   // empty to disable Twitch integration; the !twitch commands will
   // surface a "not configured" hint and the scheduler skips its tick.
