@@ -42,6 +42,7 @@ export const handleSetup: Handler = async (ctx, svc) => {
   const lines = await runEngagementSetup(svc.api, ctx.serverId, {
     override: isOverride,
     prefix: ctx.prefix,
+    actorId: svc.botUserId,
   });
 
   const title = isOverride ? '♻️ Setup complete — reset to defaults' : '🎉 Setup complete';

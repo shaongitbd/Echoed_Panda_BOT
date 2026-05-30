@@ -8,6 +8,13 @@ import { log } from '../log.js';
 // rebuilds these on first hit.
 const regexCache = new Map<number, RegExp>();
 
+// Per-rule-per-channel response cooldown. Keyword rules match on every message
+// with no other throttle, so a common phrase (e.g. "gm", "gg", "f") could make
+// the bot reply on every occurrence. Cap each rule to one response per channel
+// per minute — fun phrases stay fun, active channels don't get flooded.
+const RESPONSE_COOLDOWN_MS = 60 * 1000;
+const lastFired = new Map<string, number>();
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -36,12 +43,19 @@ export async function processKeywords(
     const re = getRegex(rule);
     if (!re.test(msg.content)) continue;
 
+    // Matched — but throttle per rule+channel so common phrases don't spam.
+    // A cooled-down match still counts as "handled" (we return), so we don't
+    // cascade to another rule and fire a different response on the same message.
+    const cdKey = `${rule.id}:${msg.channelId}`;
+    if (Date.now() - (lastFired.get(cdKey) ?? 0) < RESPONSE_COOLDOWN_MS) return;
+
     try {
       await api.sendMessage({
         serverId: msg.serverId,
         channelId: msg.channelId,
         content: rule.response,
       });
+      lastFired.set(cdKey, Date.now());
     } catch (err) {
       log.warn({ err, ruleId: rule.id }, 'Keyword response send failed');
     }

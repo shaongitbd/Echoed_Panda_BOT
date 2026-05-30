@@ -216,6 +216,7 @@ export async function handleBotJoinedServer(
         autoSetupLines = await runEngagementSetup(api, serverId, {
           override: false,
           prefix: config.defaultPrefix,
+          actorId: botUserId,
         });
         levelsReady = true; // gated on Manage Roles, so the ladder provisioned
       } catch (err) {

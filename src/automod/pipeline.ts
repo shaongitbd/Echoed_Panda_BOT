@@ -46,7 +46,7 @@ async function fetchMemberRoles(
 //   - role allowed list is non-empty and sender holds none of them
 export async function processMessage(
   api: EchoedClient,
-  _perms: PermissionService,
+  perms: PermissionService,
   msg: MessageCreatedData,
 ): Promise<boolean> {
   const config = await getAutomodConfig(msg.serverId);
@@ -60,6 +60,18 @@ export async function processMessage(
     return false;
   }
   if (config.exemptChannelIds.includes(msg.channelId)) return false;
+
+  // Owner/admin exemption. Never auto-mod someone who can manage the server —
+  // staff shouldn't have their messages deleted for caps/spam/etc. MANAGE_SERVER
+  // is the canonical "is staff" bit (server owner + additional admins +
+  // Administrator all resolve to it server-side). The result is cached by the
+  // permission service, so this is cheap on the hot path. Best-effort: a lookup
+  // failure falls through to normal filtering rather than silently skipping.
+  try {
+    if (await perms.has(msg.serverId, msg.senderId, 'MANAGE_SERVER')) return false;
+  } catch (err) {
+    log.debug({ err, serverId: msg.serverId, userId: msg.senderId }, 'Auto-mod admin-exempt check failed');
+  }
 
   // Role scope. Skip the network call entirely when both lists are
   // empty (the common case for servers that don't configure roles).
