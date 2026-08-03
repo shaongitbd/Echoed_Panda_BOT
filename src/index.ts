@@ -22,6 +22,7 @@ import { processKeywords } from './keywords/handler.js';
 import { processCounting } from './counting/handler.js';
 import { processStarboardReaction } from './starboard/handler.js';
 import { promises as fs } from 'node:fs';
+import { startHeartbeat, stopHeartbeat } from './health.js';
 
 // One-time boot-time check that the music feature is configured correctly.
 // Logs at INFO when good, WARN when something's off — never throws,
@@ -101,6 +102,9 @@ async function main(): Promise<void> {
     startedAt: Date.now(),
     botUserId,
   };
+
+  // Liveness signal for the container health check.
+  startHeartbeat();
 
   // 3. Socket — auto-subscribed to every server room on auth, so we
   //    receive MESSAGE_CREATE for every channel the bot can see.
@@ -332,6 +336,7 @@ async function main(): Promise<void> {
     // Drain first: scheduled work claims its row before acting, so cutting
     // a tick off mid-flight leaves that work in limbo until the claim
     // expires.
+    stopHeartbeat();
     await stopScheduler();
     // Leave voice before dropping the socket, so we don't linger in
     // participant lists after the process is gone.

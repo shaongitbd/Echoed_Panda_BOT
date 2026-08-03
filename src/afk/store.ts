@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { registerTtlCache } from '../util/ttlCache.js';
 
 export interface AfkEntry {
   serverId: string;
@@ -28,6 +29,7 @@ function rowToEntry(row: Row): AfkEntry {
 // reads scale; writes invalidate.
 const CACHE_TTL_MS = 60 * 1000;
 const cache = new Map<string, { entry: AfkEntry | null; expiresAt: number }>();
+registerTtlCache('afk', cache, 20_000);
 
 function cacheKey(serverId: string, userId: string): string {
   return `${serverId}:${userId}`;

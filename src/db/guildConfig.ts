@@ -1,4 +1,5 @@
 import { pool } from './pool.js';
+import { registerTtlCache } from '../util/ttlCache.js';
 
 export interface GuildConfig {
   serverId: string;
@@ -132,6 +133,7 @@ const EMPTY = (serverId: string): GuildConfig => ({
 // changes lag behind the UI by up to a full TTL on the bot side.
 const TTL_MS = 60 * 1000;
 const cache = new Map<string, { config: GuildConfig; expiresAt: number }>();
+registerTtlCache('guildConfig', cache, 5_000);
 
 export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
   const cached = cache.get(serverId);

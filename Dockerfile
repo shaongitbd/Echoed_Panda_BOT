@@ -53,4 +53,11 @@ RUN npm run build
 
 # The bot is a worker — no exposed port. Logs go to stdout (pino
 # pretty-prints in dev; raw JSON in prod is fine).
+#
+# The process survives uncaught errors on purpose, so it needs an external
+# liveness signal: it touches a heartbeat file on a timer, and this check
+# fails once that goes stale. Without it a wedged event loop looks exactly
+# like an idle one and nothing ever restarts it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3   CMD node scripts/healthcheck.cjs
+
 CMD ["npm", "start"]

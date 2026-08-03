@@ -2,6 +2,7 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import { EchoedApiError } from '../client/echoedClient.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
+import { registerTtlCache } from '../util/ttlCache.js';
 
 // Echoed permission names — the strings the API returns from
 // GET /v1/bots/:server_id/members/:user_id/permissions.
@@ -48,6 +49,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+registerTtlCache('permissions', cache, 50_000);
 
 // Cache key. When channelId is undefined the entry is the server-level
 // effective permissions; with a channelId it is post-override per-channel.

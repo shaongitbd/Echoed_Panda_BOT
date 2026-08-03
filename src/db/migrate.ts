@@ -887,14 +887,29 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
   },
 ];
 
+// Arbitrary but fixed: every instance must pick the same number for the
+// lock to mean anything.
+const MIGRATION_LOCK_ID = 8_071_121;
+
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
-    for (const stmt of STATEMENTS) {
-      log.debug({ migration: stmt.name }, 'Applying');
-      await client.query(stmt.sql);
+    // Serialize across instances. These statements replay in full on every
+    // boot, and several of them — the trigger guards especially — are
+    // check-then-create, so two containers starting together can race and
+    // one of them fails. A failed migration exits the process, so that
+    // race showed up as a deploy that flaps. The lock is held on this one
+    // connection for the duration and released with it.
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+    try {
+      for (const stmt of STATEMENTS) {
+        log.debug({ migration: stmt.name }, 'Applying');
+        await client.query(stmt.sql);
+      }
+      log.info({ count: STATEMENTS.length }, 'Migrations applied');
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => undefined);
     }
-    log.info({ count: STATEMENTS.length }, 'Migrations applied');
   } finally {
     client.release();
   }

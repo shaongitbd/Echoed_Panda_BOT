@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { registerTtlCache } from '../util/ttlCache.js';
 
 export interface CustomCommand {
   serverId: string;
@@ -41,6 +42,7 @@ export function isValidName(name: string): boolean {
 // Hot-path lookup, fired on every command-prefixed message that misses
 // the built-in registry. Returns null on miss; cache in-process below.
 const cache = new Map<string, { command: CustomCommand | null; expiresAt: number }>();
+registerTtlCache('customCommands', cache, 20_000);
 const CACHE_TTL_MS = 60 * 1000;
 
 function cacheKey(serverId: string, name: string): string {

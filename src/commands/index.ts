@@ -574,6 +574,14 @@ function startCooldownSweeper(): void {
   cooldownSweeper.unref();
 }
 
+// Command names are created through !cmd add, which constrains them; this
+// mirrors that so a lookup is only attempted for something that could
+// actually exist.
+const COMMAND_NAME_RE = /^[a-z0-9_-]{1,32}$/;
+function isPlausibleCommandName(name: string): boolean {
+  return COMMAND_NAME_RE.test(name);
+}
+
 function findCommand(token: string): Registered | undefined {
   const lower = token.toLowerCase();
   return registry.find((c) => c.name === lower || c.aliases.includes(lower));
@@ -614,6 +622,12 @@ export async function dispatch(
   // updated the registry, so this ordering is the source of truth.
   if (!command) {
     const customName = head.toLowerCase();
+    // Reject implausible names before the lookup. The lookup caches misses
+    // keyed on whatever was typed, so anything after the prefix — any
+    // length, any characters — became a permanent cache entry. That is a
+    // database round-trip and a retained key for every typo in every
+    // server.
+    if (!isPlausibleCommandName(customName)) return;
     const custom = await getCustomCommand(msg.serverId, customName);
     if (!custom) return;
 

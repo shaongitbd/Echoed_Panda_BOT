@@ -9,7 +9,12 @@ const { Pool } = pg;
 // `pool.connect()` only when they need a transaction or LISTEN/NOTIFY.
 export const pool = new Pool({
   connectionString: config.databaseUrl,
-  max: 10,
+  // Every inbound message fans out into several independent pipelines that
+  // each touch the database, so the pool has to accommodate the message
+  // rate of the whole fleet rather than one server's. Note this bounds the
+  // wait for a free client as well as for a new connection: when the pool
+  // saturates, callers throw rather than queue.
+  max: 24,
   idleTimeoutMillis: 30_000,
   // Ten-second connect timeout — enough for a slow handshake on a cold
   // pooler, short enough that we surface "DB unreachable" within bounds.
@@ -18,7 +23,14 @@ export const pool = new Pool({
   // `panda.*`. Falls back to public for anything we accidentally don't
   // own — that'll surface as a clear "permission denied" rather than a
   // mystery write to the wrong schema.
-  options: '-c search_path=panda,public',
+  //
+  // The timeouts matter more than they look: without them a handful of
+  // wedged statements hold their clients forever, and since saturation
+  // throws rather than queues, every database-backed feature fails with no
+  // path back short of a restart. UTC keeps date arithmetic stable
+  // regardless of the host's timezone.
+  options:
+    '-c search_path=panda,public -c TimeZone=UTC -c statement_timeout=15000 -c idle_in_transaction_session_timeout=30000',
 });
 
 pool.on('error', (err) => {
