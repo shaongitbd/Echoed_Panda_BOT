@@ -167,16 +167,20 @@ export async function awardXp(input: GrantInput): Promise<GrantResult> {
   const oldLevel = row.level;
   const newLevel = levelForTotalXp(totalXp);
 
-  if (newLevel !== oldLevel) {
-    // Persist the new level so subsequent checks don't recompute it.
-    // Conditional update guards against a concurrent write that
-    // already advanced the level.
-    await pool.query(
+  // The conditional update is what decides whether this call owns the
+  // level-up. Two messages landing together both read the pre-update level
+  // and both compute the same new one, so deciding from that comparison
+  // alone announced the level-up twice and granted the reward role twice.
+  // Exactly one of them updates a row.
+  let leveledUp = false;
+  if (newLevel > oldLevel) {
+    const advanced = await pool.query(
       `UPDATE panda.xp
           SET level = $3, updated_at = now()
         WHERE server_id = $1 AND user_id = $2 AND level < $3`,
       [input.serverId, input.userId, newLevel],
     );
+    leveledUp = (advanced.rowCount ?? 0) === 1;
   }
 
   cooldowns.set(key, now);
@@ -187,7 +191,7 @@ export async function awardXp(input: GrantInput): Promise<GrantResult> {
     oldLevel,
     newLevel,
     totalXp,
-    leveledUp: newLevel > oldLevel,
+    leveledUp,
   };
 }
 
@@ -223,14 +227,16 @@ export async function addBonusXp(
   const totalXp = Number(row.total_xp);
   const oldLevel = row.level;
   const newLevel = levelForTotalXp(totalXp);
-  if (newLevel !== oldLevel) {
-    await pool.query(
+  let leveledUp = false;
+  if (newLevel > oldLevel) {
+    const advanced = await pool.query(
       `UPDATE panda.xp SET level = $3, updated_at = now()
         WHERE server_id = $1 AND user_id = $2 AND level < $3`,
       [serverId, userId, newLevel],
     );
+    leveledUp = (advanced.rowCount ?? 0) === 1;
   }
-  return { oldLevel, newLevel, totalXp, leveledUp: newLevel > oldLevel };
+  return { oldLevel, newLevel, totalXp, leveledUp };
 }
 
 // Read a user's current XP/level without granting. Used by !rank.
@@ -255,6 +261,11 @@ export interface LeaderboardEntry {
 }
 
 // Top N for a server. Uses the (server_id, total_xp DESC) index.
+//
+// user_id is the tiebreaker so the order is total. Without it, tied rows
+// came back in whatever order the scan produced — so a tied member's
+// position could change between two runs of the same command, and the
+// position shown here disagreed with the one !rank computed.
 export async function getLeaderboard(
   serverId: string,
   limit = 10,
@@ -264,7 +275,7 @@ export async function getLeaderboard(
     `SELECT user_id, total_xp, level
        FROM panda.xp
       WHERE server_id = $1
-      ORDER BY total_xp DESC
+      ORDER BY total_xp DESC, user_id ASC
       LIMIT $2`,
     [serverId, cap],
   );
@@ -279,6 +290,10 @@ export async function getLeaderboard(
 // Resolve a single user's rank within a server (1-indexed). Returns
 // null if the user has no XP. Cheap because the leaderboard index
 // makes the rank query a partial scan.
+//
+// Ties break on user_id, matching getLeaderboard exactly — these were
+// counting differently, so two tied members could both be told they were
+// third while the leaderboard showed one of them fourth.
 export async function getUserRank(
   serverId: string,
   userId: string,
@@ -287,7 +302,8 @@ export async function getUserRank(
     `SELECT (SELECT COUNT(*) + 1
                FROM panda.xp x2
               WHERE x2.server_id = $1
-                AND x2.total_xp > x1.total_xp) AS rank
+                AND (x2.total_xp > x1.total_xp
+                  OR (x2.total_xp = x1.total_xp AND x2.user_id < x1.user_id))) AS rank
        FROM panda.xp x1
       WHERE x1.server_id = $1 AND x1.user_id = $2`,
     [serverId, userId],

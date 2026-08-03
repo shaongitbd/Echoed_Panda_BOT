@@ -82,6 +82,15 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     `,
   },
   {
+    // Matches the total order the leaderboard and rank queries use, so
+    // tied rows come back deterministically rather than in scan order.
+    name: 'xp leaderboard index with tiebreak',
+    sql: `
+      CREATE INDEX IF NOT EXISTS xp_leaderboard_tiebreak_idx
+        ON panda.xp (server_id, total_xp DESC, user_id ASC)
+    `,
+  },
+  {
     name: 'level_settings table',
     sql: `
       CREATE TABLE IF NOT EXISTS panda.level_settings (

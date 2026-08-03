@@ -13,14 +13,18 @@ export async function processAutoReact(
   const emojis = await getEmojisForChannel(msg.serverId, msg.channelId);
   if (emojis.length === 0) return;
 
-  for (const emoji of emojis) {
-    try {
-      await api.addReaction(msg.serverId, msg.id, emoji);
-    } catch (err) {
-      log.warn(
-        { err, channelId: msg.channelId, msgId: msg.id, emoji },
-        'Auto-react add failed',
-      );
-    }
+  // Only one applies. A message holds at most one reaction per user, and
+  // adding another replaces it — so looping over every configured emoji
+  // spent a request each and left only the last one, which looked like the
+  // earlier rules were being ignored. Take the first and stop; the add
+  // command warns when a channel already has one configured.
+  const emoji = emojis[0]!;
+  try {
+    await api.addReaction(msg.serverId, msg.id, emoji);
+  } catch (err) {
+    log.warn(
+      { err, channelId: msg.channelId, msgId: msg.id, emoji },
+      'Auto-react add failed',
+    );
   }
 }

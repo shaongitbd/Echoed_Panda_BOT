@@ -78,7 +78,14 @@ export const handleLevelsToggle: Handler = async (ctx, svc) => {
           color: settings.enabled ? COLORS.ONLINE : COLORS.MUTED,
           fields: [
             { name: 'XP / msg', value: `${settings.xpPerMessageMin}-${settings.xpPerMessageMax}`, inline: true },
-            { name: 'Cooldown', value: `${settings.cooldownSeconds}s`, inline: true },
+            // Say which scope it applies to. The cooldown is per channel,
+            // so a bare number reads as "once every Ns" when someone
+            // active in several channels actually earns that much more.
+            {
+              name: 'Cooldown',
+              value: `${settings.cooldownSeconds}s per channel`,
+              inline: true,
+            },
             { name: 'No-XP channels', value: String(settings.noXpChannelIds.length), inline: true },
           ],
           footer: settings.enabled

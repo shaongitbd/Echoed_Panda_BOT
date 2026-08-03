@@ -8,6 +8,9 @@ import { resolveUser } from '../client/names.js';
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
 const THUMBS_UP = '\u{1F44D}';
+// Members add this themselves. The bot holds at most one reaction per
+// message, so seeding it would replace the upvote rather than sit
+// alongside it.
 const THUMBS_DOWN = '\u{1F44E}';
 const MAX_LEN = 1500;
 
@@ -123,6 +126,7 @@ export const handleSuggest: Handler = async (ctx, { api }) => {
           title: '💡 New suggestion',
           description: `${tail}\n\n— from **${authorName}**`,
           color: COLORS.ACCENT,
+          footer: `React ${THUMBS_UP} or ${THUMBS_DOWN} to vote`,
         }),
       ],
     });
@@ -138,12 +142,17 @@ export const handleSuggest: Handler = async (ctx, { api }) => {
     return;
   }
 
-  for (const emoji of [THUMBS_UP, THUMBS_DOWN]) {
-    try {
-      await api.addReaction(ctx.serverId, messageId, emoji);
-    } catch (err) {
-      log.warn({ err, emoji }, 'Suggestion reaction seed failed');
-    }
+  // Seed the upvote only.
+  //
+  // A message holds at most one reaction per user, and adding a second
+  // replaces the first — so seeding both left only the downvote on the
+  // message, and every suggestion arrived looking pre-downvoted by the
+  // bot. Members can still add either; that same one-per-user rule is what
+  // makes up/down voting work for them.
+  try {
+    await api.addReaction(ctx.serverId, messageId, THUMBS_UP);
+  } catch (err) {
+    log.warn({ err, emoji: THUMBS_UP }, 'Suggestion reaction seed failed');
   }
 
   // Confirm in the original channel if it's not the suggestion channel.

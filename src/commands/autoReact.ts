@@ -94,6 +94,12 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // A message holds at most one reaction per user, so a channel can only
+    // ever have one auto-react in effect. Say so rather than accepting a
+    // second and letting it silently shadow the first.
+    const existing = await listForServer(ctx.serverId);
+    const clash = existing.find((r) => r.channelId === channelId && r.emoji !== emoji);
+
     await addAutoReact({
       serverId: ctx.serverId,
       channelId,
@@ -104,7 +110,9 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: `Every new message in ${name} will get ${emoji}.`,
+      content: clash
+        ? `Added ${emoji} for ${name}. Note I can only put **one** reaction on a message, so ${clash.emoji} stays configured but won't be applied — remove it with \`${ctx.prefix}autoreact remove <channel> ${clash.emoji}\`.`
+        : `Every new message in ${name} will get ${emoji}.`,
     });
     return;
   }

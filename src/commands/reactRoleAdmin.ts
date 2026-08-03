@@ -9,7 +9,7 @@ import {
 } from '../reactRoles/store.js';
 import { EchoedApiError } from '../client/echoedClient.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
-import { resolveChannels, resolveRoles } from '../client/names.js';
+import { resolveChannels, resolveRole, resolveRoles } from '../client/names.js';
 
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -115,6 +115,17 @@ export const handleReactRole: Handler = async (ctx, svc) => {
     // Seed the reaction so users have something to click on. If this
     // fails (rate limit, perms), the mapping still works — users just
     // need to add their own first reaction.
+    //
+    // Only ONE seed can exist: a message holds at most one reaction per
+    // user, so each add replaces the previous seed. A multi-option panel
+    // therefore shows a single emoji no matter how many are bound, which
+    // is confusing unless we say it — members can still react with any of
+    // the bound emoji themselves, and their own one-per-message limit is
+    // what makes the panel behave as a single choice.
+    const priorBindings = (await listForServer(ctx.serverId)).find(
+      (e) => e.messageId === messageId,
+    );
+    const replacesSeed = !!priorBindings && priorBindings.mappings.length > 0;
     try {
       await svc.api.addReaction(ctx.serverId, messageId, emoji);
     } catch (err) {
@@ -124,15 +135,18 @@ export const handleReactRole: Handler = async (ctx, svc) => {
       await svc.api.sendMessage({
         serverId: ctx.serverId,
         channelId: ctx.channelId,
-        content: `Bound ${emoji} → <@&${roleId}> on \`${messageId}\` — but seeding the reaction failed (${reason}). You can add it manually.`,
+        content: `Bound ${emoji} → **${await resolveRole(svc.api, ctx.serverId, roleId)}** on \`${messageId}\` — but seeding the reaction failed (${reason}). You can add it manually.`,
       });
       return;
     }
 
+    const boundRole = await resolveRole(svc.api, ctx.serverId, roleId);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: `Reacting with ${emoji} on \`${messageId}\` will now grant <@&${roleId}>.`,
+      content: replacesSeed
+        ? `Reacting with ${emoji} on \`${messageId}\` will now grant **${boundRole}**. Heads up: I can only show one reaction on a message, so ${emoji} replaced the previous one I added — members can still react with any bound emoji themselves.`
+        : `Reacting with ${emoji} on \`${messageId}\` will now grant **${boundRole}**.`,
     });
     return;
   }

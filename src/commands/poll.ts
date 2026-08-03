@@ -2,9 +2,14 @@ import type { Handler } from './index.js';
 import { log } from '../log.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 
+// Keycaps must carry the variation selector (U+FE0F) between the digit
+// and the enclosing mark — that is the fully-qualified sequence clients
+// render as a single emoji. Without it some clients show a bare digit
+// followed by a stray combining character, and the string doesn't match
+// what they send back.
 const NUMBER_EMOJI = [
-  '1⃣', '2⃣', '3⃣', '4⃣', '5⃣',
-  '6⃣', '7⃣', '8⃣', '9⃣',
+  '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣',
+  '6️⃣', '7️⃣', '8️⃣', '9️⃣',
 ];
 const THUMBS_UP = '\u{1F44D}';
 const THUMBS_DOWN = '\u{1F44E}';
@@ -97,14 +102,20 @@ export const handlePoll: Handler = async (ctx, { api }) => {
     return;
   }
 
-  // Seed reactions sequentially — running them in parallel would risk
-  // hitting the bot rate limit on a busy server, and the strict
-  // ordering matches user expectations (1️⃣ before 2️⃣).
-  for (const emoji of emojis) {
+  // Seed only the first option.
+  //
+  // A message holds at most ONE reaction per user, and adding another
+  // replaces it — so seeding every option left just the last one on the
+  // message and each call quietly undid the one before. Members can still
+  // add any of the listed emoji themselves, and that same one-per-user
+  // rule is exactly the voting behaviour a single-choice poll wants: one
+  // person, one option, switching by reacting again.
+  const seed = emojis[0];
+  if (seed) {
     try {
-      await api.addReaction(ctx.serverId, messageId, emoji);
+      await api.addReaction(ctx.serverId, messageId, seed);
     } catch (err) {
-      log.warn({ err, emoji, messageId }, 'Poll reaction seed failed');
+      log.warn({ err, emoji: seed, messageId }, 'Poll reaction seed failed');
     }
   }
 };
