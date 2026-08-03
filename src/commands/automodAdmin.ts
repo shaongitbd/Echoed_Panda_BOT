@@ -7,6 +7,7 @@ import {
   setAutomodConfig,
 } from '../automod/config.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
+import { resolveChannels, resolveRoles } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
@@ -122,14 +123,20 @@ export const handleAutomod: Handler = async (ctx, svc) => {
     // Exempts + bad-words list go in the description so they wrap
     // naturally if any of them is long.
     const descLines: string[] = [];
+    // Names, not tokens — an admin has to be able to read their own exempt
+    // list, and embed bodies are delivered verbatim.
+    const [exemptChannels, exemptRoles] = await Promise.all([
+      resolveChannels(svc.api, ctx.serverId, cfg.exemptChannelIds),
+      resolveRoles(svc.api, ctx.serverId, cfg.exemptRoleIds),
+    ]);
     if (cfg.exemptChannelIds.length > 0) {
       descLines.push(
-        `**Exempt channels** · ${cfg.exemptChannelIds.map((id) => `<#${id}>`).join(' ')}`,
+        `**Exempt channels** · ${cfg.exemptChannelIds.map((id) => exemptChannels.get(id)).join(' ')}`,
       );
     }
     if (cfg.exemptRoleIds.length > 0) {
       descLines.push(
-        `**Exempt roles** · ${cfg.exemptRoleIds.map((id) => `<@&${id}>`).join(' ')}`,
+        `**Exempt roles** · ${cfg.exemptRoleIds.map((id) => exemptRoles.get(id)).join(' ')}`,
       );
     }
     if (cfg.badWords.length > 0) {

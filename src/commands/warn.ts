@@ -4,6 +4,7 @@ import type { Permission } from '../auth/permissions.js';
 import { addWarning, listWarnings, clearWarnings } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveUsers } from '../client/names.js';
 
 const USER_MENTION_RE = /^<@(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -150,12 +151,17 @@ export const handleWarnings: Handler = async (ctx, svc) => {
     return;
   }
 
-  // Header line + one row per warning. Mention parses inside an
-  // embed description, so the target shows as a clickable name.
-  const description: string[] = [`<@${targetId}>`];
+  // Header line + one row per warning. Mention tokens are not resolved
+  // inside embeds, so names have to be looked up before rendering —
+  // otherwise every row shows a raw ID.
+  const names = await resolveUsers(svc.api, ctx.serverId, [
+    targetId,
+    ...warnings.map((w) => w.actorId),
+  ]);
+  const description: string[] = [`**${names.get(targetId)}**`];
   for (const w of warnings) {
     description.push(
-      `\`#${w.id}\` ${fmtAge(w.createdAt)} by <@${w.actorId}> — ${w.reason ?? '_no reason_'}`,
+      `\`#${w.id}\` ${fmtAge(w.createdAt)} by ${names.get(w.actorId)} — ${w.reason ?? '_no reason_'}`,
     );
   }
   await svc.api.sendMessage({

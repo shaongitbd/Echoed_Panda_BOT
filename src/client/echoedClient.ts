@@ -16,9 +16,13 @@ export class EchoedApiError extends Error {
   }
 }
 
-// Echoed's rich-embed shape. Mirrors the backend's `RichEmbed`
-// struct field-for-field — anything we omit here means a client
-// renders the field empty. Use `buildEmbed()` below for sane defaults.
+// The subset of the rich-embed shape this bot sends. The API accepts more
+// fields than these; anything omitted simply isn't rendered. Use
+// `buildEmbed()` in ./embeds.ts for sane defaults.
+//
+// Embed bodies are stored and delivered verbatim: no mention token in any
+// of these fields is ever resolved. Resolve names before they get here —
+// see ./names.ts.
 export interface EmbedMedia {
   url: string;
   proxy_url?: string;
@@ -66,6 +70,13 @@ interface SendMessageInput {
   replyToId?: string;
   attachmentIds?: string[];
   embeds?: Embed[];
+  // User IDs to attach to the message's resolved-mention list, merged with
+  // whatever the server itself finds in `content`. Note the scope: this
+  // takes user IDs only (there is no role or channel equivalent), and it
+  // does NOT make a token inside an embed render as a name — embed bodies
+  // are never scanned. Use it to make a mention in `content` reliable, not
+  // as a substitute for resolving names into embeds.
+  mentions?: string[];
 }
 
 interface SendMessageResponse {
@@ -376,13 +387,14 @@ export class EchoedClient {
 
   // ─── Messaging ───────────────────────────────────────────────────────
   async sendMessage(input: SendMessageInput): Promise<SendMessageResponse> {
-    const { serverId, channelId, content, replyToId, attachmentIds, embeds } = input;
+    const { serverId, channelId, content, replyToId, attachmentIds, embeds, mentions } = input;
     return this.request('POST', `/v1/bots/${serverId}/messages/send`, {
       channelId,
       content,
       ...(replyToId ? { replyToId } : {}),
       ...(attachmentIds ? { attachmentIds } : {}),
       ...(embeds && embeds.length > 0 ? { embeds } : {}),
+      ...(mentions && mentions.length > 0 ? { mentions } : {}),
     });
   }
 

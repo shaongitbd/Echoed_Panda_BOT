@@ -10,6 +10,7 @@ import {
 } from '../qotd/store.js';
 import { parseChannelId, parseDailyTime, nextDailyRun } from '../util/parse.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannel } from '../client/names.js';
 
 const MAX_QUESTION_LEN = 500;
 
@@ -47,6 +48,11 @@ export const handleQotd: Handler = async (ctx, svc) => {
   if (!sub || sub === 'status') {
     const cfg = await getQotdConfig(ctx.serverId);
     const bank = await listQuestions(ctx.serverId);
+    // Channel name, not a token: embed bodies are delivered verbatim.
+    const where =
+      cfg.enabled && cfg.channelId
+        ? await resolveChannel(svc.api, ctx.serverId, cfg.channelId)
+        : null;
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
@@ -56,7 +62,7 @@ export const handleQotd: Handler = async (ctx, svc) => {
           title: '💬 Question of the Day',
           color: cfg.enabled ? COLORS.ONLINE : COLORS.MUTED,
           description: cfg.enabled
-            ? `Posting to <#${cfg.channelId}> daily at **${cfg.dailyTime} UTC**.`
+            ? `Posting to ${where} daily at **${cfg.dailyTime} UTC**.`
             : `Currently **off**. Turn it on with \`${ctx.prefix}qotd channel <#channel>\`.`,
           footer: `${bank.length} custom question${bank.length === 1 ? '' : 's'} (defaults used when empty)`,
         }),

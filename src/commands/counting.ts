@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import { getCountingConfig, setCountingConfig, resetCount } from '../counting/store.js';
 import { parseChannelId } from '../util/parse.js';
 import { buildEmbed, COLORS, field } from '../client/embeds.js';
+import { resolveChannel } from '../client/names.js';
 
 async function requireManageServer(ctx: CommandContext, svc: Services): Promise<boolean> {
   const ok = await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER');
@@ -33,6 +34,11 @@ export const handleCounting: Handler = async (ctx, svc) => {
 
   if (!sub || sub === 'status') {
     const cfg = await getCountingConfig(ctx.serverId);
+    // Channel name, not a token: embed bodies are delivered verbatim.
+    const where =
+      cfg.enabled && cfg.channelId
+        ? await resolveChannel(svc.api, ctx.serverId, cfg.channelId)
+        : null;
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
@@ -42,7 +48,7 @@ export const handleCounting: Handler = async (ctx, svc) => {
           title: '🔢 Counting',
           color: cfg.enabled ? COLORS.ONLINE : COLORS.MUTED,
           description: cfg.enabled
-            ? `Counting in <#${cfg.channelId}>. Next number is **${cfg.currentCount + 1}**.`
+            ? `Counting in ${where}. Next number is **${cfg.currentCount + 1}**.`
             : `Currently **off**. Turn it on with \`${ctx.prefix}counting channel <#channel>\`.`,
           fields: [
             field('Current', String(cfg.currentCount), true),

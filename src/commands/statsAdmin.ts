@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addCounter, removeCounter, listForServer, type StatKind } from '../stats/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -56,8 +57,10 @@ export const handleStatCounter: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.map((c) => c.channelId));
     const description = all
-      .map((c) => `<#${c.channelId}> · \`${c.kind}\` · format: \`${c.format}\``)
+      .map((c) => `${chans.get(c.channelId)} · \`${c.kind}\` · format: \`${c.format}\``)
       .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,

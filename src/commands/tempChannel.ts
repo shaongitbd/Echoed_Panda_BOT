@@ -4,6 +4,7 @@ import { parseDuration, formatDuration } from '../mod/duration.js';
 import { recordTemp, listForServer, cancelTemp } from '../tempChannels/store.js';
 import { EchoedApiError } from '../client/echoedClient.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const MIN_DURATION = 5 * 60;          // 5 min
 const MAX_DURATION = 30 * 24 * 3600;  // 30 days
@@ -60,10 +61,12 @@ export const handleTempChannel: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, pending.map((t) => t.channelId));
     const description = pending
       .map((t) => {
         const remaining = Math.max(0, Math.floor((t.expiresAt.getTime() - Date.now()) / 1000));
-        return `<#${t.channelId}> — expires in ${formatDuration(remaining)}`;
+        return `${chans.get(t.channelId)} — expires in ${formatDuration(remaining)}`;
       })
       .join('\n');
     await svc.api.sendMessage({

@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import { addRule, removeRule, listForServer } from '../keywords/store.js';
 import { forgetRule } from '../keywords/handler.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -68,9 +69,11 @@ export const handleKeyword: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.flatMap((r) => (r.channelId ? [r.channelId] : [])));
     const description = all
       .map((r) => {
-        const scope = r.channelId ? `<#${r.channelId}>` : 'all channels';
+        const scope = r.channelId ? (chans.get(r.channelId) ?? 'a channel') : 'all channels';
         return `\`#${r.id}\` (${scope}) "${r.phrase}" → ${r.response.slice(0, 80)}`;
       })
       .join('\n');

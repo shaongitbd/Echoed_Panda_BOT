@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { log } from './log.js';
 import { EchoedClient } from './client/echoedClient.js';
 import { EchoedSocket } from './client/echoedSocket.js';
+import { rememberUser } from './client/names.js';
 import { PermissionService } from './auth/permissions.js';
 import { VoiceManager } from './voice/manager.js';
 import { closeDb, pingDb } from './db/pool.js';
@@ -202,6 +203,11 @@ async function main(): Promise<void> {
   socket.onMessage(async (msg) => {
     if (!msg.content || msg.messageType !== 'user') return;
     if (!msg.serverId || !msg.channelId) return;
+
+    // Free name-cache fill. Embeds never resolve mention tokens, so
+    // anything we render into one needs a display name up front; every
+    // message already carries its author's, so take it.
+    rememberUser(msg.serverId, msg.senderId, msg.author?.name);
 
     // Auto-mod runs FIRST and synchronously — if it deletes the
     // message we skip XP and dispatch entirely. A user shouldn't earn

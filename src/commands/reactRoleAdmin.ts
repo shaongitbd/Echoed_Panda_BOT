@@ -9,6 +9,7 @@ import {
 } from '../reactRoles/store.js';
 import { EchoedApiError } from '../client/echoedClient.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
+import { resolveChannels, resolveRoles } from '../client/names.js';
 
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -172,13 +173,24 @@ export const handleReactRole: Handler = async (ctx, svc) => {
     // One field per reaction-role message — each shows the mode +
     // every emoji→role binding. Inline=false because the bindings
     // list can get long; we want each message on its own row.
+    // Field names and values are delivered verbatim, so both the role
+    // tokens and the bare channel ID in the header would otherwise show as
+    // raw IDs. Resolve both.
+    const [roleNames, channelNames] = await Promise.all([
+      resolveRoles(
+        svc.api,
+        ctx.serverId,
+        all.flatMap((e) => e.mappings.map((m) => m.roleId)),
+      ),
+      resolveChannels(svc.api, ctx.serverId, all.map((e) => e.channelId)),
+    ]);
     const fields = all.map((entry) => {
       const bindings =
         entry.mappings.length > 0
-          ? entry.mappings.map((m) => `${m.emoji} → <@&${m.roleId}>`).join('\n')
+          ? entry.mappings.map((m) => `${m.emoji} → ${roleNames.get(m.roleId)}`).join('\n')
           : '_no bindings_';
       return field(
-        `\`${entry.messageId}\` · #${entry.channelId} · ${entry.mode}`,
+        `\`${entry.messageId}\` · ${channelNames.get(entry.channelId)} · ${entry.mode}`,
         bindings,
         false,
       );

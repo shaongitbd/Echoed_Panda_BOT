@@ -10,6 +10,7 @@ import {
 } from '../birthday/store.js';
 import { parseChannelId, parseRoleId, parseDailyTime, nextDailyRun } from '../util/parse.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannel, resolveUsers } from '../client/names.js';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -68,9 +69,14 @@ export const handleBirthday: Handler = async (ctx, svc) => {
   if (!sub || sub === 'status') {
     const mine = await getBirthday(ctx.serverId, ctx.senderId);
     const cfg = await getBirthdayConfig(ctx.serverId);
+    // Channel name, not a token: embed bodies are delivered verbatim.
+    const where =
+      cfg.enabled && cfg.channelId
+        ? await resolveChannel(svc.api, ctx.serverId, cfg.channelId)
+        : null;
     const lines = [
       mine ? `Your birthday: **${fmtDate(mine.month, mine.day)}**` : `You haven't set a birthday — \`${ctx.prefix}birthday set <MM-DD>\`.`,
-      cfg.enabled ? `Announcements: <#${cfg.channelId}> at **${cfg.dailyTime} UTC**` : 'Announcements: **off**',
+      where ? `Announcements: ${where} at **${cfg.dailyTime} UTC**` : 'Announcements: **off**',
     ];
     await svc.api.sendMessage({
       serverId: ctx.serverId,
@@ -105,10 +111,13 @@ export const handleBirthday: Handler = async (ctx, svc) => {
       await reply(ctx, svc, `No birthdays saved yet. Add yours with \`${ctx.prefix}birthday set <MM-DD>\`.`);
       return;
     }
+    // Names, not mention tokens: embed bodies are delivered verbatim, so a
+    // token here would show as a raw ID.
+    const names = await resolveUsers(svc.api, ctx.serverId, list.map((b) => b.userId));
     const desc = list
       .map((b) => {
         const when = b.daysAway === 0 ? '**today!** 🎉' : b.daysAway === 1 ? 'tomorrow' : `in ${b.daysAway} days`;
-        return `<@${b.userId}> — ${fmtDate(b.month, b.day)} (${when})`;
+        return `**${names.get(b.userId)}** — ${fmtDate(b.month, b.day)} (${when})`;
       })
       .join('\n');
     await svc.api.sendMessage({

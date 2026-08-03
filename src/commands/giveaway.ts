@@ -10,6 +10,7 @@ import {
 import { pickAndAnnounce, GIVEAWAY_EMOJI } from '../giveaways/pickWinners.js';
 import { log } from '../log.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
+import { resolveUser, resolveChannels } from '../client/names.js';
 
 const MAX_PRIZE_LEN = 200;
 const MAX_WINNERS = 20;
@@ -106,6 +107,10 @@ export const handleGiveawayStart: Handler = async (ctx, svc) => {
   // notifications; description gives the call-to-action; fields show
   // the sortable details (winners count, end time). Color is the
   // gold accent so the card pops in chat.
+  //
+  // The host is resolved to a name: field values are delivered verbatim,
+  // so a mention token would show as a raw ID.
+  const hostName = await resolveUser(svc.api, ctx.serverId, ctx.senderId);
   let messageId: string;
   try {
     const sent = await svc.api.sendMessage({
@@ -123,7 +128,7 @@ export const handleGiveawayStart: Handler = async (ctx, svc) => {
             field('Prize', prize, true),
             field('Winners', String(winnerCount), true),
             field('Ends in', human, true),
-            field('Hosted by', `<@${ctx.senderId}>`, false),
+            field('Hosted by', hostName, false),
           ],
           footer: 'Drawing held at',
           // Setting the embed timestamp to the end-time gives clients
@@ -247,10 +252,12 @@ export const handleGiveawayList: Handler = async (ctx, svc) => {
     });
     return;
   }
+  // Channel names, not tokens — embed bodies are delivered verbatim.
+  const channels = await resolveChannels(svc.api, ctx.serverId, all.map((g) => g.channelId));
   const description = all
     .map((g) => {
       const remaining = Math.max(0, Math.floor((g.endAt.getTime() - Date.now()) / 1000));
-      return `\`${g.messageId}\` in <#${g.channelId}> — **${g.prize}** (${g.winnerCount} winner${g.winnerCount === 1 ? '' : 's'}) — ends in ${formatDuration(remaining)}`;
+      return `\`${g.messageId}\` in ${channels.get(g.channelId)} — **${g.prize}** (${g.winnerCount} winner${g.winnerCount === 1 ? '' : 's'}) — ends in ${formatDuration(remaining)}`;
     })
     .join('\n');
   await svc.api.sendMessage({

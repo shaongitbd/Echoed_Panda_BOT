@@ -5,6 +5,11 @@ import { log } from '../log.js';
 
 const BATCH_SIZE = 25;
 
+// Ceiling on how many celebrants we name in one greeting. Message content
+// has a size limit, and over-length content is dropped rather than
+// rejected — so an unbounded list would silently post an empty greeting.
+const MAX_MENTIONED = 20;
+
 function renderWish(template: string | null, mentions: string): string {
   if (template && template.trim()) return template.replace(/\{user\}/g, mentions);
   return `🎂 Happy birthday ${mentions}! Hope it's a great one. 🎉`;
@@ -59,19 +64,31 @@ export async function birthdayTick(api: EchoedClient): Promise<void> {
 
       if (celebrants.length === 0) return;
 
-      const mentions = celebrants.map((uid) => `<@${uid}>`).join(' ');
+      // The mention list goes in `content` — that is the only place tokens
+      // are resolved, and the only way the celebrants actually get pinged.
+      // Cap it: `content` has a size limit, and a server with a very large
+      // shared birthday would otherwise blow past it.
+      const named = celebrants.slice(0, MAX_MENTIONED);
+      const overflow = celebrants.length - named.length;
+      const mentions =
+        named.map((uid) => `<@${uid}>`).join(' ') +
+        (overflow > 0 ? ` and ${overflow} more` : '');
+
       try {
         await api.sendMessage({
           serverId: cfg.serverId,
           channelId: cfg.channelId,
           content: renderWish(cfg.message, mentions),
+          // Deliberately no mention list in the embed: tokens there would
+          // render as raw IDs, and `content` already carries the greeting.
           embeds: [
             buildEmbed({
               title: '🎂 Birthday time!',
-              description: `Everybody wish ${mentions} a happy birthday! 🥳`,
+              description: 'Wishing a very happy birthday to our celebrants today! 🥳',
               color: COLORS.ACCENT,
             }),
           ],
+          mentions: named,
         });
       } catch (err) {
         log.warn({ err, serverId: cfg.serverId }, 'Birthday post failed');

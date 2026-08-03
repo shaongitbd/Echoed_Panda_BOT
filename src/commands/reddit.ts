@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addSub, removeSub, listForServer } from '../reddit/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -76,8 +77,10 @@ export const handleReddit: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.map((s) => s.channelId));
     const description = all
-      .map((s) => `r/${s.subreddit} → <#${s.channelId}>`)
+      .map((s) => `r/${s.subreddit} → ${chans.get(s.channelId)}`)
       .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,

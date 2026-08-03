@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
 import { log } from '../log.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveUser } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -106,10 +107,11 @@ export const handleSuggest: Handler = async (ctx, { api }) => {
     return;
   }
 
-  // Post to the configured channel and seed up/down reactions for
-  // voting. The mention goes in the description (where mentions
-  // parse) — the embed timestamp gives a "submitted at" footer for
-  // free.
+  // Post to the configured channel and seed the vote reaction. The author
+  // is resolved to a name first — a mention token in an embed body is not
+  // resolved and would show as a raw ID. The embed timestamp gives a
+  // "submitted at" footer for free.
+  const authorName = await resolveUser(api, ctx.serverId, ctx.senderId);
   let messageId: string;
   try {
     const sent = await api.sendMessage({
@@ -119,7 +121,7 @@ export const handleSuggest: Handler = async (ctx, { api }) => {
       embeds: [
         buildEmbed({
           title: '💡 New suggestion',
-          description: `${tail}\n\n— from <@${ctx.senderId}>`,
+          description: `${tail}\n\n— from **${authorName}**`,
           color: COLORS.ACCENT,
         }),
       ],

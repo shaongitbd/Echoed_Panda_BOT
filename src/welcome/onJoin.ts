@@ -1,6 +1,7 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import type { MemberJoinedData } from '../types.js';
 import { getGuildConfig } from '../db/guildConfig.js';
+import { resolveServerName } from '../client/names.js';
 import { log } from '../log.js';
 
 const DEFAULT_WELCOME_MESSAGE = 'Welcome to **{server}**, {user}! You\'re member #{membercount}.';
@@ -49,9 +50,16 @@ async function sendWelcome(
   if (!cfg.welcomeChannel) return;
 
   const template = cfg.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
+  // The join payload has no server name, so look it up — the default
+  // template leads with {server}, and without this every server that never
+  // customised its greeting welcomes people to "this server". Cached, so
+  // it's one lookup per server per TTL rather than one per join.
+  const serverName = template.includes('{server}')
+    ? await resolveServerName(api, data.serverId)
+    : null;
   const content = renderTemplate(template, {
     userId: data.userId,
-    serverName: null, // Not in payload; templates without {server} render fine
+    serverName,
     memberCount: data.memberCount ?? null,
   });
 
@@ -60,6 +68,9 @@ async function sendWelcome(
       serverId: data.serverId,
       channelId: cfg.welcomeChannel,
       content,
+      // The template renders {user} into content, where it resolves. Naming
+      // them here too makes the mention reliable.
+      mentions: [data.userId],
     });
   } catch (err) {
     log.warn(

@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import { parseDuration, formatDuration } from '../mod/duration.js';
 import { addSchedule, removeSchedule, listForServer } from '../schedMsg/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -79,6 +80,8 @@ export const handleSchedule: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.map((s) => s.channelId));
     const description = all
       .map((s) => {
         const cadence =
@@ -86,7 +89,7 @@ export const handleSchedule: Handler = async (ctx, svc) => {
             ? `every ${formatDuration(s.intervalSeconds ?? 0)}`
             : `daily ${s.dailyTime ?? '?'} UTC`;
         const remaining = Math.max(0, Math.floor((s.nextRunAt.getTime() - Date.now()) / 1000));
-        return `\`#${s.id}\` ${cadence} → <#${s.channelId}> (next in ${formatDuration(remaining)})`;
+        return `\`#${s.id}\` ${cadence} → ${chans.get(s.channelId)} (next in ${formatDuration(remaining)})`;
       })
       .join('\n');
     await svc.api.sendMessage({

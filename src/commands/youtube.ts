@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addSub, removeSub, listForServer } from '../youtube/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 import { log } from '../log.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
@@ -143,8 +144,10 @@ export const handleYoutube: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.map((s) => s.channelId));
     const description = all
-      .map((s) => `\`${s.youtubeChannelId}\` → <#${s.channelId}>`)
+      .map((s) => `\`${s.youtubeChannelId}\` → ${chans.get(s.channelId)}`)
       .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,

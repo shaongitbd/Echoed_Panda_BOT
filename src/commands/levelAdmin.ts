@@ -12,6 +12,7 @@ import {
   deleteLevelReward,
 } from '../levels/levelUp.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveRole, resolveRoles } from '../client/names.js';
 
 // ─── Mention parsing ────────────────────────────────────────────────────
 
@@ -198,10 +199,14 @@ export const handleAddLevelRole: Handler = async (ctx, svc) => {
   }
 
   await setLevelReward(ctx.serverId, level, roleId);
+  // Echo the resolved name rather than a token: reward roles are created
+  // non-mentionable, so a token is not a reliable way to show which role
+  // this actually is.
+  const roleName = await resolveRole(svc.api, ctx.serverId, roleId);
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: `Members will get <@&${roleId}> when they hit level **${level}**.`,
+    content: `Members will get **${roleName}** when they hit level **${level}**.`,
   });
 };
 
@@ -242,8 +247,11 @@ export const handleLevelRewards: Handler = async (ctx, svc) => {
     return;
   }
 
+  // Role names, not tokens: embed bodies are delivered verbatim, so a
+  // token here would show as a raw ID.
+  const roleNames = await resolveRoles(svc.api, ctx.serverId, rewards.map((r) => r.roleId));
   const description = rewards
-    .map((r) => `Level **${r.level}** → <@&${r.roleId}>`)
+    .map((r) => `Level **${r.level}** → ${roleNames.get(r.roleId)}`)
     .join('\n');
   await svc.api.sendMessage({
     serverId: ctx.serverId,

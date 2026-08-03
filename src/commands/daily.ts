@@ -78,10 +78,22 @@ export const handleDaily: Handler = async (ctx, svc) => {
     .filter(Boolean)
     .join('\n');
 
+  // Whose check-in this is has to be visible: the card is otherwise
+  // identical for everyone. Reply to the invoking message and name them in
+  // the title — deliberately no mention, since self-pinging someone for
+  // running their own command is just noise.
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
+    replyToId: ctx.messageId,
     content: '',
-    embeds: [buildEmbed({ title: '✅ Daily check-in', description: desc, color: COLORS.ONLINE, fields })],
+    embeds: [
+      buildEmbed({
+        title: `✅ Daily check-in · ${ctx.senderName}`,
+        description: desc,
+        color: COLORS.ONLINE,
+        fields,
+      }),
+    ],
   });
 };

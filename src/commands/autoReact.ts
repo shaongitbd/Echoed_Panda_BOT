@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addAutoReact, removeAutoReact, listForServer } from '../autoReact/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -46,8 +47,10 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.map((r) => r.channelId));
     const description = all
-      .map((r) => `<#${r.channelId}> → ${r.emoji}`)
+      .map((r) => `${chans.get(r.channelId)} → ${r.emoji}`)
       .join('\n');
     await svc.api.sendMessage({
       serverId: ctx.serverId,

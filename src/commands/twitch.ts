@@ -3,6 +3,7 @@ import type { CommandContext } from '../types.js';
 import { addSub, removeSub, listForServer } from '../twitch/store.js';
 import { twitchEnabled } from '../config.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -72,10 +73,12 @@ export const handleTwitch: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Channel names, not tokens: embed bodies are delivered verbatim.
+    const chans = await resolveChannels(svc.api, ctx.serverId, all.map((s) => s.channelId));
     const description = all
       .map((s) => {
         const live = s.lastCheckLive ? ' 🔴' : '';
-        return `**${s.twitchLogin}**${live} → <#${s.channelId}>`;
+        return `**${s.twitchLogin}**${live} → ${chans.get(s.channelId)}`;
       })
       .join('\n');
     const footer = twitchEnabled()
