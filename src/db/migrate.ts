@@ -903,12 +903,26 @@ const MIGRATION_LOCK_ID = 8_071_121;
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
+    // Lift the pool's statement timeout for this connection only.
+    //
+    // The pool sets a 15s statement_timeout, which is right for queries on
+    // the request path and wrong for DDL: creating an index on a table
+    // that has accumulated real data can easily take longer than that, and
+    // a migration that fails exits the process — so the timeout would turn
+    // a slow-but-fine index build into a crashlooping deploy. Scoped to
+    // this client, so nothing else loses its timeout.
+    await client.query('SET statement_timeout = 0');
+    await client.query('SET idle_in_transaction_session_timeout = 0');
+
     // Serialize across instances. These statements replay in full on every
     // boot, and several of them — the trigger guards especially — are
     // check-then-create, so two containers starting together can race and
     // one of them fails. A failed migration exits the process, so that
     // race showed up as a deploy that flaps. The lock is held on this one
     // connection for the duration and released with it.
+    //
+    // A second instance blocks here until the first finishes rather than
+    // failing, which is what makes a rolling deploy safe.
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
     try {
       for (const stmt of STATEMENTS) {
