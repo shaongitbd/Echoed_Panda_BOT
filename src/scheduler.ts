@@ -125,9 +125,23 @@ export function startScheduler(
   log.info({ intervalMs: TICK_INTERVAL_MS }, 'Scheduler started');
 }
 
-export function stopScheduler(): void {
+// Stop ticking and wait for any in-flight tick to finish. Scheduled work
+// claims its row before performing the side effect, so a tick killed
+// halfway leaves that work leased until the claim goes stale — waiting a
+// few seconds here turns a deploy from "some reminders are delayed" into
+// "nothing was interrupted". Bounded so a wedged request can't block a
+// shutdown indefinitely.
+const DRAIN_TIMEOUT_MS = 8_000;
+
+export async function stopScheduler(): Promise<void> {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+  if (!runningTick) return;
+  log.info('Waiting for in-flight scheduler tick to finish');
+  await Promise.race([
+    runningTick,
+    new Promise<void>((resolve) => setTimeout(resolve, DRAIN_TIMEOUT_MS).unref()),
+  ]).catch(() => undefined);
 }

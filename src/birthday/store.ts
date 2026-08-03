@@ -188,7 +188,7 @@ export async function claimDueBirthdayConfigs(now: Date, limit = 25): Promise<Bi
      )
      UPDATE panda.birthday_config c
         SET next_run_at = c.next_run_at
-              + (FLOOR(EXTRACT(EPOCH FROM ($1 - c.next_run_at)) / 86400) + 1) * interval '1 day',
+              + (FLOOR(EXTRACT(EPOCH FROM ($1 - c.next_run_at)) / 86400) + 1) * interval '24 hours',
             updated_at = now()
        FROM due
       WHERE c.server_id = due.server_id

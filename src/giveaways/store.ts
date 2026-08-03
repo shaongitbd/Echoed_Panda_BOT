@@ -104,25 +104,46 @@ export async function listActive(serverId: string): Promise<Giveaway[]> {
   return res.rows.map(rowToGiveaway);
 }
 
-// Tick query: claim every giveaway whose end_at has passed AND that
-// isn't already marked ended. We mark them ended in the same query
-// (and return the rows) so a concurrent tick can't double-pick the
-// winners.
+const LEASE_SECONDS = 180;
+const MAX_ATTEMPTS = 5;
+
+// Tick query: lease every giveaway whose end_at has passed and that isn't
+// already ended, so a concurrent tick skips it. The giveaway is NOT marked
+// ended here — that happens in `markEnded()` once winners have actually
+// been drawn and announced. Marking it up front meant any failure during
+// the draw left it ended with no winners and no way to redo it.
 export async function claimDueGiveaways(now: Date, limit = 25): Promise<Giveaway[]> {
   const res = await pool.query<Row>(
-    `UPDATE panda.giveaways
-        SET ended = TRUE
-      WHERE id IN (
+    `UPDATE panda.giveaways g
+        SET claimed_at = $1,
+            attempts   = g.attempts + 1
+      WHERE g.id IN (
         SELECT id FROM panda.giveaways
-         WHERE ended = FALSE AND end_at <= $1
+         WHERE ended = FALSE
+           AND end_at <= $1
+           AND attempts < $3
+           AND (claimed_at IS NULL OR claimed_at < $1 - ($4 || ' seconds')::interval)
          ORDER BY end_at ASC
          LIMIT $2
          FOR UPDATE SKIP LOCKED
       )
-      RETURNING id, server_id, channel_id, message_id, prize, winner_count, end_at, ended, winners_json, created_by, created_at`,
-    [now, limit],
+      RETURNING g.id, g.server_id, g.channel_id, g.message_id, g.prize, g.winner_count, g.end_at, g.ended, g.winners_json, g.created_by, g.created_at`,
+    [now, limit, MAX_ATTEMPTS, LEASE_SECONDS],
   );
   return res.rows.map(rowToGiveaway);
+}
+
+// The draw completed — winners are recorded and announced.
+export async function markEnded(id: number): Promise<void> {
+  await pool.query(`UPDATE panda.giveaways SET ended = TRUE, claimed_at = NULL WHERE id = $1`, [
+    id,
+  ]);
+}
+
+// The draw failed in a way that might succeed later. Release the lease so
+// a later tick retries it; the giveaway stays un-ended.
+export async function releaseGiveaway(id: number): Promise<void> {
+  await pool.query(`UPDATE panda.giveaways SET claimed_at = NULL WHERE id = $1`, [id]);
 }
 
 // End a giveaway early: marks it ended without going through the tick

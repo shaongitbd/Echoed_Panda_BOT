@@ -81,21 +81,51 @@ export async function cancelReminder(
   return (res.rowCount ?? 0) > 0;
 }
 
-// Tick query: pull all due reminders, claim by deletion in the SAME
-// statement so concurrent ticks don't fire the same reminder twice.
-// `RETURNING` gives us the rows we just claimed.
+// How long a claim is held before another tick may retry it. Long enough
+// that a slow send isn't retried underneath itself, short enough that a
+// process killed mid-tick doesn't strand the reminder for long.
+const LEASE_SECONDS = 120;
+
+// Give up after this many failed attempts rather than retrying forever.
+const MAX_ATTEMPTS = 5;
+
+// Tick query: claim due reminders by leasing them, so a concurrent tick
+// skips them but a failure doesn't destroy them. The row survives until
+// `settle()` confirms the reminder was actually delivered.
 export async function claimDue(now: Date, limit = 50): Promise<Reminder[]> {
   const res = await pool.query<Row>(
-    `DELETE FROM panda.reminders
-       WHERE id IN (
+    `UPDATE panda.reminders r
+        SET claimed_at = $1,
+            attempts   = r.attempts + 1
+       WHERE r.id IN (
          SELECT id FROM panda.reminders
           WHERE due_at <= $1
+            AND attempts < $3
+            AND (claimed_at IS NULL OR claimed_at < $1 - ($4 || ' seconds')::interval)
           ORDER BY due_at ASC
           LIMIT $2
           FOR UPDATE SKIP LOCKED
        )
        RETURNING id, server_id, user_id, channel_id, message, due_at, created_at`,
-    [now, limit],
+    [now, limit, MAX_ATTEMPTS, LEASE_SECONDS],
   );
   return res.rows.map(rowToReminder);
+}
+
+// Delivered — the reminder is done, drop it.
+export async function settle(id: number): Promise<void> {
+  await pool.query(`DELETE FROM panda.reminders WHERE id = $1`, [id]);
+}
+
+// Delivery failed in a way that might succeed later. Release the lease so
+// the next tick picks it up; `attempts` already advanced at claim time, so
+// this can't loop forever.
+export async function release(id: number): Promise<void> {
+  await pool.query(`UPDATE panda.reminders SET claimed_at = NULL WHERE id = $1`, [id]);
+}
+
+// Failed permanently (channel gone, no access). Retrying will never work,
+// so stop.
+export async function abandon(id: number): Promise<void> {
+  await pool.query(`DELETE FROM panda.reminders WHERE id = $1`, [id]);
 }

@@ -49,13 +49,20 @@ export async function processKeywords(
     const cdKey = `${rule.id}:${msg.channelId}`;
     if (Date.now() - (lastFired.get(cdKey) ?? 0) < RESPONSE_COOLDOWN_MS) return;
 
+    // Stamp the throttle BEFORE sending, not after. Recording it only on
+    // success means a channel we can't post in never starts its cooldown,
+    // so every matching message retries — and the default keyword set
+    // matches very common words.
+    lastFired.set(cdKey, Date.now());
     try {
-      await api.sendMessage({
-        serverId: msg.serverId,
-        channelId: msg.channelId,
-        content: rule.response,
-      });
-      lastFired.set(cdKey, Date.now());
+      await api.sendMessage(
+        {
+          serverId: msg.serverId,
+          channelId: msg.channelId,
+          content: rule.response,
+        },
+        { priority: 'background' },
+      );
     } catch (err) {
       log.warn({ err, ruleId: rule.id }, 'Keyword response send failed');
     }

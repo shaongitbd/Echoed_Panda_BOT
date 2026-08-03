@@ -97,8 +97,19 @@ export async function listForServer(serverId: string): Promise<ScheduledMessage[
 }
 
 // Tick claim: select due rows + reschedule them in a single query so
-// concurrent ticks can't double-fire. Daily schedules advance to the
-// same HH:MM tomorrow; interval schedules advance by interval_seconds.
+// concurrent ticks can't double-fire.
+//
+// The next run is computed by skipping however many whole periods have
+// already elapsed, so it always lands strictly in the future. Advancing by
+// exactly one period instead would leave a backlogged row still due: after
+// an outage it would sit at the head of the queue and re-fire once per tick
+// until it caught up, which for a short interval is hours of the same
+// message repeating. Catching up means a missed window is skipped rather
+// than replayed.
+//
+// Interval arithmetic is in seconds, and the daily case uses 24 hours
+// rather than a calendar day, so neither shifts under a DST transition in
+// whatever timezone the session happens to be in.
 export async function claimDueAndReschedule(now: Date, limit = 25): Promise<ScheduledMessage[]> {
   const res = await pool.query<Row>(
     `WITH due AS (
@@ -110,10 +121,17 @@ export async function claimDueAndReschedule(now: Date, limit = 25): Promise<Sche
      )
      UPDATE panda.scheduled_messages s
         SET next_run_at = CASE
-              WHEN schedule_kind = 'every'
-                THEN s.next_run_at + (s.interval_seconds || ' seconds')::interval
-              WHEN schedule_kind = 'daily'
-                THEN s.next_run_at + interval '1 day'
+              WHEN s.schedule_kind = 'every'
+                THEN s.next_run_at
+                   + (FLOOR(
+                        EXTRACT(EPOCH FROM ($1 - s.next_run_at))
+                        / GREATEST(COALESCE(s.interval_seconds, 0), 1)
+                      ) + 1)
+                   * (GREATEST(COALESCE(s.interval_seconds, 0), 1) || ' seconds')::interval
+              WHEN s.schedule_kind = 'daily'
+                THEN s.next_run_at
+                   + (FLOOR(EXTRACT(EPOCH FROM ($1 - s.next_run_at)) / 86400) + 1)
+                   * interval '24 hours'
               ELSE s.next_run_at
             END
        FROM due

@@ -1,4 +1,4 @@
-import type { EchoedClient } from '../client/echoedClient.js';
+import { EchoedApiError, type EchoedClient } from '../client/echoedClient.js';
 import type { Giveaway } from './store.js';
 import type { PermissionService } from '../auth/permissions.js';
 import { recordWinners } from './store.js';
@@ -128,7 +128,15 @@ export async function pickAndAnnounce(
   try {
     message = await api.getMessage(g.serverId, g.messageId);
   } catch (err) {
-    log.warn({ err, giveawayId: g.id }, 'Giveaway message lookup failed');
+    // Distinguish "the message is really gone" from "we couldn't reach the
+    // API just now". Announcing that the giveaway can't be drawn is a
+    // terminal, user-visible statement — don't make it because of a blip.
+    const status = err instanceof EchoedApiError ? err.status : 0;
+    if (status !== 404 && status !== 403) {
+      log.warn({ err, giveawayId: g.id }, 'Giveaway message lookup failed — will retry');
+      throw err;
+    }
+    log.warn({ err, giveawayId: g.id, status }, 'Giveaway message gone');
     await sendNoEntries(api, g, 'the giveaway message is no longer accessible');
     return [];
   }
@@ -156,21 +164,28 @@ export async function pickAndAnnounce(
     return [];
   }
 
-  const winners = pickRandom(eligible, g.winnerCount);
+  // If a previous attempt already drew winners but failed before it could
+  // announce them, keep that draw. Redrawing would mean the recorded
+  // winners and the announced winners disagree, and would give a second
+  // roll of the dice to a giveaway that was already decided.
+  const winners =
+    !options.isReroll && g.winners.length > 0
+      ? g.winners
+      : pickRandom(eligible, g.winnerCount);
   await recordWinners(g.id, winners);
 
   const mentions = winners.map((id) => `<@${id}>`).join(', ');
   const verb = options.isReroll ? '🎲 Re-rolled winner' : '🏆 Winner';
   const plural = winners.length === 1 ? '' : 's';
-  try {
-    await api.sendMessage({
-      serverId: g.serverId,
-      channelId: g.channelId,
-      content: `${verb}${plural} of **${g.prize}** — congrats ${mentions}!`,
-    });
-  } catch (err) {
-    log.warn({ err, giveawayId: g.id }, 'Giveaway announcement failed');
-  }
+  // The announcement is what makes the draw real for the server, so a
+  // failure here has to propagate: the giveaway stays unfinished and the
+  // next tick retries, re-announcing the winners recorded just above.
+  await api.sendMessage({
+    serverId: g.serverId,
+    channelId: g.channelId,
+    content: `${verb}${plural} of **${g.prize}** — congrats ${mentions}!`,
+    mentions: winners,
+  });
 
   // DM each winner so they don't miss it. Best-effort + parallel: the DM
   // endpoint takes a username, so resolve each winner's profile first. A winner

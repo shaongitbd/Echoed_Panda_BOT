@@ -331,6 +331,41 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     `,
   },
   {
+    // Lease columns. Scheduled work used to be claimed by deleting the row
+    // and only then performing the side effect, so any failure in between
+    // destroyed the work with no way to recover it. Now a claim marks the
+    // row instead, and the row is only removed once the side effect has
+    // actually succeeded. A lease that goes stale (process killed mid-tick)
+    // becomes claimable again.
+    name: 'reminders lease columns',
+    sql: `
+      ALTER TABLE panda.reminders
+        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
+    `,
+  },
+  {
+    name: 'temp_channels lease columns',
+    sql: `
+      ALTER TABLE panda.temp_channels
+        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
+    `,
+  },
+  {
+    // A giveaway used to be marked ended before its winners were drawn, so
+    // any failure in between left it ended with nobody picked — and the
+    // early-end path only matches un-ended rows, so it couldn't be redone.
+    // The lease lets the draw be retried; `ended` is now set only once
+    // winners have actually been announced.
+    name: 'giveaways lease columns',
+    sql: `
+      ALTER TABLE panda.giveaways
+        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
+    `,
+  },
+  {
     name: 'giveaways table',
     sql: `
       CREATE TABLE IF NOT EXISTS panda.giveaways (

@@ -329,7 +329,10 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info({ signal }, 'Shutting down');
-    stopScheduler();
+    // Drain first: scheduled work claims its row before acting, so cutting
+    // a tick off mid-flight leaves that work in limbo until the claim
+    // expires.
+    await stopScheduler();
     socket.disconnect();
     try {
       await closeDb();

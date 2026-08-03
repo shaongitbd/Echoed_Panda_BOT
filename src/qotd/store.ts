@@ -153,7 +153,7 @@ export async function claimDueQotd(now: Date, limit = 25): Promise<QotdConfig[]>
      )
      UPDATE panda.qotd_config c
         SET next_run_at = c.next_run_at
-              + (FLOOR(EXTRACT(EPOCH FROM ($1 - c.next_run_at)) / 86400) + 1) * interval '1 day',
+              + (FLOOR(EXTRACT(EPOCH FROM ($1 - c.next_run_at)) / 86400) + 1) * interval '24 hours',
             updated_at = now()
        FROM due
       WHERE c.server_id = due.server_id
