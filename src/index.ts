@@ -318,7 +318,10 @@ async function main(): Promise<void> {
     }
   })();
 
-  const shutdown = async (signal: string): Promise<void> => {
+  let shuttingDown = false;
+  const shutdown = async (signal: string, code = 0): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info({ signal }, 'Shutting down');
     stopScheduler();
     socket.disconnect();
@@ -327,10 +330,15 @@ async function main(): Promise<void> {
     } catch (err) {
       log.warn({ err }, 'Error closing DB pool during shutdown');
     }
-    setTimeout(() => process.exit(0), 200);
+    setTimeout(() => process.exit(code), 200);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+  socket.onFatal((reason) => {
+    log.fatal({ reason }, 'Socket authentication is failing persistently — exiting');
+    void shutdown('socket-auth', 1);
+  });
 
   // Restarting on every async error is expensive — most command-handler
   // errors are already swallowed in the dispatcher. Stay alive and log.

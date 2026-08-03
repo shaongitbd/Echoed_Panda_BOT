@@ -1,7 +1,15 @@
+// Replayable events carry a monotonically increasing per-session sequence
+// number. We track the highest one seen so a reconnect can ask for
+// everything after it. Ephemeral events (reactions, typing, presence) are
+// not replayable and arrive without it.
+export interface Sequenced {
+  _seq?: number;
+}
+
 // Bare payload Echoed's socket server emits on MESSAGE_CREATE.
 // The event name itself is the type discriminator — there's no
 // {type, data} envelope.
-export interface MessageCreatedData {
+export interface MessageCreatedData extends Sequenced {
   id: string;
   channelId: string;
   serverId: string;
@@ -16,7 +24,7 @@ export interface MessageCreatedData {
 // member count; user-facing fields like display name or avatar aren't
 // included, so welcome flows have to mention by ID (`<@id>`) or do an
 // extra profile lookup if they want a rendered name.
-export interface MemberJoinedData {
+export interface MemberJoinedData extends Sequenced {
   serverId: string;
   userId: string;
   memberCount?: number;
