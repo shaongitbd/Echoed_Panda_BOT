@@ -203,12 +203,21 @@ export interface ServerInfo {
   createdAt?: string;
 }
 
+// What the channel-list read actually returns. Deliberately narrow: the
+// type used to declare position, categoryId, isPrivate and friends, none
+// of which are sent — so code could sort or filter on them and typecheck
+// cleanly while doing nothing at all.
 export interface ChannelInfo {
   id: string;
-  serverId: string;
   name: string;
   type: string;
   description?: string;
+  createdAt?: string;
+}
+
+// Channel create/edit echo back the fuller record they were given.
+export interface ChannelDetail extends ChannelInfo {
+  serverId?: string;
   categoryId?: string;
   position?: number;
   isPrivate?: boolean;
@@ -218,7 +227,7 @@ export interface ChannelInfo {
 
 interface ChannelEditResponse {
   success: boolean;
-  channel: ChannelInfo;
+  channel: ChannelDetail;
   message?: string;
 }
 
@@ -812,7 +821,7 @@ export class EchoedClient {
     isNsfw?: boolean;
     categoryId?: string;
     position?: number;
-  }): Promise<{ success: boolean; channel: ChannelInfo }> {
+  }): Promise<{ success: boolean; channel: ChannelDetail }> {
     const { serverId, ...body } = input;
     return this.request('POST', `/v1/bots/${serverId}/channels`, body);
   }

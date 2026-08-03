@@ -7,7 +7,7 @@ import {
   setAutomodConfig,
 } from '../automod/config.js';
 import { buildEmbed, field, COLORS } from '../client/embeds.js';
-import { resolveChannels, resolveRoles } from '../client/names.js';
+import { resolveChannel, resolveChannels, resolveRole, resolveRoles } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
@@ -102,7 +102,6 @@ const FILTER_LABEL: Record<FilterKind, string> = {
 //   filter <name> on/off
 //   exempt channel <#c>   — toggle channel in/out of bypass list
 //   exempt role <@r>      — toggle role in/out of bypass list
-//                           (currently ignored by pipeline — see TODO)
 
 export const handleAutomod: Handler = async (ctx, svc) => {
   if (!(await requireManageServer(ctx, svc))) return;
@@ -137,6 +136,22 @@ export const handleAutomod: Handler = async (ctx, svc) => {
     if (cfg.exemptRoleIds.length > 0) {
       descLines.push(
         `**Exempt roles** · ${cfg.exemptRoleIds.map((id) => exemptRoles.get(id)).join(' ')}`,
+      );
+    }
+    // A non-empty allow-list means auto-mod runs ONLY there — everywhere
+    // else it's inert, while the header still reads "master on". Not
+    // showing these made a scoped config indistinguishable from a broken
+    // one.
+    if (cfg.allowedChannelIds.length > 0) {
+      const allowed = await resolveChannels(svc.api, ctx.serverId, cfg.allowedChannelIds);
+      descLines.push(
+        `⚠️ **Only active in** · ${cfg.allowedChannelIds.map((id) => allowed.get(id)).join(' ')} — every other channel is unmoderated`,
+      );
+    }
+    if (cfg.allowedRoleIds.length > 0) {
+      const allowed = await resolveRoles(svc.api, ctx.serverId, cfg.allowedRoleIds);
+      descLines.push(
+        `⚠️ **Only applies to** · ${cfg.allowedRoleIds.map((id) => allowed.get(id)).join(' ')} — everyone else is unmoderated`,
       );
     }
     if (cfg.badWords.length > 0) {
@@ -222,6 +237,7 @@ export const handleAutomod: Handler = async (ctx, svc) => {
         return;
       }
       const cfg = await getAutomodConfig(ctx.serverId);
+      const chanName = await resolveChannel(svc.api, ctx.serverId, channelId);
       const had = cfg.exemptChannelIds.includes(channelId);
       const next = had
         ? cfg.exemptChannelIds.filter((id) => id !== channelId)
@@ -231,8 +247,8 @@ export const handleAutomod: Handler = async (ctx, svc) => {
         serverId: ctx.serverId,
         channelId: ctx.channelId,
         content: had
-          ? `<#${channelId}> is no longer exempt from auto-mod.`
-          : `<#${channelId}> is now exempt from auto-mod.`,
+          ? `${chanName} is no longer exempt from auto-mod.`
+          : `${chanName} is now exempt from auto-mod.`,
       });
       return;
     }
@@ -254,12 +270,17 @@ export const handleAutomod: Handler = async (ctx, svc) => {
         ? cfg.exemptRoleIds.filter((id) => id !== roleId)
         : [...cfg.exemptRoleIds, roleId];
       await setAutomodConfig(ctx.serverId, { exemptRoleIds: next });
+      const roleName = await resolveRole(svc.api, ctx.serverId, roleId);
       await svc.api.sendMessage({
         serverId: ctx.serverId,
         channelId: ctx.channelId,
+        // Role exemption IS enforced — the pipeline checks it before any
+        // filter runs. The note that used to be appended here claimed the
+        // opposite and sent admins hunting for a workaround they didn't
+        // need.
         content: had
-          ? `<@&${roleId}> is no longer exempt from auto-mod.\n_(Note: role-exempt isn't enforced yet — channel-exempt and master-disable both work.)_`
-          : `<@&${roleId}> is now exempt from auto-mod.\n_(Note: role-exempt isn't enforced yet — channel-exempt and master-disable both work.)_`,
+          ? `**${roleName}** is no longer exempt from auto-mod.`
+          : `**${roleName}** is now exempt from auto-mod.`,
       });
       return;
     }

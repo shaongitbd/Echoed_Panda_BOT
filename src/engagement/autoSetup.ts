@@ -91,9 +91,9 @@ function findByName(channels: ChannelInfo[], hints: string[]): ChannelInfo | und
 // Lowest-position text channel, preferring a "general"-ish name — the home for
 // announcement-style features (QOTD, birthdays).
 export function pickGeneralChannel(channels: ChannelInfo[]): ChannelInfo | undefined {
-  const text = channels
-    .filter((c) => c.type === 'text')
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  // No position field on the channel list, so no ordering to apply — the
+  // name hints below are what actually pick the channel.
+  const text = channels.filter((c) => c.type === 'text');
   // 1. Prefer a channel literally named general/chat/lounge/etc. (case-insensitive).
   const named = text.find((c) => GENERAL_HINTS.includes(c.name.toLowerCase()));
   if (named) return named;
@@ -249,11 +249,13 @@ export async function runEngagementSetup(
         levelUpChannel: commandId ?? generalId,
         noXpChannelIds: noXp,
       });
-      const ok = await provisionLevelRoles(api, serverId, { force: true });
+      const result = await provisionLevelRoles(api, serverId, { force: true });
       lines.push(
-        ok
+        result === 'ok'
           ? `✅ **Levels** — XP + reward roles (Lv 5→100); ${noXp.length} channel(s) excluded from XP`
-          : `⚠️ **Levels** — I need **Manage Roles** to create the reward roles. Grant it and run \`${prefix}setup\` again.`,
+          : result === 'denied'
+            ? `⚠️ **Levels** — I need **Manage Roles** to create the reward roles. Grant it and run \`${prefix}setup\` again.`
+            : `⚠️ **Levels** — couldn't finish creating the reward roles just now. Run \`${prefix}setup\` again in a minute; I'll pick up where I left off.`,
       );
     }
   } catch (err) {

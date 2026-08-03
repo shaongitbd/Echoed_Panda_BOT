@@ -3,7 +3,8 @@ import type { CommandContext } from '../types.js';
 import { addRule, removeRule, listForServer } from '../keywords/store.js';
 import { forgetRule } from '../keywords/handler.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
-import { resolveChannels } from '../client/names.js';
+import { channelBelongsTo, resolveChannel, resolveChannels } from '../client/names.js';
+import { buildKeywordRegex } from '../keywords/handler.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -130,7 +131,28 @@ export const handleKeyword: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // Compile the exact regex the matcher will use and confirm the phrase
+    // matches itself. A rule that can never fire used to save cleanly and
+    // report success, leaving the admin to wonder why the bot ignored it.
+    if (!buildKeywordRegex(parsed.phrase).test(parsed.phrase)) {
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: `I can't match on \`${parsed.phrase}\` — try a phrase with at least one letter or number in it.`,
+      });
+      return;
+    }
     const channelId = parsed.rest ? parseChannelId(parsed.rest.split(/\s+/)[0]) : null;
+    if (channelId && !(await channelBelongsTo(svc.api, ctx.serverId, channelId))) {
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: "That channel isn't in this server.",
+      });
+      return;
+    }
     const rule = await addRule({
       serverId: ctx.serverId,
       phrase: parsed.phrase,
@@ -138,7 +160,9 @@ export const handleKeyword: Handler = async (ctx, svc) => {
       channelId,
       createdBy: ctx.senderId,
     });
-    const scope = channelId ? `in <#${channelId}>` : 'in any channel';
+    const scope = channelId
+      ? `in ${await resolveChannel(svc.api, ctx.serverId, channelId)}`
+      : 'in any channel';
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,

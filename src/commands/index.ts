@@ -543,13 +543,35 @@ export const registry: readonly Registered[] = [
 
 const cooldowns = new Map<string, number>();
 
-function isOnCooldown(channelId: string): boolean {
-  const last = cooldowns.get(channelId) ?? 0;
+// Keyed on channel + caller + command. Keying on the channel alone meant
+// any command silently blocked every OTHER member's command in that
+// channel for the whole window — on a busy server that reads as the bot
+// ignoring people at random, and it's dropped without any reply.
+function cooldownKey(channelId: string, senderId: string, command: string): string {
+  return `${channelId}:${senderId}:${command}`;
+}
+
+function isOnCooldown(key: string): boolean {
+  const last = cooldowns.get(key) ?? 0;
   return Date.now() - last < config.perChannelCooldownMs;
 }
 
-function markCooldown(channelId: string): void {
-  cooldowns.set(channelId, Date.now());
+function markCooldown(key: string): void {
+  cooldowns.set(key, Date.now());
+}
+
+// The map is written on every command, so it needs an eviction pass.
+const COOLDOWN_SWEEP_MS = 5 * 60 * 1000;
+let cooldownSweeper: NodeJS.Timeout | null = null;
+function startCooldownSweeper(): void {
+  if (cooldownSweeper) return;
+  cooldownSweeper = setInterval(() => {
+    const cutoff = Date.now() - Math.max(config.perChannelCooldownMs * 10, 60_000);
+    for (const [k, ts] of cooldowns) {
+      if (ts < cutoff) cooldowns.delete(k);
+    }
+  }, COOLDOWN_SWEEP_MS);
+  cooldownSweeper.unref();
 }
 
 function findCommand(token: string): Registered | undefined {
@@ -570,6 +592,7 @@ export async function dispatch(
   msg: DispatchInput,
   svc: Services,
 ): Promise<void> {
+  startCooldownSweeper();
   const trimmed = rawContent.trim();
   if (!trimmed) return;
 
@@ -594,11 +617,12 @@ export async function dispatch(
     const custom = await getCustomCommand(msg.serverId, customName);
     if (!custom) return;
 
-    if (isOnCooldown(msg.channelId)) {
+    const customKey = cooldownKey(msg.channelId, msg.senderId, customName);
+    if (isOnCooldown(customKey)) {
       log.debug({ channelId: msg.channelId, command: customName }, 'Cooldown — skipping');
       return;
     }
-    markCooldown(msg.channelId);
+    markCooldown(customKey);
 
     const rendered = renderCustomCommand(custom.response, {
       userId: msg.senderId,
@@ -625,11 +649,17 @@ export async function dispatch(
     return;
   }
 
-  if (isOnCooldown(msg.channelId)) {
-    log.debug({ channelId: msg.channelId, command: command.name }, 'Cooldown — skipping');
-    return;
+  // Help and status commands are how someone works out why the bot seems
+  // unresponsive — never make those the thing that gets throttled.
+  const EXEMPT = new Set(['help', 'ping', 'setup']);
+  if (!EXEMPT.has(command.name)) {
+    const key = cooldownKey(msg.channelId, msg.senderId, command.name);
+    if (isOnCooldown(key)) {
+      log.debug({ channelId: msg.channelId, command: command.name }, 'Cooldown — skipping');
+      return;
+    }
+    markCooldown(key);
   }
-  markCooldown(msg.channelId);
 
   const ctx: CommandContext = {
     serverId: msg.serverId,

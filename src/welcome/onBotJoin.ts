@@ -3,7 +3,7 @@ import type { MemberJoinedData } from '../types.js';
 import type { PermissionService, Permission } from '../auth/permissions.js';
 import { config } from '../config.js';
 import { claimBotWelcome, claimLevelPermsNag, clearLevelPermsNag } from '../db/guildConfig.js';
-import { provisionLevelRoles } from '../levels/provision.js';
+import { provisionLevelRoles, type ProvisionResult } from '../levels/provision.js';
 import { runEngagementSetup } from '../engagement/autoSetup.js';
 import { log } from '../log.js';
 
@@ -25,21 +25,26 @@ const MISSING_PERMS_MESSAGE =
  * claimLevelPermsNag — the notice posts at most once until levels succeed.
  */
 export async function provisionAndNotify(api: EchoedClient, serverId: string): Promise<boolean> {
-  const ok = await provisionLevelRoles(api, serverId);
-  if (ok) {
+  const result = await provisionLevelRoles(api, serverId);
+  if (result === 'ok') {
     try { await clearLevelPermsNag(serverId); } catch (err) { log.warn({ err, serverId }, 'clearLevelPermsNag failed'); }
     return true;
   }
-  // Couldn't provision — almost always because the bot lacks Manage Roles.
+  // Only tell the server when the permission is genuinely missing. This
+  // used to fire on ANY failure — a throttle, a 5xx, a network blip, or
+  // the bot having been removed mid-reconcile — and told the admin to
+  // remove and re-invite the bot to fix something that wasn't broken.
+  if (result !== 'denied') return false;
+
   // Tell the server ONCE so an admin can grant it; the self-heal finishes later.
   let firstTime = false;
   try { firstTime = await claimLevelPermsNag(serverId); } catch (err) { log.warn({ err, serverId }, 'claimLevelPermsNag failed'); }
   if (!firstTime) return false;
   try {
     const channels = await api.listChannels(serverId);
-    const target = channels
-      .filter((c) => c.type === 'text')
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+    // No ordering to sort by — the channel list carries no position, so
+    // the sort this used to do was a no-op. Take the first text channel.
+    const target = channels.filter((c) => c.type === 'text')[0];
     if (target) {
       await api.sendMessage({
         serverId,
@@ -229,12 +234,20 @@ export async function handleBotJoinedServer(
   // Fallback when we didn't run the full setup (re-invite, or first join without
   // enough perms): still provision the level ladder (idempotent, needs only
   // Manage Roles) so the visible-badge hook works.
+  let provision: ProvisionResult = levelsReady ? 'ok' : 'failed';
   if (autoSetupLines === null) {
-    levelsReady = await provisionLevelRoles(api, serverId);
+    provision = await provisionLevelRoles(api, serverId);
+    levelsReady = provision === 'ok';
   }
   try {
-    if (levelsReady) await clearLevelPermsNag(serverId);
-    else await claimLevelPermsNag(serverId); // report below covers the "missing" case
+    if (provision === 'ok') {
+      await clearLevelPermsNag(serverId);
+    } else if (provision === 'denied') {
+      // Only burn the one-shot nag on a real permission denial. Burning it
+      // on any failure — a blip, a throttle, a 5xx — permanently suppressed
+      // the notice on servers that genuinely were missing the permission.
+      await claimLevelPermsNag(serverId);
+    }
   } catch (err) {
     log.warn({ err, serverId }, 'level perms nag flag update failed');
   }
@@ -282,9 +295,9 @@ export async function handleBotJoinedServer(
     log.warn({ err, serverId }, 'listChannels failed — bot join message will not post');
     return;
   }
-  const textChannels = channels
-    .filter((c) => c.type === 'text')
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  // The channel list carries no position field, so there is nothing to
+  // order by; the sort that used to be here did nothing.
+  const textChannels = channels.filter((c) => c.type === 'text');
   let targetChannel = textChannels[0];
   if (!targetChannel) {
     log.warn({ serverId }, 'No text channel found for bot join message');

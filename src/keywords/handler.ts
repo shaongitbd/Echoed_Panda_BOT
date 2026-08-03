@@ -20,10 +20,24 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Word boundaries only work next to word characters. Applying them
+// unconditionally meant any phrase starting or ending in punctuation could
+// never match anything: `\b` before the `:` of `:)` requires a word
+// character immediately before it, which realistic text never has. That
+// silently broke every emoji, emoticon and punctuated phrase — `🎉`, `:)`,
+// `<3`, `o/`, `^_^`, `...`, `lol!` — while the command that saved them
+// reported success.
+export function buildKeywordRegex(phrase: string): RegExp {
+  const escaped = escapeRe(phrase);
+  const leading = /^\w/.test(phrase) ? '\\b' : '';
+  const trailing = /\w$/.test(phrase) ? '\\b' : '';
+  return new RegExp(`${leading}${escaped}${trailing}`, 'i');
+}
+
 function getRegex(rule: KeywordRule): RegExp {
   let re = regexCache.get(rule.id);
   if (!re) {
-    re = new RegExp(`\\b${escapeRe(rule.phrase)}\\b`, 'i');
+    re = buildKeywordRegex(rule.phrase);
     regexCache.set(rule.id, re);
   }
   return re;
