@@ -25,12 +25,16 @@ export async function twitchTick(api: EchoedClient): Promise<void> {
 
   // Single Helix call for all distinct logins.
   const logins = Array.from(new Set(subs.map((s) => s.twitchLogin)));
-  let live;
+  let result;
   try {
-    live = await getLiveStreams(logins);
+    result = await getLiveStreams(logins);
   } catch (err) {
     log.warn({ err }, 'Twitch tick: getLiveStreams failed');
     return;
+  }
+  const { live, complete } = result;
+  if (!complete) {
+    log.warn('Twitch tick: poll incomplete — not marking anyone offline this round');
   }
 
   // Walk every subscription row and decide: announce, persist state, both?
@@ -55,7 +59,15 @@ export async function twitchTick(api: EchoedClient): Promise<void> {
       } else {
         // Went offline. Persist the state but skip the announce — most
         // servers don't want "X is offline now" spam.
-        await recordCheck({ id: sub.id, isLive: false, streamId: null });
+        //
+        // Only downgrade to offline on a poll that fully succeeded.
+        // Otherwise a failed batch reads as "everyone in it went offline",
+        // and the next successful poll re-announces all of them at once.
+        if (!complete) return;
+        // Keep the stream id. Clearing it meant the next online transition
+        // couldn't tell a genuinely new broadcast from the same one seen
+        // again, so a brief blip produced a duplicate announcement.
+        await recordCheck({ id: sub.id, isLive: false, streamId: sub.lastStreamId });
       }
   });
 }

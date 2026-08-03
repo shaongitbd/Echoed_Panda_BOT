@@ -36,21 +36,45 @@ interface RawPost {
 
 const USER_AGENT = 'panda-bot/0.1 (+echoed-bot)';
 
+// Consecutive failures per subreddit, so a sustained block becomes visible
+// instead of looking exactly like a quiet subreddit. Every failure path
+// here used to return an empty array, which the tick reads as "no new
+// posts" — so an IP-level throttle produced no operator signal at all.
+const failureStreak = new Map<string, number>();
+const FAILURE_ALERT_AT = 5;
+
+function noteFailure(subreddit: string, detail: Record<string, unknown>): void {
+  const n = (failureStreak.get(subreddit) ?? 0) + 1;
+  failureStreak.set(subreddit, n);
+  if (n === FAILURE_ALERT_AT) {
+    log.error(
+      { ...detail, subreddit, consecutiveFailures: n },
+      'Reddit fetch failing persistently — posts are not being delivered for this subreddit',
+    );
+  }
+}
+
 export async function fetchNewPosts(subreddit: string, limit = 10): Promise<RedditPost[]> {
   const cap = Math.min(Math.max(1, limit), 100);
   const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/new.json?limit=${cap}`;
 
   let res: Response;
   try {
-    res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15_000),
+    });
   } catch (err) {
     log.warn({ err, subreddit }, 'Reddit fetch threw');
+    noteFailure(subreddit, { err });
     return [];
   }
   if (!res.ok) {
     log.warn({ status: res.status, subreddit }, 'Reddit fetch non-ok');
+    noteFailure(subreddit, { status: res.status });
     return [];
   }
+  failureStreak.delete(subreddit);
   let json: unknown;
   try {
     json = await res.json();

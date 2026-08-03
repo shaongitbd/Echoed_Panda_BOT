@@ -71,3 +71,14 @@ export async function getTwitchToken(): Promise<string> {
   const token = await inflight;
   return token.accessToken;
 }
+
+// Drop the cached app token so the next call fetches a fresh one.
+//
+// App tokens are long-lived, and expiry was the only thing that ever
+// invalidated this cache. A token revoked or rotated on Twitch's side
+// therefore killed every notification until the process restarted — the
+// poll kept presenting the dead token and reading the rejection as
+// "nobody is live".
+export function invalidateTwitchToken(): void {
+  cached = null;
+}

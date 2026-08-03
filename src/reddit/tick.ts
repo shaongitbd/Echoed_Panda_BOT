@@ -38,6 +38,22 @@ export async function redditTick(api: EchoedClient): Promise<void> {
     // stop at last_post_id; everything before that point is new.
     for (const sub of group) {
       const cutoff = sub.lastPostId;
+
+      // Brand-new subscription: seed the watermark and post nothing. With
+      // no cutoff the scan below finds no stopping point, so every post in
+      // the page counted as new and the channel got a burst of old posts
+      // within minutes of following — which also contradicts what the
+      // follow command promises.
+      if (!cutoff) {
+        const seed = posts[0]?.id;
+        if (seed) {
+          await recordLastPost(sub.id, seed).catch((err: unknown) => {
+            log.warn({ err, subreddit }, 'Reddit: seeding watermark failed');
+          });
+        }
+        continue;
+      }
+
       const newPosts: typeof posts = [];
       for (const p of posts) {
         if (p.id === cutoff) break;
@@ -70,12 +86,12 @@ export async function redditTick(api: EchoedClient): Promise<void> {
           );
         }
       }
-      // Even if some sends failed, the FIRST element of `newPosts`
-      // is the newest — record that so we don't re-fire on next tick.
-      // If we used `lastSent` we'd risk a small post duplication on
-      // partial failure (acceptable trade for not flooding on
-      // recovery).
-      const newest = newPosts[0]?.id ?? lastSent;
+      // Advance only as far as we actually posted. Recording the newest
+      // of ALL new posts meant anything beyond the per-tick cap was
+      // skipped for good — a busy subreddit silently dropped posts in the
+      // ordinary path, not just on failure. Holding the watermark at the
+      // last one sent lets the next tick pick up the remainder.
+      const newest = lastSent;
       if (newest) {
         await recordLastPost(sub.id, newest).catch((err: unknown) => {
           log.warn({ err, subId: sub.id }, 'recordLastPost failed');

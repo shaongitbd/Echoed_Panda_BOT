@@ -35,6 +35,22 @@ export async function youtubeTick(api: EchoedClient): Promise<void> {
 
     for (const sub of group) {
       const cutoff = sub.lastVideoId;
+
+      // Brand-new subscription: seed the watermark and post nothing. With
+      // no cutoff the scan below never finds a stopping point, so every
+      // video in the feed counted as new and following a channel dumped
+      // its recent uploads into chat within minutes — contradicting what
+      // the follow command tells the admin will happen.
+      if (!cutoff) {
+        const seed = videos[0]?.videoId;
+        if (seed) {
+          await recordLastVideo(sub.id, seed).catch((err: unknown) => {
+            log.warn({ err, subId: sub.id }, 'YouTube: seeding watermark failed');
+          });
+        }
+        continue;
+      }
+
       const newVideos: typeof videos = [];
       for (const v of videos) {
         if (v.videoId === cutoff) break;
@@ -45,6 +61,7 @@ export async function youtubeTick(api: EchoedClient): Promise<void> {
       // Send oldest-first within the burst so the channel reads
       // top→bottom in upload order.
       const toPost = newVideos.slice(0, POSTS_PER_TICK_MAX).reverse();
+      let lastSent: string | null = null;
       for (const v of toPost) {
         // Third-party title/author — escape so a handle in a video title
         // can't ping a member of this server.
@@ -55,12 +72,16 @@ export async function youtubeTick(api: EchoedClient): Promise<void> {
             channelId: sub.channelId,
             content: body,
           }, { priority: 'background' });
+          lastSent = v.videoId;
         } catch (err) {
           log.warn({ err, channelId: sub.channelId, ytChannelId }, 'YouTube notification send failed');
         }
       }
 
-      const newest = newVideos[0]?.videoId;
+      // Advance only as far as we actually posted — anything beyond the
+      // per-tick cap is picked up next tick instead of being skipped for
+      // good, which is what recording the newest of ALL new videos did.
+      const newest = lastSent;
       if (newest) {
         await recordLastVideo(sub.id, newest).catch((err: unknown) => {
           log.warn({ err, subId: sub.id }, 'recordLastVideo failed');
