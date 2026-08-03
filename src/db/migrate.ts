@@ -366,6 +366,24 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     `,
   },
   {
+    // Rotation cursor for the stat-counter sweep. `updated_at` only moves
+    // when a rename actually happens, so ordering a limited batch by it
+    // would park permanently on counters whose value never changes and
+    // never reach the rest. `checked_at` advances on every pass.
+    name: 'stat_counters checked_at',
+    sql: `
+      ALTER TABLE panda.stat_counters
+        ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ
+    `,
+  },
+  {
+    name: 'stat_counters checked_at index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS stat_counters_checked_at_idx
+        ON panda.stat_counters (checked_at NULLS FIRST)
+    `,
+  },
+  {
     name: 'giveaways table',
     sql: `
       CREATE TABLE IF NOT EXISTS panda.giveaways (

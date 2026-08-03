@@ -74,10 +74,30 @@ export async function listForServer(serverId: string): Promise<StatCounter[]> {
   return res.rows.map(rowToCounter);
 }
 
-// Tick reads ALL counters globally — there's no per-server index here
-// because the bot is generally in O(small) servers and the table is
-// short. If usage grows we'd partition by server and tick each in
-// turn.
+// One rotating batch of counters, least-recently-checked first.
+//
+// This used to select every counter in the fleet with no limit, then walk
+// them one at a time with an API call each — so the sweep's wall time grew
+// with the whole installed base and could exceed its own interval, which
+// meant it never finished a pass. A bounded batch ordered by `checked_at`
+// covers everything over successive passes instead.
+export async function claimBatch(limit = 40): Promise<StatCounter[]> {
+  const res = await pool.query<Row>(
+    `UPDATE panda.stat_counters s
+        SET checked_at = now()
+      WHERE s.channel_id IN (
+        SELECT channel_id FROM panda.stat_counters
+         ORDER BY checked_at ASC NULLS FIRST
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+      )
+      RETURNING s.server_id, s.channel_id, s.kind, s.format, s.last_value, s.updated_at`,
+    [limit],
+  );
+  return res.rows.map(rowToCounter);
+}
+
+// Every counter for a server. Used by the admin listing, not the sweep.
 export async function listAll(): Promise<StatCounter[]> {
   const res = await pool.query<Row>(
     `SELECT server_id, channel_id, kind, format, last_value, updated_at

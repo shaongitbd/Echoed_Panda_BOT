@@ -9,7 +9,7 @@ import { getCountingConfig, setCountingConfig } from '../counting/store.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
 import { getAutomodConfig, setAutomodConfig } from '../automod/config.js';
 import { getRulesForServer, addRule } from '../keywords/store.js';
-import { parseDailyTime, nextDailyRun } from '../util/parse.js';
+import { parseDailyTime, nextDailyRunJittered } from '../util/parse.js';
 import { log } from '../log.js';
 
 // Recommended defaults. Times are UTC (per-server timezones are a later
@@ -331,7 +331,7 @@ export async function runEngagementSetup(
       lines.push('⏭️ **QOTD** — already set up (kept).');
     } else {
       const t = parseDailyTime(QOTD_TIME)!;
-      await setQotdConfig(serverId, { channelId: generalId, enabled: true, dailyTime: QOTD_TIME, nextRunAt: nextDailyRun(t.hh, t.mm) });
+      await setQotdConfig(serverId, { channelId: generalId, enabled: true, dailyTime: QOTD_TIME, nextRunAt: nextDailyRunJittered(serverId, t.hh, t.mm) });
       lines.push(`✅ **QOTD** — daily at **${QOTD_TIME} UTC** → <#${generalId}>`);
     }
   } catch (err) {
@@ -346,7 +346,7 @@ export async function runEngagementSetup(
       lines.push('⏭️ **Birthdays** — already set up (kept).');
     } else {
       const t = parseDailyTime(BIRTHDAY_TIME)!;
-      await setBirthdayConfig(serverId, { channelId: generalId, enabled: true, dailyTime: BIRTHDAY_TIME, nextRunAt: nextDailyRun(t.hh, t.mm) });
+      await setBirthdayConfig(serverId, { channelId: generalId, enabled: true, dailyTime: BIRTHDAY_TIME, nextRunAt: nextDailyRunJittered(serverId, t.hh, t.mm) });
       lines.push(`✅ **Birthdays** — daily at **${BIRTHDAY_TIME} UTC** → <#${generalId}> (members: \`${prefix}birthday set <MM-DD>\`)`);
     }
   } catch (err) {

@@ -1,7 +1,12 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { claimDueAndReschedule } from './store.js';
+import { forEachLimit } from '../util/concurrency.js';
 import { log } from '../log.js';
 import { escapeMentions } from '../client/text.js';
+
+// Servers processed at once — the API client paces globally, but a narrow
+// fan-out keeps one branch from monopolising the in-flight slots.
+const CONCURRENCY = 4;
 
 const BATCH_SIZE = 25;
 
@@ -16,18 +21,19 @@ export async function schedMsgTick(api: EchoedClient): Promise<void> {
   if (due.length === 0) return;
 
   log.debug({ count: due.length }, 'Firing scheduled messages');
-  await Promise.allSettled(
-    due.map((s) =>
-      api
-        .sendMessage({
+  await forEachLimit(due, CONCURRENCY, async (s) => {
+    try {
+      await api.sendMessage(
+        {
           serverId: s.serverId,
           channelId: s.channelId,
           // Member-authored body — must not be able to ping via the bot.
           content: escapeMentions(s.message),
-        })
-        .catch((err: unknown) => {
-          log.warn({ err, scheduleId: s.id }, 'Scheduled message send failed');
-        }),
-    ),
-  );
+        },
+        { priority: 'background' },
+      );
+    } catch (err) {
+      log.warn({ err, scheduleId: s.id }, 'Scheduled message send failed');
+    }
+  });
 }

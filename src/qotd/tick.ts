@@ -1,7 +1,13 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { claimDueQotd, pickQuestion, setQotdConfig } from './store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { forEachLimit } from '../util/concurrency.js';
 import { log } from '../log.js';
+
+// Servers processed at once. The API client paces requests globally,
+// but a narrow fan-out here keeps one branch from monopolising the
+// in-flight slots the other branches need.
+const CONCURRENCY = 4;
 
 const BATCH_SIZE = 25;
 
@@ -14,8 +20,7 @@ export async function qotdTick(api: EchoedClient): Promise<void> {
   if (due.length === 0) return;
 
   log.debug({ count: due.length }, 'Firing QOTD');
-  await Promise.allSettled(
-    due.map(async (cfg) => {
+  await forEachLimit(due, CONCURRENCY, async (cfg) => {
       if (!cfg.channelId) return;
       let question: string;
       try {
@@ -43,6 +48,5 @@ export async function qotdTick(api: EchoedClient): Promise<void> {
       } catch (err) {
         log.warn({ err, serverId: cfg.serverId }, 'QOTD post failed');
       }
-    }),
-  );
+  });
 }

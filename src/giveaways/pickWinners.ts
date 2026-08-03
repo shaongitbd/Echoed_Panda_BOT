@@ -3,9 +3,15 @@ import type { Giveaway } from './store.js';
 import type { PermissionService } from '../auth/permissions.js';
 import { recordWinners } from './store.js';
 import { getGuildConfig } from '../db/guildConfig.js';
+import { mapLimit, forEachLimit } from '../util/concurrency.js';
 import { log } from '../log.js';
 
 export const GIVEAWAY_EMOJI = '🎉';
+
+// Entrant checks in flight at once during scope filtering.
+const SCOPE_CONCURRENCY = 4;
+// Winner DMs in flight at once. Each costs a profile lookup plus a DM.
+const DM_CONCURRENCY = 2;
 
 // Fisher-Yates partial shuffle — pick `n` distinct items from `pool`
 // without mutating the original. We use this rather than `sort`-by-
@@ -49,9 +55,10 @@ interface PickOptions {
 //     PermissionService the rest of the bot uses, so the exact
 //     definition of "admin" stays consistent across features.
 //
-// All filtering happens in parallel — N getMemberRoles calls plus N
-// permission checks. For typical giveaways (10-500 entrants) this
-// finishes in under a second; the perm service has its own cache.
+// Filtering costs up to one roles lookup plus one permission check per
+// entrant, so it runs with a bounded fan-out. Unbounded, a popular
+// giveaway turned a single scheduler pass into hundreds of simultaneous
+// requests — and several giveaways ending together multiplied that.
 async function applyScope(
   api: EchoedClient,
   serverId: string,
@@ -74,8 +81,7 @@ async function applyScope(
   const allowedSet = new Set(cfg.giveawayAllowedRoleIds);
   const exemptSet = new Set(cfg.giveawayExemptRoleIds);
 
-  const checks = await Promise.all(
-    pool.map(async (userId) => {
+  const checks = await mapLimit(pool, SCOPE_CONCURRENCY, async (userId) => {
       // Admin check first because admins are dropped regardless of
       // the role lists — short-circuit if the user is one.
       if (needsAdminCheck && perms) {
@@ -110,8 +116,7 @@ async function applyScope(
         return null;
       }
       return userId;
-    }),
-  );
+  });
 
   return checks.filter((id): id is string => id !== null);
 }
@@ -191,8 +196,7 @@ export async function pickAndAnnounce(
   // endpoint takes a username, so resolve each winner's profile first. A winner
   // who can't be DMed (left the server, DMs closed) just doesn't get one — the
   // channel announcement already covers them.
-  await Promise.allSettled(
-    winners.map(async (uid) => {
+  await forEachLimit(winners, DM_CONCURRENCY, async (uid) => {
       try {
         const profile = await api.getMemberProfile(g.serverId, uid);
         if (profile?.username) {
@@ -201,8 +205,7 @@ export async function pickAndAnnounce(
       } catch (err) {
         log.debug({ err, giveawayId: g.id, userId: uid }, 'Giveaway winner DM failed');
       }
-    }),
-  );
+  });
 
   return winners;
 }

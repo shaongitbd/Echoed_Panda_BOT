@@ -1,9 +1,14 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { claimDueBirthdayConfigs, birthdaysOn } from './store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
+import { forEachLimit } from '../util/concurrency.js';
 import { log } from '../log.js';
 
 const BATCH_SIZE = 25;
+
+// Servers processed at once, and role changes in flight within a server.
+const CONCURRENCY = 4;
+const ROLE_CONCURRENCY = 3;
 
 // Ceiling on how many celebrants we name in one greeting. Message content
 // has a size limit, and over-length content is dropped rather than
@@ -32,8 +37,7 @@ export async function birthdayTick(api: EchoedClient): Promise<void> {
   const yestD = yest.getUTCDate();
 
   log.debug({ count: due.length }, 'Firing birthday run');
-  await Promise.allSettled(
-    due.map(async (cfg) => {
+  await forEachLimit(due, CONCURRENCY, async (cfg) => {
       if (!cfg.channelId) return;
       let celebrants: string[];
       try {
@@ -47,15 +51,14 @@ export async function birthdayTick(api: EchoedClient): Promise<void> {
       if (cfg.roleId) {
         try {
           const expired = await birthdaysOn(cfg.serverId, yestM, yestD);
-          await Promise.allSettled(
-            expired.map((uid) =>
-              api.removeRole(cfg.serverId, uid, cfg.roleId!).catch(() => undefined),
-            ),
+          // Bounded: a server with many birthdays on one day would
+          // otherwise issue a role call per member all at once, and this
+          // runs for every due server in the batch simultaneously.
+          await forEachLimit(expired, ROLE_CONCURRENCY, (uid) =>
+            api.removeRole(cfg.serverId, uid, cfg.roleId!).catch(() => undefined),
           );
-          await Promise.allSettled(
-            celebrants.map((uid) =>
-              api.addRole(cfg.serverId, uid, cfg.roleId!).catch(() => undefined),
-            ),
+          await forEachLimit(celebrants, ROLE_CONCURRENCY, (uid) =>
+            api.addRole(cfg.serverId, uid, cfg.roleId!).catch(() => undefined),
           );
         } catch (err) {
           log.warn({ err, serverId: cfg.serverId }, 'Birthday role rotation failed');
@@ -93,6 +96,5 @@ export async function birthdayTick(api: EchoedClient): Promise<void> {
       } catch (err) {
         log.warn({ err, serverId: cfg.serverId }, 'Birthday post failed');
       }
-    }),
-  );
+  });
 }

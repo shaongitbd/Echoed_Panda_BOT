@@ -2,8 +2,13 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import { listAll, recordCheck } from './store.js';
 import { getLiveStreams } from './api.js';
 import { twitchEnabled } from '../config.js';
+import { forEachLimit } from '../util/concurrency.js';
 import { log } from '../log.js';
 import { escapeMentions } from '../client/text.js';
+
+// Subscriptions processed at once — the API client paces globally, but a
+// narrow fan-out keeps one branch from monopolising the in-flight slots.
+const CONCURRENCY = 4;
 
 // Edge-detect "now live" via comparing the current state to the row's
 // `last_check_live`. We DON'T fire on every tick a streamer is live
@@ -29,8 +34,7 @@ export async function twitchTick(api: EchoedClient): Promise<void> {
   }
 
   // Walk every subscription row and decide: announce, persist state, both?
-  await Promise.allSettled(
-    subs.map(async (sub) => {
+  await forEachLimit(subs, CONCURRENCY, async (sub) => {
       const stream = live.get(sub.twitchLogin);
       const isLiveNow = Boolean(stream);
 
@@ -53,8 +57,7 @@ export async function twitchTick(api: EchoedClient): Promise<void> {
         // servers don't want "X is offline now" spam.
         await recordCheck({ id: sub.id, isLive: false, streamId: null });
       }
-    }),
-  );
+  });
 }
 
 async function announceStream(

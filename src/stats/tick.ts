@@ -1,5 +1,5 @@
 import { EchoedApiError, type EchoedClient } from '../client/echoedClient.js';
-import { listAll, recordValue, type StatCounter } from './store.js';
+import { claimBatch, recordValue, type StatCounter } from './store.js';
 import { log } from '../log.js';
 
 // Per-channel failure backoff. A stat-counter rename that keeps failing —
@@ -13,9 +13,20 @@ const PERM_BACKOFF_MS = 10 * 60_000; // 10 min after a 403 (config issue)
 const ERR_BACKOFF_MS = 5 * 60_000; // 5 min after a transient error
 const retryAfter = new Map<string, number>(); // channelId → earliest next attempt (epoch ms)
 
-// Cache server-info responses across counters — multiple counters on
-// the same server should only cost one info lookup per tick.
-const SERVER_INFO_CACHE_TTL_MS = 60_000;
+// Counters handled per pass. The sweep rotates least-recently-checked
+// first, so a fleet larger than this is covered across successive passes
+// rather than one pass running longer than its own interval.
+const BATCH_SIZE = 40;
+
+// Cache server-info responses across counters — multiple counters on the
+// same server should only cost one info lookup per tick.
+//
+// This must stay comfortably ABOVE the sweep's own interval. When the two
+// were equal, every entry had expired by the time the next sweep looked at
+// it, so the cache never produced a hit across passes and the only saving
+// was between two counters in the same server. A member count that lags a
+// few minutes is fine; a request per counter per pass is not.
+const SERVER_INFO_CACHE_TTL_MS = 10 * 60_000;
 const serverInfoCache = new Map<
   string,
   { memberCount: number | null; channelCount: number | null; cachedAt: number }
@@ -52,15 +63,21 @@ function render(format: string, value: number): string {
   return format.replace(/\{count\}/g, String(value));
 }
 
-// statTick runs on a longer cadence than other ticks (every minute via
-// the multiplier in scheduler.ts) — channel renames burn the rate
-// limit if done frequently, and server populations don't shift fast
-// enough to need second-level updates.
+// statTick runs on a longer cadence than the time-sensitive branches —
+// channel renames are rate-limited, and server populations don't shift
+// fast enough to need finer updates.
 export async function statTick(api: EchoedClient): Promise<void> {
-  const counters = await listAll();
+  const counters = await claimBatch(BATCH_SIZE);
   if (counters.length === 0) return;
 
   for (const counter of counters) {
+    // Cheap local checks first. The backoff check used to sit *after* the
+    // server-info fetch, so a counter we'd already decided to skip — one
+    // whose channel we can't rename, say — still cost a request on every
+    // pass, forever.
+    const next = retryAfter.get(counter.channelId);
+    if (next != null && Date.now() < next) continue;
+
     let stats;
     try {
       stats = await getServerStats(api, counter.serverId);
@@ -71,10 +88,6 @@ export async function statTick(api: EchoedClient): Promise<void> {
     const value = valueFor(counter, stats);
     if (value == null) continue;
     if (counter.lastValue === value) continue; // no-op rename, save the API call
-
-    // Skip while backed off from a recent failure.
-    const next = retryAfter.get(counter.channelId);
-    if (next != null && Date.now() < next) continue;
 
     const newName = render(counter.format, value);
     try {

@@ -47,3 +47,36 @@ export function nextDailyRun(hh: number, mm: number, from: Date = new Date()): D
   }
   return next;
 }
+
+// Spread over this window when a daily time was chosen for the server
+// rather than by it.
+const JITTER_WINDOW_MS = 45 * 60_000;
+
+// Stable per-server offset in [0, JITTER_WINDOW_MS).
+//
+// Auto-setup gives every server the same default times, so without this
+// they all come due in the same second and the batch-limited daily
+// branches drain them over many minutes — the last server posting long
+// after its stated time. Derived from the server ID so it's stable across
+// restarts and doesn't need storing.
+function jitterFor(serverId: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < serverId.length; i++) {
+    h ^= serverId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h) % JITTER_WINDOW_MS;
+}
+
+// Like nextDailyRun, but nudged by a stable per-server offset. Use this
+// for times the bot picked; use nextDailyRun for a time an admin typed,
+// where the exact minute is the point.
+export function nextDailyRunJittered(
+  serverId: string,
+  hh: number,
+  mm: number,
+  from: Date = new Date(),
+): Date {
+  const base = nextDailyRun(hh, mm, from);
+  return new Date(base.getTime() + jitterFor(serverId));
+}

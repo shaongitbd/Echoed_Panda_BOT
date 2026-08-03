@@ -12,95 +12,97 @@ import { qotdTick } from './qotd/tick.js';
 import { birthdayTick } from './birthday/tick.js';
 import { log } from './log.js';
 
-// Base tick cadence. Slower-cadence tasks fire every N base ticks
-// so the whole scheduler stays in one place rather than fanning out
-// into several setIntervals.
+// How often we consider whether anything is due. Individual branches have
+// their own intervals; this is just the resolution.
 const TICK_INTERVAL_MS = 15_000;
 
-// Run every 60s (4 base ticks). Server populations don't shift fast
-// enough to need more, and channel renames are rate-limited.
-const STATS_EVERY_N_TICKS = 4;
+// Warn when a branch runs longer than its own interval — that's the signal
+// that it can't keep up with the fleet and is falling behind.
+const SLOW_BRANCH_FACTOR = 1;
 
-// Run every 5 min (20 base ticks). We issue one request per distinct
-// subreddit followed anywhere in the fleet, so the cost scales with how
-// many distinct subreddits exist, not with how many servers follow them.
-const REDDIT_EVERY_N_TICKS = 20;
-
-// Run every 60s (4 base ticks). QOTD + birthdays fire at most once/day per
-// server; they self-gate on next_run_at, so a minute of granularity lands the
-// post within a minute of the configured HH:MM — plenty precise for a daily.
-const ENGAGEMENT_EVERY_N_TICKS = 4;
+interface Branch {
+  name: string;
+  intervalMs: number;
+  run: () => Promise<void>;
+  // Wall-clock deadline for the next run. Branches used to fire every N
+  // *executed* ticks, which meant a slow tick silently stretched every
+  // slower-cadence branch with it — the "runs every 60s" comments were
+  // only true when nothing ever ran long. Deadlines are absolute, so a
+  // slow branch delays itself and nothing else.
+  nextRunAt: number;
+  // Per-branch in-flight guard. A single shared flag meant one slow
+  // branch — an external poll, or a stats sweep over the whole fleet —
+  // blocked reminders, giveaways and scheduled messages for every server
+  // until it finished.
+  running: boolean;
+}
 
 let timer: NodeJS.Timeout | null = null;
-let runningTick: Promise<void> | null = null;
-let tickCount = 0;
+let branches: Branch[] = [];
 
-async function tick(
+function buildBranches(
   api: EchoedClient,
   botUserId: string | null,
   perms: PermissionService | null,
-): Promise<void> {
-  tickCount++;
+): Branch[] {
+  const now = Date.now();
+  const mk = (name: string, intervalMs: number, run: () => Promise<void>): Branch => ({
+    name,
+    intervalMs,
+    run,
+    nextRunAt: now,
+    running: false,
+  });
 
-  // Always-on: reminders, giveaways, temp-channel cleanup, scheduled
-  // messages. The API client's process-wide limiter paces requests from
-  // every branch against one shared budget.
-  const branches: Promise<unknown>[] = [
-    reminderTick(api).catch((err: unknown) => {
-      log.error({ err }, 'reminderTick threw');
-    }),
-    giveawayTick(api, botUserId, perms).catch((err: unknown) => {
-      log.error({ err }, 'giveawayTick threw');
-    }),
-    tempChannelTick(api).catch((err: unknown) => {
-      log.error({ err }, 'tempChannelTick threw');
-    }),
-    schedMsgTick(api).catch((err: unknown) => {
-      log.error({ err }, 'schedMsgTick threw');
-    }),
+  return [
+    // Time-sensitive: someone is waiting on these.
+    mk('reminders', 15_000, () => reminderTick(api)),
+    mk('giveaways', 15_000, () => giveawayTick(api, botUserId, perms)),
+    mk('tempChannels', 60_000, () => tempChannelTick(api)),
+    mk('schedMsg', 15_000, () => schedMsgTick(api)),
+
+    // Daily engagement posts. They self-gate on their own due time, so a
+    // minute of resolution lands them within a minute of the configured
+    // time.
+    mk('qotd', 60_000, () => qotdTick(api)),
+    mk('birthday', 60_000, () => birthdayTick(api)),
+
+    // Cosmetic. Channel renames are heavily rate-limited anyway.
+    mk('stats', 120_000, () => statTick(api)),
+
+    // Third-party polls. Separate branches so one provider being slow or
+    // unreachable doesn't hold up the others.
+    mk('reddit', 300_000, () => redditTick(api)),
+    mk('twitch', 300_000, () => twitchTick(api)),
+    mk('youtube', 300_000, () => youtubeTick(api)),
   ];
+}
 
-  if (tickCount % STATS_EVERY_N_TICKS === 0) {
-    branches.push(
-      statTick(api).catch((err: unknown) => {
-        log.error({ err }, 'statTick threw');
-      }),
-    );
+function pump(): void {
+  const now = Date.now();
+  for (const b of branches) {
+    if (b.running || now < b.nextRunAt) continue;
+    b.running = true;
+    const startedAt = now;
+    void b
+      .run()
+      .catch((err: unknown) => {
+        log.error({ err, branch: b.name }, 'Scheduler branch threw');
+      })
+      .finally(() => {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > b.intervalMs * SLOW_BRANCH_FACTOR) {
+          log.warn(
+            { branch: b.name, elapsedMs: elapsed, intervalMs: b.intervalMs },
+            'Scheduler branch ran longer than its interval',
+          );
+        }
+        b.running = false;
+        // Schedule from completion, not from the deadline we missed, so a
+        // branch that overruns doesn't immediately re-enter.
+        b.nextRunAt = Date.now() + b.intervalMs;
+      });
   }
-  if (tickCount % ENGAGEMENT_EVERY_N_TICKS === 0) {
-    branches.push(
-      qotdTick(api).catch((err: unknown) => {
-        log.error({ err }, 'qotdTick threw');
-      }),
-    );
-    branches.push(
-      birthdayTick(api).catch((err: unknown) => {
-        log.error({ err }, 'birthdayTick threw');
-      }),
-    );
-  }
-  if (tickCount % REDDIT_EVERY_N_TICKS === 0) {
-    branches.push(
-      redditTick(api).catch((err: unknown) => {
-        log.error({ err }, 'redditTick threw');
-      }),
-    );
-    // Twitch + YouTube share Reddit's 5-min cadence — same external-
-    // poll category, comparable freshness needs, no reason to spin
-    // separate intervals.
-    branches.push(
-      twitchTick(api).catch((err: unknown) => {
-        log.error({ err }, 'twitchTick threw');
-      }),
-    );
-    branches.push(
-      youtubeTick(api).catch((err: unknown) => {
-        log.error({ err }, 'youtubeTick threw');
-      }),
-    );
-  }
-
-  await Promise.allSettled(branches);
 }
 
 // Start the scheduler. Idempotent; calling twice doesn't double-tick.
@@ -113,20 +115,16 @@ export function startScheduler(
   perms: PermissionService | null,
 ): void {
   if (timer) return;
-  timer = setInterval(() => {
-    if (runningTick) return; // skip if previous tick is still running
-    runningTick = tick(api, botUserId, perms).finally(() => {
-      runningTick = null;
-    });
-  }, TICK_INTERVAL_MS);
+  branches = buildBranches(api, botUserId, perms);
+  timer = setInterval(pump, TICK_INTERVAL_MS);
   // Don't keep the process alive solely for the scheduler; the socket
   // connection is the lifeline.
   timer.unref();
-  log.info({ intervalMs: TICK_INTERVAL_MS }, 'Scheduler started');
+  log.info({ intervalMs: TICK_INTERVAL_MS, branches: branches.length }, 'Scheduler started');
 }
 
-// Stop ticking and wait for any in-flight tick to finish. Scheduled work
-// claims its row before performing the side effect, so a tick killed
+// Stop ticking and wait for in-flight branches to finish. Scheduled work
+// claims its row before performing the side effect, so a branch killed
 // halfway leaves that work leased until the claim goes stale — waiting a
 // few seconds here turns a deploy from "some reminders are delayed" into
 // "nothing was interrupted". Bounded so a wedged request can't block a
@@ -138,10 +136,12 @@ export async function stopScheduler(): Promise<void> {
     clearInterval(timer);
     timer = null;
   }
-  if (!runningTick) return;
-  log.info('Waiting for in-flight scheduler tick to finish');
-  await Promise.race([
-    runningTick,
-    new Promise<void>((resolve) => setTimeout(resolve, DRAIN_TIMEOUT_MS).unref()),
-  ]).catch(() => undefined);
+  const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+  while (branches.some((b) => b.running) && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 100).unref());
+  }
+  const stuck = branches.filter((b) => b.running).map((b) => b.name);
+  if (stuck.length > 0) {
+    log.warn({ branches: stuck }, 'Shutdown drain timed out with branches still running');
+  }
 }
