@@ -1,5 +1,6 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { getGuildConfig } from '../db/guildConfig.js';
+import { escapeMentions } from '../client/text.js';
 import { log } from '../log.js';
 
 export type ModAction =
@@ -51,24 +52,34 @@ export async function postModAction(
   input: ModLogInput,
 ): Promise<void> {
   const cfg = await getGuildConfig(input.serverId);
-  if (!cfg.modlogChannel) return;
+  // Fall back to the welcome channel when no mod-log is set. On a server
+  // where auto-setup couldn't run, every moderation action — including an
+  // anti-raid lockdown and every heuristic kick — was recorded nowhere at
+  // all, which is exactly when someone needs to be able to see it.
+  const channelId = cfg.modlogChannel ?? cfg.welcomeChannel;
+  if (!channelId) return;
 
   const lines: string[] = [];
   const targetText = input.targetId ? `<@${input.targetId}>` : 'channel';
   lines.push(`${EMOJI[input.action]} **${VERB[input.action]}** ${targetText}`);
   if (input.extra) lines.push(`Duration: ${input.extra}`);
   lines.push(`Moderator: <@${input.actorId}>`);
-  if (input.reason) lines.push(`Reason: ${input.reason}`);
+  // The reason is free text from a moderator — it must not be able to
+  // ping through the bot.
+  if (input.reason) lines.push(`Reason: ${escapeMentions(input.reason)}`);
 
   try {
-    await api.sendMessage({
-      serverId: input.serverId,
-      channelId: cfg.modlogChannel,
-      content: lines.join('\n'),
-    });
+    await api.sendMessage(
+      {
+        serverId: input.serverId,
+        channelId,
+        content: lines.join('\n'),
+      },
+      { priority: 'background' },
+    );
   } catch (err) {
     log.warn(
-      { err, serverId: input.serverId, action: input.action, channelId: cfg.modlogChannel },
+      { err, serverId: input.serverId, action: input.action, channelId },
       'Mod-log post failed',
     );
   }

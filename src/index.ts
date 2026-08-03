@@ -215,7 +215,7 @@ async function main(): Promise<void> {
     // message we're about to nuke.
     let actedOn = false;
     try {
-      actedOn = await automodProcess(api, services.perms, msg);
+      actedOn = await automodProcess(api, services.perms, msg, botUserId);
     } catch (err) {
       log.error({ err, msgId: msg.id }, 'Auto-mod pipeline threw');
     }

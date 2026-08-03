@@ -73,6 +73,22 @@ export class PermissionService {
     return perms.has('ADMINISTRATOR') || perms.has(perm);
   }
 
+  // Same check, but distinguishes "denied" from "we couldn't find out".
+  // The action still fails closed either way — this only exists so the
+  // reply can be honest. Telling someone they lack a permission they
+  // actually hold, because a lookup blipped, sends admins to re-check
+  // settings that were never wrong.
+  async check(
+    serverId: string,
+    userId: string,
+    perm: Permission,
+    channelId?: string,
+  ): Promise<'granted' | 'denied' | 'unavailable'> {
+    const perms = await this.fetch(serverId, userId, channelId);
+    if (!perms) return 'unavailable';
+    return perms.has('ADMINISTRATOR') || perms.has(perm) ? 'granted' : 'denied';
+  }
+
   // Channel-aware convenience: same as has(...) but the channelId is
   // required, so the call site reads as "does this user have X in #channel".
   async hasIn(

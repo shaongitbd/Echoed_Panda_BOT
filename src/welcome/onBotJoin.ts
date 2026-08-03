@@ -101,14 +101,15 @@ const CAPABILITIES: ReadonlyArray<{ perm: Permission; label: string; without: st
   { perm: 'READ_MESSAGE_HISTORY', label: 'Read Message History', without: 'I miss context for commands & auto-mod' },
   { perm: 'EMBED_LINKS',          label: 'Embed Links',          without: 'leaderboards & rich cards show as plain text' },
   { perm: 'ADD_REACTIONS',        label: 'Add Reactions',        without: "reaction-roles, polls & giveaways can't seed reactions" },
-  // Management. NOTE: Echoed has no standalone "Manage Messages" — Manage
-  // Channels is the umbrella and *implies* message moderation (delete/purge),
-  // task & event management, and member-move, both in the role editor and in
-  // the permission service (isImpliedByManageChannels). So we list Manage
-  // Channels once and spell out everything it unlocks; a separate Manage
-  // Messages line would just mirror it and read as a second thing to grant.
-  { perm: 'MANAGE_ROLES',        label: 'Manage Roles',         without: 'no level rewards, reaction roles, or auto-roles' },
-  { perm: 'MANAGE_CHANNELS',      label: 'Manage Channels',      without: "auto-mod can't delete flagged messages, no purge, and temp voice/text channels can't be created" },
+  // Management. Manage Channels also confers message moderation, so a
+  // server that granted it needs nothing further for auto-mod or purge.
+  // Manage Messages is still listed separately because it can be granted
+  // on its own: folding the two together reported message moderation as
+  // broken on servers where it worked, and pushed admins to grant the
+  // wider permission to fix something that wasn't wrong.
+  { perm: 'MANAGE_ROLES',         label: 'Manage Roles',         without: 'no level rewards, reaction roles, or auto-roles' },
+  { perm: 'MANAGE_MESSAGES',      label: 'Manage Messages',      without: "auto-mod can't delete flagged messages and purge won't work (Manage Channels also covers this)" },
+  { perm: 'MANAGE_CHANNELS',      label: 'Manage Channels',      without: "temp channels and stat counters can't be created or renamed" },
   // Moderation
   { perm: 'KICK_MEMBERS',         label: 'Kick Members',         without: 'no kicks, and anti-raid auto-kick is disabled' },
   { perm: 'BAN_MEMBERS',          label: 'Ban Members',          without: 'no bans' },

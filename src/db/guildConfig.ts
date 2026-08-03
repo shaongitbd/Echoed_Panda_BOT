@@ -305,3 +305,24 @@ export async function clearLevelPermsNag(serverId: string): Promise<void> {
     [serverId],
   );
 }
+
+// Servers whose anti-raid lockdown window has passed but whose stored
+// pre-lockdown verification level hasn't been put back yet. The elevated
+// level has no expiry of its own, so nothing restores it unless we look.
+export async function listLapsedLockdowns(
+  limit = 50,
+): Promise<Array<{ serverId: string; level: number }>> {
+  const res = await pool.query<{ server_id: string; pre_lockdown_verification_level: number }>(
+    `SELECT server_id, pre_lockdown_verification_level
+       FROM panda.guild_config
+      WHERE pre_lockdown_verification_level IS NOT NULL
+        AND (anti_raid_lockdown_until IS NULL OR anti_raid_lockdown_until <= now())
+      ORDER BY anti_raid_lockdown_until ASC NULLS FIRST
+      LIMIT $1`,
+    [limit],
+  );
+  return res.rows.map((r) => ({
+    serverId: r.server_id,
+    level: r.pre_lockdown_verification_level,
+  }));
+}

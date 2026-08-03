@@ -1,6 +1,12 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import type { MemberJoinedData } from '../types.js';
-import { getGuildConfig, setGuildConfig, invalidateGuildConfig } from '../db/guildConfig.js';
+import {
+  getGuildConfig,
+  setGuildConfig,
+  invalidateGuildConfig,
+  listLapsedLockdowns,
+} from '../db/guildConfig.js';
+import { forEachLimit } from '../util/concurrency.js';
 import { postModAction } from '../mod/modlog.js';
 import { log } from '../log.js';
 
@@ -129,34 +135,52 @@ async function engageLockdown(
 ): Promise<void> {
   const until = new Date(Date.now() + LOCKDOWN_DURATION_MS);
 
-  let previousLevel: number | null = null;
+  // Don't overwrite an existing snapshot. A second trip while a lockdown
+  // is already active would otherwise record the ALREADY-RAISED level as
+  // the thing to restore, and the original value would be unrecoverable.
+  const existing = await getGuildConfig(serverId).catch(() => null);
+  const alreadyLocked = existing?.preLockdownVerificationLevel != null;
+
+  let previousLevel: number | null = existing?.preLockdownVerificationLevel ?? null;
   try {
     const res = await api.setVerificationLevel(serverId, LOCKDOWN_VERIFICATION_LEVEL);
-    previousLevel = res.previous;
+    if (!alreadyLocked) previousLevel = res.previous;
   } catch (err) {
     log.warn({ err, serverId }, 'Anti-raid: verification-level bump failed (continuing)');
   }
 
+  let platformLockdown = false;
   try {
     await api.setLockdown(
       serverId,
       LOCKDOWN_DURATION_SECONDS,
       `${joinCount} joins in ${windowSeconds}s`,
     );
+    platformLockdown = true;
   } catch (err) {
-    log.error({ err, serverId }, 'Anti-raid: backend lockdown call failed');
-    // Carry on — even without backend lockdown, the verification bump
-    // and panda-side state still help.
+    log.error({ err, serverId }, 'Anti-raid: platform lockdown call failed');
   }
 
   try {
     await setGuildConfig(serverId, {
-      antiRaidLockdownUntil: until,
+      // Only record a lockdown window when the platform actually applied
+      // one. Recording it regardless meant a bot without permission to
+      // lock the server still entered a bot-side "lockdown" with no entry
+      // gate behind it — and then screened every joiner for ten minutes
+      // on the strength of a gate that was never raised.
+      ...(platformLockdown ? { antiRaidLockdownUntil: until } : {}),
       preLockdownVerificationLevel: previousLevel,
     });
     invalidateGuildConfig(serverId);
   } catch (err) {
-    log.warn({ err, serverId }, 'Anti-raid: panda-side lockdown state write failed');
+    log.warn({ err, serverId }, 'Anti-raid: lockdown state write failed');
+  }
+
+  if (!platformLockdown) {
+    log.warn(
+      { serverId },
+      'Anti-raid: no platform lockdown applied — not screening joiners locally',
+    );
   }
 
   await postModAction(api, {
@@ -187,8 +211,21 @@ async function handleJoinDuringLockdown(
     return await kickJoinerInLockdown(api, data, botUserId, 'profile_unavailable');
   }
 
+  // A non-positive age means the creation time wasn't available, not that
+  // the account was created this instant — the profile reports zero and
+  // omits the timestamp when it can't say. Treating that as "brand new"
+  // put every such joiner in the ban tier.
+  const ageKnown = profile.accountAgeSeconds > 0 || !!profile.createdAt;
   const ageMs = profile.accountAgeSeconds * 1000;
   const noAvatar = !profile.hasAvatar;
+
+  if (!ageKnown) {
+    log.debug(
+      { userId: data.userId },
+      'Anti-raid: account age unavailable — skipping age heuristics',
+    );
+    return await allowJoiner(api, data, 'age_unknown');
+  }
 
   // Ban tier: very fresh + no avatar → almost certainly raid account.
   // Use a sticky ban so the same account can't rejoin once the
@@ -220,10 +257,29 @@ async function handleJoinDuringLockdown(
     return await kickJoinerInLockdown(api, data, botUserId, 'fresh_no_avatar');
   }
 
-  // Looks like a real human caught in the lockdown wave. Kick them
-  // softly so they know to come back later (matches the prior
-  // behavior — better than letting raids bleed through).
-  return await kickJoinerInLockdown(api, data, botUserId, 'lockdown_active');
+  // Nothing suspicious about this account: an established age, or an
+  // avatar. Let them in.
+  //
+  // This tier is what the heuristics are FOR — without it every joiner
+  // during a lockdown window was kicked regardless of what the checks
+  // found, which makes the checks pointless and turns a false-positive
+  // lockdown into a wall that turns away real members. The lockdown that
+  // gates the entry itself is applied at the platform level; this path is
+  // only the extra local judgement on top of it.
+  return await allowJoiner(api, data, 'passed_heuristics');
+}
+
+// Let a joiner through during a lockdown window.
+async function allowJoiner(
+  api: EchoedClient,
+  data: MemberJoinedData,
+  reason: string,
+): Promise<boolean> {
+  log.info(
+    { serverId: data.serverId, userId: data.userId, reason },
+    'Anti-raid: joiner allowed during lockdown',
+  );
+  return false;
 }
 
 async function kickJoinerInLockdown(
@@ -282,4 +338,30 @@ export async function liftLockdown(
   } catch (err) {
     log.warn({ err, serverId }, 'Anti-raid: panda-side state clear failed');
   }
+}
+
+// Restore servers whose lockdown window has lapsed.
+//
+// The raised verification level is the one piece of anti-raid state with
+// no expiry of its own — the entry gate lapses on its own when the
+// deadline passes, but the level stays where we put it until something
+// puts it back. `liftLockdown` was only ever reached from the manual
+// `!antiraid clear` command, so any server that tripped anti-raid and
+// wasn't manually cleared stayed at the elevated join bar indefinitely,
+// while status reported no lockdown — invisible unless someone noticed
+// members couldn't join.
+export async function restoreLapsedLockdowns(api: EchoedClient): Promise<void> {
+  let pending: Array<{ serverId: string; level: number }>;
+  try {
+    pending = await listLapsedLockdowns();
+  } catch (err) {
+    log.warn({ err }, 'Anti-raid: could not list lapsed lockdowns');
+    return;
+  }
+  if (pending.length === 0) return;
+
+  log.info({ count: pending.length }, 'Anti-raid: restoring lapsed lockdowns');
+  await forEachLimit(pending, 3, async ({ serverId }) => {
+    await liftLockdown(api, serverId);
+  });
 }

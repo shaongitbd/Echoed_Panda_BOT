@@ -35,22 +35,75 @@ function joinReason(args: string[], startIndex: number): string | null {
   return reason.length > 0 ? reason : null;
 }
 
+// Can `ctx.senderId` act on `targetId`?
+//
+// Every moderation command checked only whether the *caller* held the
+// permission, and nothing about the target. There is no role-position data
+// on the bot API, so a true hierarchy can't be computed — comparing
+// authority is the closest thing expressible, and it covers the cases that
+// actually matter: nobody can act on themselves, on the bot, or on someone
+// with more authority than they have.
+//
+// This matters most for timeout. Kick and ban are backstopped server-side
+// by a refusal to act on an administrator; timeout is not, so without this
+// check anyone granted only Mute Members could silence every admin and
+// every fellow moderator, and the timeout is genuinely enforced.
+async function canActOn(
+  ctx: CommandContext,
+  svc: Services,
+  targetId: string,
+  verb: string,
+): Promise<boolean> {
+  let refusal: string | null = null;
+
+  if (targetId === ctx.senderId) {
+    refusal = `You can't ${verb} yourself.`;
+  } else if (targetId === svc.botUserId) {
+    refusal = `I'm not going to ${verb} myself.`;
+  } else {
+    const [targetIsAdmin, callerIsAdmin] = await Promise.all([
+      svc.perms.has(ctx.serverId, targetId, 'MANAGE_SERVER'),
+      svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER'),
+    ]);
+    if (targetIsAdmin && !callerIsAdmin) {
+      refusal = `You can't ${verb} someone who manages this server.`;
+    }
+  }
+
+  if (refusal) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: refusal,
+    });
+    return false;
+  }
+  return true;
+}
+
 async function requirePerm(
   ctx: CommandContext,
   svc: Services,
   perm: Permission,
   label: string,
 ): Promise<boolean> {
-  const ok = await svc.perms.has(ctx.serverId, ctx.senderId, perm);
-  if (!ok) {
+  const result = await svc.perms.check(ctx.serverId, ctx.senderId, perm);
+  if (result !== 'granted') {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: `You need the **${label}** permission for this command.`,
+      // Still fails closed when the lookup didn't answer — but say so,
+      // rather than telling someone they lack a permission they may well
+      // hold and sending them to re-check settings that are fine.
+      content:
+        result === 'unavailable'
+          ? "I couldn't verify your permissions just now — try again in a moment."
+          : `You need the **${label}** permission for this command.`,
     });
   }
-  return ok;
+  return result === 'granted';
 }
 
 // Channel-scoped variant — honours per-channel role/user overrides so a
@@ -108,6 +161,7 @@ export const handleKick: Handler = async (ctx, svc) => {
     });
     return;
   }
+  if (!(await canActOn(ctx, svc, targetId, 'kick'))) return;
   const reason = joinReason(ctx.args, 1);
 
   try {
@@ -144,6 +198,7 @@ export const handleBan: Handler = async (ctx, svc) => {
     });
     return;
   }
+  if (!(await canActOn(ctx, svc, targetId, 'ban'))) return;
   const reason = joinReason(ctx.args, 1);
 
   try {
@@ -217,6 +272,8 @@ export const handleTimeout: Handler = async (ctx, svc) => {
     });
     return;
   }
+
+  if (!(await canActOn(ctx, svc, targetId, 'time out'))) return;
 
   const seconds = parseDuration(durArg);
   if (!seconds || seconds < 1) {

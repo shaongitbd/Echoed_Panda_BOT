@@ -48,6 +48,7 @@ export async function processMessage(
   api: EchoedClient,
   perms: PermissionService,
   msg: MessageCreatedData,
+  botUserId: string,
 ): Promise<boolean> {
   const config = await getAutomodConfig(msg.serverId);
   if (!config.enabled) return false;
@@ -100,7 +101,7 @@ export async function processMessage(
   });
   if (!match) return false;
 
-  await applyAction(api, msg, match);
+  await applyAction(api, msg, match, botUserId);
   return true;
 }
 
@@ -108,6 +109,7 @@ async function applyAction(
   api: EchoedClient,
   msg: MessageCreatedData,
   match: FilterMatch,
+  botUserId: string,
 ): Promise<void> {
   // Reset spam window early so we don't double-flag on the next message
   // (which would still be in the window and over threshold).
@@ -144,11 +146,10 @@ async function applyAction(
     await addWarning({
       serverId: msg.serverId,
       userId: msg.senderId,
-      // Bot's own user ID would be cleaner here. We don't have it on
-      // the message context; the warning row lets actorId == senderId
-      // briefly, which is fine because it's prefixed "Auto-mod:" and
-      // distinguishes itself in the UI.
-      actorId: msg.senderId,
+      // Attributed to the bot, not to the member who tripped the
+      // filter — recording the offender as their own moderator made the
+      // warning history read as if they had warned themselves.
+      actorId: botUserId,
       reason,
     });
   } catch (err) {
@@ -163,6 +164,7 @@ async function applyAction(
       serverId: msg.serverId,
       channelId: msg.channelId,
       content: `<@${msg.senderId}> message removed — ${match.reason}.`,
+      mentions: [msg.senderId],
     });
   } catch (err) {
     log.warn({ err }, 'Auto-mod channel notice failed');
@@ -172,7 +174,7 @@ async function applyAction(
     serverId: msg.serverId,
     action: 'warn',
     targetId: msg.senderId,
-    actorId: msg.senderId,
+    actorId: botUserId,
     reason,
     extra: `Filter: ${match.kind}`,
   });
