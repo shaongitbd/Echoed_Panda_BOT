@@ -1,6 +1,8 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { pool } from '../db/pool.js';
 import { getLevelSettings } from '../db/levelSettings.js';
+import { applyRoleChanges } from './roleWrites.js';
+import { resolveRoles, UNKNOWN_ROLE } from '../client/names.js';
 import { log } from '../log.js';
 
 export interface LevelRewardRow {
@@ -100,35 +102,24 @@ export async function handleLevelUp(
   const rewards = await getRewardsInRange(serverId, oldLevel + 1, newLevel);
 
   if (rewards.length > 0) {
-    // Best-effort: a missing role (deleted out from under us) shouldn't
-    // block the rest of the rewards or the announcement.
-    await Promise.allSettled(
-      rewards.map((r) =>
-        api.addRole(serverId, userId, r.roleId).catch((err: unknown) => {
-          log.warn(
-            { err, serverId, userId, level: r.level, roleId: r.roleId },
-            'Failed to grant level reward role',
-          );
-          throw err;
-        }),
-      ),
-    );
-
-    // If the server is in replace-mode, drop reward roles for lower
-    // levels. We compute these lazily so stack-mode (the default) skips
-    // the extra query entirely.
-    if (!settings.stackRewards && newLevel > 1) {
-      const oldRewards = await getRewardsInRange(serverId, 1, newLevel);
-      const keepRoleIds = new Set(rewards.map((r) => r.roleId));
-      const toRemove = oldRewards.filter((r) => !keepRoleIds.has(r.roleId));
-      await Promise.allSettled(
-        toRemove.map((r) =>
-          api.removeRole(serverId, userId, r.roleId).catch((err: unknown) => {
-            log.warn({ err, roleId: r.roleId }, 'Failed to remove old reward role');
-            throw err;
-          }),
-        ),
-      );
+    if (settings.stackRewards) {
+      // Stack mode: every tier crossed is kept.
+      await applyRoleChanges(api, serverId, userId, {
+        grant: rewards.map((r) => r.roleId),
+      });
+    } else {
+      // Replace mode: exactly one badge should be worn — the highest tier
+      // reached. Granting every tier crossed and then removing "the ones
+      // we didn't just grant" left all of them on whenever someone crossed
+      // several at once, which is how members ended up wearing a level 5
+      // badge at level 50.
+      const highest = rewards.reduce((a, b) => (b.level > a.level ? b : a));
+      const ladder = await getRewardsInRange(serverId, 1, newLevel);
+      const stale = ladder.map((r) => r.roleId).filter((id) => id !== highest.roleId);
+      await applyRoleChanges(api, serverId, userId, {
+        grant: [highest.roleId],
+        revoke: stale,
+      });
     }
   }
 
@@ -137,17 +128,17 @@ export async function handleLevelUp(
   // mention on lookup failure rather than block the announcement.
   let rewardNote = '';
   if (rewards.length > 0) {
-    try {
-      const allRoles = await api.listServerRoles(serverId);
-      const nameById = new Map(allRoles.map((r) => [r.id, r.name]));
-      const names = rewards
-        .map((r) => nameById.get(r.roleId))
-        .filter((n): n is string => !!n);
-      if (names.length > 0) {
-        rewardNote = `\n🎁 You unlocked ${names.map((n) => `**${n}**`).join(', ')}!`;
-      }
-    } catch (err) {
-      log.debug({ err, serverId, userId }, 'Could not resolve reward role names for level-up message');
+    // Cached per server — this used to fetch the whole role list on every
+    // reward level-up purely to pretty-print a name.
+    const names = await resolveRoles(api, serverId, rewards.map((r) => r.roleId));
+    const earned = rewards
+      .map((r) => names.get(r.roleId))
+      .filter((n): n is string => !!n && !n.endsWith(UNKNOWN_ROLE))
+      // resolveRoles renders roles for display with a leading marker;
+      // strip it here since the sentence already reads as a role name.
+      .map((n) => n.replace(/^@/, ''));
+    if (earned.length > 0) {
+      rewardNote = `\n🎁 You unlocked ${earned.map((n) => `**${n}**`).join(', ')}!`;
     }
   }
 
@@ -156,7 +147,7 @@ export async function handleLevelUp(
   const content = renderTemplate(template, { userId, level: newLevel }) + rewardNote;
 
   try {
-    await api.sendMessage({ serverId, channelId, content });
+    await api.sendMessage({ serverId, channelId, content, mentions: [userId] });
   } catch (err) {
     // Don't bubble — the XP grant already succeeded; failing here just
     // means a missed announcement and that's a UX paper-cut, not a

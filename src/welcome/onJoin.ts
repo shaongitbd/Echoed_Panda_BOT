@@ -2,6 +2,7 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import type { MemberJoinedData } from '../types.js';
 import { getGuildConfig } from '../db/guildConfig.js';
 import { resolveServerName } from '../client/names.js';
+import { grantRole } from '../levels/roleWrites.js';
 import { log } from '../log.js';
 
 const DEFAULT_WELCOME_MESSAGE = 'Welcome to **{server}**, {user}! You\'re member #{membercount}.';
@@ -87,12 +88,7 @@ async function assignAutoRole(
 ): Promise<void> {
   if (!cfg.autoroleId) return;
 
-  try {
-    await api.addRole(data.serverId, data.userId, cfg.autoroleId);
-  } catch (err) {
-    log.warn(
-      { err, serverId: data.serverId, userId: data.userId, roleId: cfg.autoroleId },
-      'Auto-role assign failed',
-    );
-  }
+  // Queued with every other role write for this member: a join can race
+  // the level-role provision and the birthday rotation.
+  await grantRole(api, data.serverId, data.userId, cfg.autoroleId);
 }

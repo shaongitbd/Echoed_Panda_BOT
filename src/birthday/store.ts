@@ -43,8 +43,35 @@ export async function getBirthday(serverId: string, userId: string): Promise<Bir
   return row ? { userId: row.user_id, month: row.birth_month, day: row.birth_day, year: row.birth_year } : null;
 }
 
+// Whether `year` has a 29 February.
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
 // Everyone in the server with a birthday on this month/day.
-export async function birthdaysOn(serverId: string, month: number, day: number): Promise<string[]> {
+//
+// On 1 March in a non-leap year this also returns members born on 29
+// February. An exact match meant they were never celebrated three years in
+// four — and because the rotation now strips from the recorded holder set
+// rather than from a re-derived date, including them here can't leave the
+// role stuck on them afterwards.
+export async function birthdaysOn(
+  serverId: string,
+  month: number,
+  day: number,
+  year: number = new Date().getUTCFullYear(),
+): Promise<string[]> {
+  const includeLeapDay = month === 3 && day === 1 && !isLeapYear(year);
+  if (includeLeapDay) {
+    const res = await pool.query<{ user_id: string }>(
+      `SELECT user_id FROM panda.birthdays
+        WHERE server_id = $1
+          AND ((birth_month = $2 AND birth_day = $3)
+            OR (birth_month = 2 AND birth_day = 29))`,
+      [serverId, month, day],
+    );
+    return res.rows.map((r) => r.user_id);
+  }
   const res = await pool.query<{ user_id: string }>(
     `SELECT user_id FROM panda.birthdays
       WHERE server_id = $1 AND birth_month = $2 AND birth_day = $3`,
@@ -196,4 +223,54 @@ export async function claimDueBirthdayConfigs(now: Date, limit = 25): Promise<Bi
     [now, limit],
   );
   return res.rows.map(rowToConfig);
+}
+
+// ─── Birthday-role bookkeeping ───────────────────────────────────────────
+//
+// The rotation needs to know who is actually wearing the role, not who we
+// would infer should be wearing it. Inferring it from "whose birthday was
+// yesterday" breaks the moment anything changes in between — an edited or
+// removed birthday, a failed removal, a day the bot missed, or an admin
+// switching the configured role — and each of those left somebody wearing
+// it forever.
+
+export interface BirthdayRoleHolder {
+  userId: string;
+  roleId: string;
+}
+
+export async function listBirthdayRoleHolders(
+  serverId: string,
+): Promise<BirthdayRoleHolder[]> {
+  const res = await pool.query<{ user_id: string; role_id: string }>(
+    `SELECT user_id, role_id FROM panda.birthday_role_holders WHERE server_id = $1`,
+    [serverId],
+  );
+  return res.rows.map((r) => ({ userId: r.user_id, roleId: r.role_id }));
+}
+
+export async function recordBirthdayRoleHolder(
+  serverId: string,
+  userId: string,
+  roleId: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO panda.birthday_role_holders (server_id, user_id, role_id, granted_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (server_id, user_id) DO UPDATE
+       SET role_id = EXCLUDED.role_id, granted_at = now()`,
+    [serverId, userId, roleId],
+  );
+}
+
+// Only called once the removal actually succeeded — otherwise we'd forget
+// a role we never took off, which is the failure this table exists to stop.
+export async function clearBirthdayRoleHolder(
+  serverId: string,
+  userId: string,
+): Promise<void> {
+  await pool.query(
+    `DELETE FROM panda.birthday_role_holders WHERE server_id = $1 AND user_id = $2`,
+    [serverId, userId],
+  );
 }

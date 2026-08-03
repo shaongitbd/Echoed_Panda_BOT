@@ -384,6 +384,27 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     `,
   },
   {
+    // Who is currently wearing the birthday role, and which role it was.
+    //
+    // The rotation used to strip the role from "whoever has a birthday
+    // yesterday", which is only the same set as "whoever we granted it to"
+    // if nothing ever changed in between. An edited or deleted birthday, a
+    // failed removal, a skipped day, or an admin changing the configured
+    // role all left the role on somebody permanently, with nothing able to
+    // work out that it should come off. Recording what we actually granted
+    // means the rotation can strip exactly that.
+    name: 'birthday_role_holders table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.birthday_role_holders (
+        server_id  TEXT NOT NULL,
+        user_id    TEXT NOT NULL,
+        role_id    TEXT NOT NULL,
+        granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (server_id, user_id)
+      )
+    `,
+  },
+  {
     name: 'giveaways table',
     sql: `
       CREATE TABLE IF NOT EXISTS panda.giveaways (

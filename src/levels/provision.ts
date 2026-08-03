@@ -1,6 +1,7 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { setLevelSettings, getLevelSettings } from '../db/levelSettings.js';
 import { setLevelReward, getRewardsInRange } from './levelUp.js';
+import { invalidateGuild } from '../client/names.js';
 import { log } from '../log.js';
 
 // Default level ladder auto-created on first install. Hoisted + colored so the
@@ -39,13 +40,21 @@ export async function provisionLevelRoles(
     return provisionLadder(api, serverId);
   }
 
-  // Idempotent gate: if any level rewards already exist — because we provisioned
-  // before, OR an admin configured their own ladder — do nothing. This lets the
-  // startup reconcile and the permission self-heal call this repeatedly without
-  // duplicating roles or clobbering an admin's setup.
+  // Idempotent gate. If the server has rewards at levels outside our
+  // ladder, an admin built their own — leave it completely alone. If every
+  // reward sits on one of our tiers, it's ours (possibly incomplete), and
+  // provisionLadder fills in whatever is missing.
+  //
+  // This used to bail whenever *any* reward existed, which meant a run
+  // that failed partway sealed that server's ladder forever: the reconcile
+  // and self-heal paths both saw a non-empty set and skipped, so tiers
+  // above the failure point were never created.
   try {
     const existing = await getRewardsInRange(serverId, 1, 1000);
-    if (existing.length > 0) return true;
+    const ourLevels = new Set(LEVEL_LADDER.map((t) => t.level));
+    const adminConfigured = existing.some((r) => !ourLevels.has(r.level));
+    if (adminConfigured) return true;
+    if (existing.length >= LEVEL_LADDER.length) return true;
   } catch (err) {
     log.warn({ err, serverId }, 'Could not read existing level rewards — skipping provision');
     return false;
@@ -97,7 +106,25 @@ async function provisionLadder(api: EchoedClient, serverId: string): Promise<boo
     log.warn({ err, serverId }, 'Failed to enable leveling during provision');
   }
 
-  for (const tier of LEVEL_LADDER) {
+  // Which tiers already have a reward role. Provisioning is idempotent per
+  // TIER, not per server: a run that failed partway used to leave the
+  // remaining tiers missing permanently, because the caller's guard only
+  // asked whether *any* reward existed and would then skip forever. Now a
+  // later run fills in whatever is still missing.
+  let existingLevels: Set<number>;
+  try {
+    const existing = await getRewardsInRange(serverId, 1, 1000);
+    existingLevels = new Set(existing.map((r) => r.level));
+  } catch (err) {
+    log.warn({ err, serverId }, 'Could not read existing level rewards — skipping provision');
+    return false;
+  }
+
+  const missing = LEVEL_LADDER.filter((t) => !existingLevels.has(t.level));
+  if (missing.length === 0) return true;
+
+  let created = 0;
+  for (const tier of missing) {
     try {
       const res = await api.createRole(serverId, {
         name: tier.name,
@@ -106,12 +133,22 @@ async function provisionLadder(api: EchoedClient, serverId: string): Promise<boo
         mentionable: false,
         position: 1,
       });
-      if (res?.roleId) await setLevelReward(serverId, tier.level, res.roleId);
+      if (res?.roleId) {
+        await setLevelReward(serverId, tier.level, res.roleId);
+        created++;
+      }
     } catch (err) {
-      log.warn({ err, serverId, level: tier.level }, 'Level-role provision failed (missing Manage Roles?)');
+      log.warn(
+        { err, serverId, level: tier.level, created, remaining: missing.length - created },
+        'Level-role provision failed — the rest will be filled in on a later run',
+      );
+      // The tiers created so far are recorded, so a retry resumes rather
+      // than duplicating them.
+      invalidateGuild(serverId);
       return false;
     }
   }
-  log.info({ serverId, count: LEVEL_LADDER.length }, 'Provisioned level roles');
+  invalidateGuild(serverId);
+  log.info({ serverId, created }, 'Provisioned level roles');
   return true;
 }

@@ -5,7 +5,7 @@ import {
   getMappingForEmoji,
   getMappingsForMessage,
 } from './store.js';
-import { log } from '../log.js';
+import { applyRoleChanges, revokeRole } from '../levels/roleWrites.js';
 
 // onReactionAdded: a user clicked an emoji on a possibly-tracked message.
 //
@@ -31,33 +31,22 @@ export async function handleReactionAdded(
   const mapping = await getMappingForEmoji(data.messageId, data.reactionType);
   if (!mapping) return;
 
-  try {
-    await api.addRole(data.serverId, data.userId, mapping.roleId);
-  } catch (err) {
-    log.warn(
-      { err, msgId: data.messageId, userId: data.userId, roleId: mapping.roleId },
-      'Reaction-role add failed',
-    );
-    return;
-  }
+  // In unique mode the other options come off in the same queued unit, so
+  // nothing can interleave between granting the new role and dropping the
+  // old ones. Removing a role the member never had answers 404, which is
+  // the normal case here and is treated as success rather than logged as a
+  // failure for every option they didn't pick.
+  const others =
+    message.mode === 'unique'
+      ? (await getMappingsForMessage(data.messageId))
+          .filter((m) => m.emoji !== data.reactionType)
+          .map((m) => m.roleId)
+      : [];
 
-  if (message.mode === 'unique') {
-    const all = await getMappingsForMessage(data.messageId);
-    const others = all.filter((m) => m.emoji !== data.reactionType);
-    // Fire role removals in parallel; per-call failures (role doesn't
-    // apply, role deleted) shouldn't block the others.
-    await Promise.allSettled(
-      others.map((m) =>
-        api.removeRole(data.serverId, data.userId, m.roleId).catch((err: unknown) => {
-          log.warn(
-            { err, roleId: m.roleId, userId: data.userId },
-            'Unique-mode role removal failed',
-          );
-          throw err;
-        }),
-      ),
-    );
-  }
+  await applyRoleChanges(api, data.serverId, data.userId, {
+    grant: [mapping.roleId],
+    revoke: others,
+  });
 }
 
 // onReactionRemoved: a user un-clicked. In `verify` mode this is a
@@ -76,12 +65,5 @@ export async function handleReactionRemoved(
   const mapping = await getMappingForEmoji(data.messageId, data.reactionType);
   if (!mapping) return;
 
-  try {
-    await api.removeRole(data.serverId, data.userId, mapping.roleId);
-  } catch (err) {
-    log.warn(
-      { err, msgId: data.messageId, userId: data.userId, roleId: mapping.roleId },
-      'Reaction-role remove failed',
-    );
-  }
+  await revokeRole(api, data.serverId, data.userId, mapping.roleId);
 }
