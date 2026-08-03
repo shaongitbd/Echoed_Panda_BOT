@@ -83,12 +83,18 @@ export async function createGiveaway(input: {
   return rowToGiveaway(row);
 }
 
-export async function getByMessage(messageId: string): Promise<Giveaway | null> {
+// Scoped to the server the command came from. A message ID is globally
+// unique but not secret, so without this an admin of their own server
+// could act on a giveaway belonging to any server they can see.
+export async function getByMessage(
+  serverId: string,
+  messageId: string,
+): Promise<Giveaway | null> {
   const res = await pool.query<Row>(
     `SELECT id, server_id, channel_id, message_id, prize, winner_count, end_at, ended, winners_json, created_by, created_at
        FROM panda.giveaways
-      WHERE message_id = $1`,
-    [messageId],
+      WHERE message_id = $1 AND server_id = $2`,
+    [messageId, serverId],
   );
   return res.rows[0] ? rowToGiveaway(res.rows[0]) : null;
 }
@@ -148,13 +154,13 @@ export async function releaseGiveaway(id: number): Promise<void> {
 
 // End a giveaway early: marks it ended without going through the tick
 // scheduler. Returns null if already ended or doesn't exist.
-export async function endNow(messageId: string): Promise<Giveaway | null> {
+export async function endNow(serverId: string, messageId: string): Promise<Giveaway | null> {
   const res = await pool.query<Row>(
     `UPDATE panda.giveaways
         SET ended = TRUE, end_at = LEAST(end_at, now())
-      WHERE message_id = $1 AND ended = FALSE
+      WHERE message_id = $1 AND server_id = $2 AND ended = FALSE
       RETURNING id, server_id, channel_id, message_id, prize, winner_count, end_at, ended, winners_json, created_by, created_at`,
-    [messageId],
+    [messageId, serverId],
   );
   return res.rows[0] ? rowToGiveaway(res.rows[0]) : null;
 }

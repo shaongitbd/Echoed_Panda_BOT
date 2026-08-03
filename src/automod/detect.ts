@@ -28,14 +28,25 @@ export function detectInvite(content: string): boolean {
 // joined-list string so config edits invalidate naturally.
 
 const badWordsRegexCache = new Map<string, RegExp | null>();
+const MAX_BAD_WORDS_VARIANTS = 500;
 
 function buildBadWordsRegex(words: string[]): RegExp | null {
   if (words.length === 0) return null;
   // Sort for stable cache key. Lowercase + escape regex meta-chars so
   // a word like "f.u.c.k" doesn't blow up the pattern.
   const sorted = [...words].map((w) => w.toLowerCase()).sort();
+  // Separator must be a character that cannot occur inside a word: with a
+  // plain concatenation ['ab','c'] and ['abc'] would key the same entry
+  // and one server's filter could be served to another. Written as an
+  // escape rather than a literal control character so it stays visible.
   const key = sorted.join('');
   if (badWordsRegexCache.has(key)) return badWordsRegexCache.get(key) ?? null;
+  // Servers with identical word lists share one entry, so this cap covers
+  // far more than N servers; it just stops unbounded growth.
+  if (badWordsRegexCache.size >= MAX_BAD_WORDS_VARIANTS) {
+    const oldest = badWordsRegexCache.keys().next().value;
+    if (oldest !== undefined) badWordsRegexCache.delete(oldest);
+  }
 
   const escaped = sorted.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   // \b on both sides keeps "ass" from matching "assassin" but still

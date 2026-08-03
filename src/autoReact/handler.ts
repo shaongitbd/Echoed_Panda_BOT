@@ -10,7 +10,7 @@ export async function processAutoReact(
   api: EchoedClient,
   msg: MessageCreatedData,
 ): Promise<void> {
-  const emojis = await getEmojisForChannel(msg.channelId);
+  const emojis = await getEmojisForChannel(msg.serverId, msg.channelId);
   if (emojis.length === 0) return;
 
   for (const emoji of emojis) {

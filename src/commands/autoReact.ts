@@ -2,7 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addAutoReact, removeAutoReact, listForServer } from '../autoReact/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
-import { resolveChannels } from '../client/names.js';
+import { channelBelongsTo, resolveChannel, resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -82,16 +82,29 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
       });
       return;
     }
+    // A bare ID argument is accepted, so confirm the channel is actually
+    // one of ours before persisting it — otherwise an ID copied from
+    // another server would be stored and silently never fire.
+    if (!(await channelBelongsTo(svc.api, ctx.serverId, channelId))) {
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: "That channel isn't in this server.",
+      });
+      return;
+    }
     await addAutoReact({
       serverId: ctx.serverId,
       channelId,
       emoji,
       createdBy: ctx.senderId,
     });
+    const name = await resolveChannel(svc.api, ctx.serverId, channelId);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: `Every new message in <#${channelId}> will get ${emoji}.`,
+      content: `Every new message in ${name} will get ${emoji}.`,
     });
     return;
   }
@@ -108,7 +121,7 @@ export const handleAutoReact: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const removed = await removeAutoReact(channelId, emoji);
+    const removed = await removeAutoReact(ctx.serverId, channelId, emoji);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,

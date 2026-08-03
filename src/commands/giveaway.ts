@@ -181,7 +181,7 @@ export const handleGiveawayEnd: Handler = async (ctx, svc) => {
     });
     return;
   }
-  const ended = await endNow(messageId);
+  const ended = await endNow(ctx.serverId, messageId);
   if (!ended) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
@@ -213,7 +213,7 @@ export const handleGiveawayReroll: Handler = async (ctx, svc) => {
     });
     return;
   }
-  const g = await getByMessage(messageId);
+  const g = await getByMessage(ctx.serverId, messageId);
   if (!g) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,

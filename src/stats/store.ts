@@ -42,18 +42,24 @@ export async function addCounter(input: {
   format: string;
 }): Promise<void> {
   await pool.query(
+    // A channel belongs to exactly one server, so channel_id stays the
+    // conflict key. The guard stops a caller in one server from taking
+    // over a counter on another server's channel: without it the row kept
+    // its original server_id but took the caller's format, and the tick
+    // then renamed a channel the caller has no rights to.
     `INSERT INTO panda.stat_counters (server_id, channel_id, kind, format)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (channel_id) DO UPDATE
-       SET kind = EXCLUDED.kind, format = EXCLUDED.format, updated_at = now()`,
+       SET kind = EXCLUDED.kind, format = EXCLUDED.format, updated_at = now()
+     WHERE panda.stat_counters.server_id = EXCLUDED.server_id`,
     [input.serverId, input.channelId, input.kind, input.format],
   );
 }
 
-export async function removeCounter(channelId: string): Promise<boolean> {
+export async function removeCounter(serverId: string, channelId: string): Promise<boolean> {
   const res = await pool.query(
-    `DELETE FROM panda.stat_counters WHERE channel_id = $1`,
-    [channelId],
+    `DELETE FROM panda.stat_counters WHERE channel_id = $1 AND server_id = $2`,
+    [channelId, serverId],
   );
   return (res.rowCount ?? 0) > 0;
 }

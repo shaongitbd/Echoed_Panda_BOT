@@ -2,7 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { addCounter, removeCounter, listForServer, type StatKind } from '../stats/store.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
-import { resolveChannels } from '../client/names.js';
+import { channelBelongsTo, resolveChannel, resolveChannels } from '../client/names.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -104,16 +104,29 @@ export const handleStatCounter: Handler = async (ctx, svc) => {
       .slice(0, 100) ||
       (kind === 'members' ? 'Members: {count}' : 'Channels: {count}');
 
+    // Confirm the channel is ours before persisting. This counter's tick
+    // renames the channel it points at, so an ID from another server is
+    // not merely a dead row.
+    if (!(await channelBelongsTo(svc.api, ctx.serverId, channelId))) {
+      await svc.api.sendMessage({
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        replyToId: ctx.messageId,
+        content: "That channel isn't in this server.",
+      });
+      return;
+    }
     await addCounter({
       serverId: ctx.serverId,
       channelId,
       kind,
       format,
     });
+    const name = await resolveChannel(svc.api, ctx.serverId, channelId);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
-      content: `<#${channelId}> will track \`${kind}\` with format \`${format}\`. Updates run on the next tick (≤1 min).`,
+      content: `${name} will track \`${kind}\` with format \`${format}\`. Updates run on the next tick (≤1 min).`,
     });
     return;
   }
@@ -129,7 +142,7 @@ export const handleStatCounter: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const removed = await removeCounter(channelId);
+    const removed = await removeCounter(ctx.serverId, channelId);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,

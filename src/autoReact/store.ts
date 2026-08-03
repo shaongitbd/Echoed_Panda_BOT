@@ -24,22 +24,28 @@ function rowToAutoReact(row: Row): AutoReact {
 }
 
 // Hot-path lookup runs on EVERY message — short TTL trades minor
-// staleness for a hard cap on DB load. Cache by channel because
-// that's the lookup shape from the message handler.
+// staleness for a hard cap on DB load. Keyed on (server, channel) rather
+// than channel alone so an entry can never be served across servers.
 const TTL_MS = 60 * 1000;
 const cacheByChannel = new Map<string, { emojis: string[]; expiresAt: number }>();
 
-export async function getEmojisForChannel(channelId: string): Promise<string[]> {
-  const cached = cacheByChannel.get(channelId);
+const cacheKey = (serverId: string, channelId: string): string => `${serverId}:${channelId}`;
+
+export async function getEmojisForChannel(
+  serverId: string,
+  channelId: string,
+): Promise<string[]> {
+  const key = cacheKey(serverId, channelId);
+  const cached = cacheByChannel.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.emojis;
   }
   const res = await pool.query<{ emoji: string }>(
-    `SELECT emoji FROM panda.auto_react WHERE channel_id = $1`,
-    [channelId],
+    `SELECT emoji FROM panda.auto_react WHERE channel_id = $1 AND server_id = $2`,
+    [channelId, serverId],
   );
   const emojis = res.rows.map((r) => r.emoji);
-  cacheByChannel.set(channelId, { emojis, expiresAt: Date.now() + TTL_MS });
+  cacheByChannel.set(key, { emojis, expiresAt: Date.now() + TTL_MS });
   return emojis;
 }
 
@@ -50,15 +56,19 @@ export async function addAutoReact(input: AutoReact): Promise<void> {
      ON CONFLICT (channel_id, emoji) DO UPDATE SET created_by = EXCLUDED.created_by`,
     [input.serverId, input.channelId, input.emoji, input.createdBy],
   );
-  cacheByChannel.delete(input.channelId);
+  cacheByChannel.delete(cacheKey(input.serverId, input.channelId));
 }
 
-export async function removeAutoReact(channelId: string, emoji: string): Promise<boolean> {
+export async function removeAutoReact(
+  serverId: string,
+  channelId: string,
+  emoji: string,
+): Promise<boolean> {
   const res = await pool.query(
-    `DELETE FROM panda.auto_react WHERE channel_id = $1 AND emoji = $2`,
-    [channelId, emoji],
+    `DELETE FROM panda.auto_react WHERE channel_id = $1 AND emoji = $2 AND server_id = $3`,
+    [channelId, emoji, serverId],
   );
-  cacheByChannel.delete(channelId);
+  cacheByChannel.delete(cacheKey(serverId, channelId));
   return (res.rowCount ?? 0) > 0;
 }
 

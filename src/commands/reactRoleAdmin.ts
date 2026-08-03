@@ -149,7 +149,7 @@ export const handleReactRole: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const removed = await removeMapping(messageId, emoji);
+    const removed = await removeMapping(ctx.serverId, messageId, emoji);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
@@ -224,7 +224,7 @@ export const handleReactRole: Handler = async (ctx, svc) => {
       });
       return;
     }
-    const ok = await setMode(messageId, mode);
+    const ok = await setMode(ctx.serverId, messageId, mode);
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,

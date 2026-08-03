@@ -116,29 +116,44 @@ export async function addMapping(input: {
 
 // Remove one emoji binding. If that was the last one for a message,
 // also remove the message row so listings stay clean.
-export async function removeMapping(messageId: string, emoji: string): Promise<boolean> {
+export async function removeMapping(
+  serverId: string,
+  messageId: string,
+  emoji: string,
+): Promise<boolean> {
   const res = await pool.query(
-    `DELETE FROM panda.reaction_role_mappings WHERE message_id = $1 AND emoji = $2`,
-    [messageId, emoji],
+    `DELETE FROM panda.reaction_role_mappings m
+      WHERE m.message_id = $1 AND m.emoji = $2
+        AND EXISTS (
+          SELECT 1 FROM panda.reaction_role_messages r
+           WHERE r.message_id = m.message_id AND r.server_id = $3
+        )`,
+    [messageId, emoji, serverId],
   );
   if ((res.rowCount ?? 0) === 0) return false;
 
   // Cleanup: drop the parent if no mappings remain.
   await pool.query(
     `DELETE FROM panda.reaction_role_messages
-      WHERE message_id = $1
+      WHERE message_id = $1 AND server_id = $2
         AND NOT EXISTS (
           SELECT 1 FROM panda.reaction_role_mappings WHERE message_id = $1
         )`,
-    [messageId],
+    [messageId, serverId],
   );
   return true;
 }
 
-export async function setMode(messageId: string, mode: ReactRoleMode): Promise<boolean> {
+export async function setMode(
+  serverId: string,
+  messageId: string,
+  mode: ReactRoleMode,
+): Promise<boolean> {
   const res = await pool.query(
-    `UPDATE panda.reaction_role_messages SET mode = $2 WHERE message_id = $1`,
-    [messageId, mode],
+    `UPDATE panda.reaction_role_messages
+        SET mode = $2
+      WHERE message_id = $1 AND server_id = $3`,
+    [messageId, mode, serverId],
   );
   return (res.rowCount ?? 0) > 0;
 }
