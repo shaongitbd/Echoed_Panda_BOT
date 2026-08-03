@@ -3,6 +3,7 @@ import { listAll, recordCheck } from './store.js';
 import { getLiveStreams } from './api.js';
 import { twitchEnabled } from '../config.js';
 import { log } from '../log.js';
+import { escapeMentions } from '../client/text.js';
 
 // Edge-detect "now live" via comparing the current state to the row's
 // `last_check_live`. We DON'T fire on every tick a streamer is live
@@ -62,10 +63,13 @@ async function announceStream(
   channelId: string,
   stream: { userLogin: string; userName: string; title: string; gameName: string },
 ): Promise<void> {
+  // Stream title, display name and game all come from Twitch. Escape them
+  // so a handle appearing in any of them can't ping a member of this
+  // server every time the streamer goes live.
   const lines = [
-    `🔴 **${stream.userName}** is live on Twitch!`,
-    stream.title ? `**${stream.title}**` : '',
-    stream.gameName ? `Playing: ${stream.gameName}` : '',
+    `🔴 **${escapeMentions(stream.userName)}** is live on Twitch!`,
+    stream.title ? `**${escapeMentions(stream.title)}**` : '',
+    stream.gameName ? `Playing: ${escapeMentions(stream.gameName)}` : '',
     `https://twitch.tv/${stream.userLogin}`,
   ].filter((l) => l.length > 0);
 

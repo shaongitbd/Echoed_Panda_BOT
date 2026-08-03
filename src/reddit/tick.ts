@@ -2,6 +2,7 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import { listAll, recordLastPost } from './store.js';
 import { fetchNewPosts } from './fetch.js';
 import { log } from '../log.js';
+import { escapeMentions } from '../client/text.js';
 
 const POSTS_PER_TICK_MAX = 5; // never spam more than this from a single sub per tick
 
@@ -50,7 +51,11 @@ export async function redditTick(api: EchoedClient): Promise<void> {
       let lastSent: string | null = null;
       for (const p of toPost) {
         const nsfwTag = p.isNsfw ? ' 🔞' : '';
-        const body = `📰 **r/${subreddit}** — ${p.title}${nsfwTag}\nby u/${p.author}\n${p.commentsUrl}`;
+        // Title and author come from a third party. Left as-is, a title
+        // containing a handle would ping an unrelated member here — on a
+        // recurring schedule, with no human behind it. The link stays in
+        // content so the channel still gets a preview.
+        const body = `📰 **r/${subreddit}** — ${escapeMentions(p.title)}${nsfwTag}\nby u/${escapeMentions(p.author)}\n${p.commentsUrl}`;
         try {
           await api.sendMessage({
             serverId: sub.serverId,

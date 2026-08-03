@@ -1,6 +1,7 @@
 import type { EchoedClient } from '../client/echoedClient.js';
 import { claimDueAndReschedule } from './store.js';
 import { log } from '../log.js';
+import { escapeMentions } from '../client/text.js';
 
 const BATCH_SIZE = 25;
 
@@ -21,7 +22,8 @@ export async function schedMsgTick(api: EchoedClient): Promise<void> {
         .sendMessage({
           serverId: s.serverId,
           channelId: s.channelId,
-          content: s.message,
+          // Member-authored body — must not be able to ping via the bot.
+          content: escapeMentions(s.message),
         })
         .catch((err: unknown) => {
           log.warn({ err, scheduleId: s.id }, 'Scheduled message send failed');

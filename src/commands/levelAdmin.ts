@@ -13,6 +13,7 @@ import {
 } from '../levels/levelUp.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { resolveRole, resolveRoles } from '../client/names.js';
+import { containsMention, escapeMentions } from '../client/text.js';
 
 // ─── Mention parsing ────────────────────────────────────────────────────
 
@@ -169,12 +170,32 @@ export const handleSetLevelMsg: Handler = async (ctx, svc) => {
   }
 
   const next = raw.toLowerCase() === 'default' || raw.toLowerCase() === 'reset' ? null : raw;
+
+  // The template we receive has already been through mention resolution,
+  // so an admin who typed a name has actually handed us a resolved token —
+  // and storing that would ping one specific member on every level-up in
+  // the server, forever. Refuse it and point at the placeholder.
+  if (next && containsMention(next)) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content:
+        'That message mentions someone directly, which would ping them on every single level-up. Use `{user}` instead — it expands to whoever levelled up.',
+    });
+    return;
+  }
+
   await setLevelSettings(ctx.serverId, { levelUpMessage: next });
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
+    // The preview must not ping either — show the placeholder expanded to
+    // a name rather than to a live mention.
     content: next
-      ? `Level-up message updated.\nPreview: ${next.replace(/\{user\}/g, `<@${ctx.senderId}>`).replace(/\{level\}/g, '5')}`
+      ? `Level-up message updated.\nPreview: ${escapeMentions(
+          next.replace(/\{user\}/g, ctx.senderName).replace(/\{level\}/g, '5'),
+        )}`
       : 'Level-up message reset to default.',
   });
 };

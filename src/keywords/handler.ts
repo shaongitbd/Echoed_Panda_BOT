@@ -2,6 +2,7 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import type { MessageCreatedData } from '../types.js';
 import { getRulesForServer, type KeywordRule } from './store.js';
 import { log } from '../log.js';
+import { escapeMentions } from '../client/text.js';
 
 // Per-rule compiled regex cache. Lifetime tied to the rule store's
 // cache invalidation — when an admin edits the list, the next read
@@ -59,7 +60,8 @@ export async function processKeywords(
         {
           serverId: msg.serverId,
           channelId: msg.channelId,
-          content: rule.response,
+          // Member-authored response text.
+          content: escapeMentions(rule.response),
         },
         { priority: 'background' },
       );

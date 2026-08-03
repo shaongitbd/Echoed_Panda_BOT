@@ -2,6 +2,7 @@ import type { EchoedClient } from '../client/echoedClient.js';
 import { listAll, recordLastVideo } from './store.js';
 import { fetchLatestVideos } from './fetch.js';
 import { log } from '../log.js';
+import { escapeMentions } from '../client/text.js';
 
 const POSTS_PER_TICK_MAX = 3;
 
@@ -45,7 +46,9 @@ export async function youtubeTick(api: EchoedClient): Promise<void> {
       // top→bottom in upload order.
       const toPost = newVideos.slice(0, POSTS_PER_TICK_MAX).reverse();
       for (const v of toPost) {
-        const body = `📺 **${v.author}** uploaded: ${v.title}\n${v.url}`;
+        // Third-party title/author — escape so a handle in a video title
+        // can't ping a member of this server.
+        const body = `📺 **${escapeMentions(v.author)}** uploaded: ${escapeMentions(v.title)}\n${v.url}`;
         try {
           await api.sendMessage({
             serverId: sub.serverId,

@@ -1,6 +1,7 @@
 import { EchoedApiError, type EchoedClient } from '../client/echoedClient.js';
 import { claimDue, settle, release, abandon } from './store.js';
 import { forEachLimit } from '../util/concurrency.js';
+import { escapeMentions } from '../client/text.js';
 import { log } from '../log.js';
 
 // One tick handles up to BATCH_SIZE due reminders. If more are due,
@@ -30,7 +31,9 @@ export async function reminderTick(api: EchoedClient): Promise<void> {
         {
           serverId: r.serverId,
           channelId: r.channelId,
-          content: `⏰ <@${r.userId}> — ${r.message}`,
+          // The body is whatever the member typed. Only the mention we
+          // construct ourselves should ping.
+          content: `⏰ <@${r.userId}> — ${escapeMentions(r.message)}`,
           mentions: [r.userId],
         },
         { priority: 'background' },

@@ -5,6 +5,7 @@ import { addWarning, listWarnings, clearWarnings } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { resolveUsers } from '../client/names.js';
+import { escapeMentions } from '../client/text.js';
 
 const USER_MENTION_RE = /^<@(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
@@ -84,7 +85,10 @@ export const handleWarn: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: `⚠️ Warned <@${targetId}> — ${reason} (warning #${warning.id})`,
+    // The reason is free text from the moderator; only the target should
+    // be pinged by this message.
+    content: `⚠️ Warned <@${targetId}> — ${escapeMentions(reason)} (warning #${warning.id})`,
+    mentions: [targetId],
   });
   await postModAction(svc.api, {
     serverId: ctx.serverId,

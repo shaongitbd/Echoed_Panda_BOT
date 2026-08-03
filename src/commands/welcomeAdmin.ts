@@ -1,6 +1,7 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
+import { containsMention, escapeMentions } from '../client/text.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
@@ -98,12 +99,33 @@ export const handleWelcomeMsg: Handler = async (ctx, svc) => {
   }
 
   const next = raw.toLowerCase() === 'default' || raw.toLowerCase() === 'reset' ? null : raw;
+
+  // A template reaches us with mentions already resolved, so a name typed
+  // here is a live token — it would ping that one member on every join.
+  if (next && containsMention(next)) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content:
+        'That message mentions someone directly, which would ping them every time somebody joins. Use `{user}` instead — it expands to the new member.',
+    });
+    return;
+  }
+
   await setGuildConfig(ctx.serverId, { welcomeMessage: next });
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
+    // Preview with the placeholder expanded to a name, not a live mention,
+    // so echoing it back doesn't ping.
     content: next
-      ? `Welcome message updated.\nPreview: ${next.replace(/\{user\}/g, `<@${ctx.senderId}>`).replace(/\{server\}/g, 'your server').replace(/\{membercount\}/g, '42')}`
+      ? `Welcome message updated.\nPreview: ${escapeMentions(
+          next
+            .replace(/\{user\}/g, ctx.senderName)
+            .replace(/\{server\}/g, 'your server')
+            .replace(/\{membercount\}/g, '42'),
+        )}`
       : 'Welcome message reset to default.',
   });
 };
