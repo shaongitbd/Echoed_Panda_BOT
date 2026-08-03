@@ -1,18 +1,59 @@
 import { Blob } from 'node:buffer';
 import { config } from '../config.js';
 import { log } from '../log.js';
+import { limiter, type Priority } from './rateLimit.js';
 
-// Echoed wraps every bot-auth failure in { message, code, type }; non-auth
-// errors are usually { message, code } with an occasional { error } for 5xx.
-// We normalize to { status, code, message } so callers don't have to care.
+const DEFAULT_TIMEOUT_MS = 20_000;
+// Uploads move real bytes; give them room.
+const UPLOAD_TIMEOUT_MS = 60_000;
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 400;
+// Used when a rate-limit response doesn't say how long to wait.
+const RATE_LIMIT_FALLBACK_SEC = 5;
+
+export interface RequestOptions {
+  timeoutMs?: number;
+  priority?: Priority;
+  // Safe to retry after an ambiguous failure — i.e. running it twice is
+  // indistinguishable from running it once. Defaults to true for GET.
+  idempotent?: boolean;
+}
+
+function numeric(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms).unref());
+
+// Errors come back as { message, code } with an occasional { error } for
+// 5xx. We normalize to { status, code, message } so callers don't have to
+// care. `status` is 0 for a transport-level failure (timeout, connection
+// reset) — there is no HTTP response in that case.
 export class EchoedApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: number | undefined,
     message: string,
+    // True when the request provably never reached the far end, so
+    // retrying it cannot duplicate a side effect.
+    public readonly neverSent = false,
   ) {
     super(message);
     this.name = 'EchoedApiError';
+  }
+
+  // 4xx other than 429 will fail again the same way; don't spend budget
+  // retrying them.
+  get retryable(): boolean {
+    if (this.status === 429) return true;
+    if (this.status === 0) return true;
+    return this.status >= 500;
   }
 }
 
@@ -187,7 +228,13 @@ export class EchoedClient {
     private readonly baseUrl: string = config.apiUrl,
   ) {}
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // One attempt. Throws EchoedApiError on any non-2xx or transport error.
+  private async attempt<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const init: RequestInit = {
       method,
@@ -196,10 +243,22 @@ export class EchoedClient {
         'Content-Type': 'application/json',
         'User-Agent': 'panda-bot/0.1',
       },
+      // Without a deadline a stalled connection hangs for minutes, and
+      // because scheduled work runs behind a shared in-flight cap, one
+      // stalled request delays every server's scheduled work with it.
+      signal: AbortSignal.timeout(timeoutMs),
     };
     if (body !== undefined) init.body = JSON.stringify(body);
 
-    const res = await fetch(url, init);
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      // No response was produced, so nothing happened at the far end.
+      const message = err instanceof Error ? err.message : 'network error';
+      throw new EchoedApiError(0, undefined, message, true);
+    }
+
     let parsed: unknown = null;
     const text = await res.text();
     if (text) {
@@ -217,10 +276,64 @@ export class EchoedClient {
         (typeof obj.error === 'string' && obj.error) ||
         `HTTP ${res.status}`;
       const code = typeof obj.code === 'number' ? obj.code : undefined;
-      log.warn({ method, path, status: res.status, message, body: obj }, 'Echoed API error');
+
+      if (res.status === 429) {
+        // Honour the server's own pacing instruction over our local bucket.
+        const retryAfter =
+          numeric(obj.retryAfter) ??
+          numeric(obj.retry_after) ??
+          numeric(res.headers.get('Retry-After')) ??
+          RATE_LIMIT_FALLBACK_SEC;
+        limiter.pause(retryAfter);
+      } else {
+        log.warn({ method, path, status: res.status, message }, 'Echoed API error');
+      }
       throw new EchoedApiError(res.status, code, message);
     }
     return parsed as T;
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    opts: RequestOptions = {},
+  ): Promise<T> {
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const priority = opts.priority ?? 'interactive';
+    // A request that creates something has no idempotency key, so a retry
+    // after an ambiguous failure could duplicate it. Retry those only when
+    // we know the request never landed.
+    const idempotent = opts.idempotent ?? method === 'GET';
+
+    let lastErr: EchoedApiError | null = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      await limiter.acquire(priority);
+      try {
+        return await this.attempt<T>(method, path, body, timeoutMs);
+      } catch (err) {
+        if (!(err instanceof EchoedApiError)) throw err;
+        lastErr = err;
+
+        const mayRetry = err.retryable && (idempotent || err.neverSent);
+        if (!mayRetry || attempt === MAX_RETRIES) throw err;
+
+        // 429 already parked the limiter; everything else gets a short
+        // exponential backoff with jitter so a fleet-wide blip doesn't
+        // resynchronise into a thundering retry.
+        if (err.status !== 429) {
+          const base = RETRY_BASE_MS * 2 ** attempt;
+          await sleep(base + Math.random() * base);
+        }
+        log.debug(
+          { method, path, status: err.status, attempt: attempt + 1 },
+          'Retrying Echoed API request',
+        );
+      } finally {
+        limiter.release();
+      }
+    }
+    throw lastErr ?? new EchoedApiError(0, undefined, 'request failed');
   }
 
   // Multipart upload — kept separate from `request()` so `Content-Type`
@@ -239,14 +352,25 @@ export class EchoedClient {
     // node:buffer.Blob is structurally compatible at runtime.
     form.append('file', blob as unknown as Blob, file.filename);
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'X-Bot-Token': this.token,
-        'User-Agent': 'panda-bot/0.1',
-      },
-      body: form,
-    });
+    await limiter.acquire('background');
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-Bot-Token': this.token,
+          'User-Agent': 'panda-bot/0.1',
+        },
+        body: form,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'network error';
+      throw new EchoedApiError(0, undefined, message, true);
+    } finally {
+      limiter.release();
+    }
+
     let parsed: unknown = null;
     const text = await res.text();
     if (text) {
@@ -263,6 +387,13 @@ export class EchoedClient {
         (typeof obj.error === 'string' && obj.error) ||
         `HTTP ${res.status}`;
       const code = typeof obj.code === 'number' ? obj.code : undefined;
+      if (res.status === 429) {
+        limiter.pause(
+          numeric(obj.retryAfter) ??
+            numeric(res.headers.get('Retry-After')) ??
+            RATE_LIMIT_FALLBACK_SEC,
+        );
+      }
       log.warn({ path, status: res.status, message }, 'Echoed upload error');
       throw new EchoedApiError(res.status, code, message);
     }
@@ -386,16 +517,29 @@ export class EchoedClient {
   }
 
   // ─── Messaging ───────────────────────────────────────────────────────
-  async sendMessage(input: SendMessageInput): Promise<SendMessageResponse> {
+  // `priority` lets background senders (feed posts, scheduled messages)
+  // yield to anything a member is waiting on.
+  async sendMessage(
+    input: SendMessageInput,
+    opts: RequestOptions = {},
+  ): Promise<SendMessageResponse> {
     const { serverId, channelId, content, replyToId, attachmentIds, embeds, mentions } = input;
-    return this.request('POST', `/v1/bots/${serverId}/messages/send`, {
-      channelId,
-      content,
-      ...(replyToId ? { replyToId } : {}),
-      ...(attachmentIds ? { attachmentIds } : {}),
-      ...(embeds && embeds.length > 0 ? { embeds } : {}),
-      ...(mentions && mentions.length > 0 ? { mentions } : {}),
-    });
+    return this.request(
+      'POST',
+      `/v1/bots/${serverId}/messages/send`,
+      {
+        channelId,
+        content,
+        ...(replyToId ? { replyToId } : {}),
+        ...(attachmentIds ? { attachmentIds } : {}),
+        ...(embeds && embeds.length > 0 ? { embeds } : {}),
+        ...(mentions && mentions.length > 0 ? { mentions } : {}),
+      },
+      // Sending has no idempotency key, so a retry after an ambiguous
+      // failure would post the message twice. Only retry when we know it
+      // never left.
+      { idempotent: false, ...opts },
+    );
   }
 
   async getMessage(serverId: string, messageId: string): Promise<ChannelMessage> {
@@ -404,17 +548,25 @@ export class EchoedClient {
 
   // Edit a message authored by the bot (or by anyone if the bot has
   // MANAGE_MESSAGES). Either content or embeds (or both) must be set.
-  async editMessage(input: {
-    serverId: string;
-    messageId: string;
-    content?: string;
-    embeds?: Embed[];
-  }): Promise<{ messageId: string; content?: string; embeds?: Embed[] }> {
+  async editMessage(
+    input: {
+      serverId: string;
+      messageId: string;
+      content?: string;
+      embeds?: Embed[];
+    },
+    opts: RequestOptions = {},
+  ): Promise<{ messageId: string; content?: string; embeds?: Embed[] }> {
     const { serverId, messageId, content, embeds } = input;
     const body: Record<string, unknown> = {};
     if (content !== undefined) body.content = content;
     if (embeds !== undefined) body.embeds = embeds;
-    return this.request('PUT', `/v1/bots/${serverId}/messages/${messageId}`, body);
+    // Editing to a fixed value is idempotent — a retry lands the same
+    // result.
+    return this.request('PUT', `/v1/bots/${serverId}/messages/${messageId}`, body, {
+      idempotent: true,
+      ...opts,
+    });
   }
 
   async deleteMessage(serverId: string, messageId: string): Promise<DeleteResponse> {
@@ -480,19 +632,30 @@ export class EchoedClient {
   }
 
   async kickMember(serverId: string, userId: string, reason?: string): Promise<DeleteResponse> {
-    return this.request('POST', `/v1/bots/${serverId}/members/${userId}/kick`, {
-      reason: reason ?? '',
-    });
+    return this.request(
+      'POST',
+      `/v1/bots/${serverId}/members/${userId}/kick`,
+      { reason: reason ?? '' },
+      { idempotent: true },
+    );
   }
 
   async banMember(serverId: string, userId: string, reason?: string): Promise<DeleteResponse> {
-    return this.request('POST', `/v1/bots/${serverId}/members/${userId}/ban`, {
-      reason: reason ?? '',
-    });
+    return this.request(
+      'POST',
+      `/v1/bots/${serverId}/members/${userId}/ban`,
+      { reason: reason ?? '' },
+      { idempotent: true },
+    );
   }
 
   async unbanMember(serverId: string, userId: string): Promise<DeleteResponse> {
-    return this.request('POST', `/v1/bots/${serverId}/members/${userId}/unban`);
+    return this.request(
+      'POST',
+      `/v1/bots/${serverId}/members/${userId}/unban`,
+      undefined,
+      { idempotent: true },
+    );
   }
 
   async timeoutMember(
@@ -501,14 +664,21 @@ export class EchoedClient {
     durationSeconds: number,
     reason?: string,
   ): Promise<TimeoutResponse> {
-    return this.request('POST', `/v1/bots/${serverId}/members/${userId}/timeout`, {
-      durationSeconds,
-      reason: reason ?? '',
-    });
+    return this.request(
+      'POST',
+      `/v1/bots/${serverId}/members/${userId}/timeout`,
+      { durationSeconds, reason: reason ?? '' },
+      { idempotent: true },
+    );
   }
 
   async clearTimeout(serverId: string, userId: string): Promise<DeleteResponse> {
-    return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/timeout`);
+    return this.request(
+      'DELETE',
+      `/v1/bots/${serverId}/members/${userId}/timeout`,
+      undefined,
+      { idempotent: true },
+    );
   }
 
   // ─── Trust & Safety ────────────────────────────────────────────────
@@ -565,11 +735,21 @@ export class EchoedClient {
   }
 
   async addRole(serverId: string, userId: string, roleId: string): Promise<DeleteResponse> {
-    return this.request('POST', `/v1/bots/${serverId}/members/${userId}/roles/${roleId}`);
+    return this.request(
+      'POST',
+      `/v1/bots/${serverId}/members/${userId}/roles/${roleId}`,
+      undefined,
+      { idempotent: true },
+    );
   }
 
   async removeRole(serverId: string, userId: string, roleId: string): Promise<DeleteResponse> {
-    return this.request('DELETE', `/v1/bots/${serverId}/members/${userId}/roles/${roleId}`);
+    return this.request(
+      'DELETE',
+      `/v1/bots/${serverId}/members/${userId}/roles/${roleId}`,
+      undefined,
+      { idempotent: true },
+    );
   }
 
   // Returns the role IDs assigned to a member. Used by the DJ-role check

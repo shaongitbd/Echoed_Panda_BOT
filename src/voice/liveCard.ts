@@ -6,16 +6,21 @@
 // On queueEnd the message is left as the last track's "ended" state —
 // no need to delete it; users get a natural footer like "queue empty".
 //
-// Edit calls are best-effort: if a single edit 4xxs we just stop the
-// ticker for that track to avoid a flood of warnings.
+// Edit calls are best-effort. A permanent rejection (message gone, access
+// lost) stops the ticker for that track; a transient one just skips a beat,
+// since giving up on the first blip freezes the bar for the whole track.
 
-import type { EchoedClient, Embed } from '../client/echoedClient.js';
+import { EchoedApiError, type EchoedClient, type Embed } from '../client/echoedClient.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import type { MusicPlayer, NowPlaying } from './player.js';
 import type { Track } from './source.js';
 import { log } from '../log.js';
 
-const UPDATE_INTERVAL_MS = 5_000;
+// One edit per playing server per interval, drawn from a request budget
+// shared across every server this process serves — so this interval is a
+// fleet-wide cost, not a per-server one. Five seconds was enough, on its
+// own, to spend the entire budget on progress bars.
+const UPDATE_INTERVAL_MS = 20_000;
 
 export class LiveCard {
   private readonly api: EchoedClient;
@@ -95,17 +100,28 @@ export class LiveCard {
       return;
     }
     try {
-      await this.api.editMessage({
-        serverId: this.serverId,
-        messageId: this.currentMessageId,
-        embeds: [this.buildCard(np.track, np)],
-      });
+      await this.api.editMessage(
+        {
+          serverId: this.serverId,
+          messageId: this.currentMessageId,
+          embeds: [this.buildCard(np.track, np)],
+        },
+        // Redrawing a progress bar must never delay a member's command.
+        { priority: 'background' },
+      );
     } catch (err) {
-      // One transient error is enough to back off — we don't want to
-      // spam edits if the message was deleted or perms changed.
-      this.editsErrored = true;
-      this.stopTicker();
-      log.debug({ err }, 'Live card edit failed — stopping ticker for this track');
+      // Give up on this track only when the failure is permanent — the
+      // message is gone, or we've lost access to the channel. A throttle
+      // or a blip would otherwise freeze the now-playing bar for the rest
+      // of the track.
+      const status = err instanceof EchoedApiError ? err.status : 0;
+      if (status === 403 || status === 404) {
+        this.editsErrored = true;
+        this.stopTicker();
+        log.debug({ err }, 'Live card edit rejected — stopping ticker for this track');
+      } else {
+        log.debug({ err }, 'Live card edit failed — will retry on next tick');
+      }
     }
   }
 

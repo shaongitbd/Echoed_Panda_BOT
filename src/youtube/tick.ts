@@ -51,7 +51,7 @@ export async function youtubeTick(api: EchoedClient): Promise<void> {
             serverId: sub.serverId,
             channelId: sub.channelId,
             content: body,
-          });
+          }, { priority: 'background' });
         } catch (err) {
           log.warn({ err, channelId: sub.channelId, ytChannelId }, 'YouTube notification send failed');
         }

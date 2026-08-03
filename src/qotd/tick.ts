@@ -37,7 +37,7 @@ export async function qotdTick(api: EchoedClient): Promise<void> {
               footer: 'Reply below 👇',
             }),
           ],
-        });
+        }, { priority: 'background' });
         // Remember what we just asked so the next pick avoids it.
         await setQotdConfig(cfg.serverId, { lastQuestion: question });
       } catch (err) {

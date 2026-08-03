@@ -74,7 +74,7 @@ async function announceStream(
       serverId,
       channelId,
       content: lines.join('\n'),
-    });
+    }, { priority: 'background' });
   } catch (err) {
     log.warn({ err, channelId, login: stream.userLogin }, 'Twitch announce failed');
   }

@@ -56,7 +56,7 @@ export async function redditTick(api: EchoedClient): Promise<void> {
             serverId: sub.serverId,
             channelId: sub.channelId,
             content: body,
-          });
+          }, { priority: 'background' });
           lastSent = p.id;
         } catch (err) {
           log.warn(

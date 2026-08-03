@@ -13,9 +13,10 @@ export async function reminderTick(api: EchoedClient): Promise<void> {
 
   log.debug({ count: due.length }, 'Firing reminders');
 
-  // Fire in parallel — the API client serializes per the bot rate
-  // limit. Failures are isolated so one bad channel doesn't block
-  // the whole batch.
+  // Fire in parallel — the API client paces outbound requests against the
+  // shared request budget and caps how many are in flight at once, so the
+  // fan-out here doesn't turn into a burst. Failures are isolated so one
+  // bad channel doesn't block the whole batch.
   await Promise.allSettled(
     due.map(async (r) => {
       try {
@@ -23,7 +24,7 @@ export async function reminderTick(api: EchoedClient): Promise<void> {
           serverId: r.serverId,
           channelId: r.channelId,
           content: `⏰ <@${r.userId}> — ${r.message}`,
-        });
+        }, { priority: 'background' });
       } catch (err) {
         log.warn({ err, reminderId: r.id }, 'Reminder send failed');
         throw err;

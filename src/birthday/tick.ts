@@ -89,7 +89,7 @@ export async function birthdayTick(api: EchoedClient): Promise<void> {
             }),
           ],
           mentions: named,
-        });
+        }, { priority: 'background' });
       } catch (err) {
         log.warn({ err, serverId: cfg.serverId }, 'Birthday post failed');
       }

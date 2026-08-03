@@ -21,8 +21,9 @@ const TICK_INTERVAL_MS = 15_000;
 // enough to need more, and channel renames are rate-limited.
 const STATS_EVERY_N_TICKS = 4;
 
-// Run every 5 min (20 base ticks). Reddit's ToS asks for ≤1 req/sec
-// per source; we batch by subreddit so this is well within bounds.
+// Run every 5 min (20 base ticks). We issue one request per distinct
+// subreddit followed anywhere in the fleet, so the cost scales with how
+// many distinct subreddits exist, not with how many servers follow them.
 const REDDIT_EVERY_N_TICKS = 20;
 
 // Run every 60s (4 base ticks). QOTD + birthdays fire at most once/day per
@@ -42,8 +43,8 @@ async function tick(
   tickCount++;
 
   // Always-on: reminders, giveaways, temp-channel cleanup, scheduled
-  // messages. The shared bot rate limit serializes API calls across
-  // all branches.
+  // messages. The API client's process-wide limiter paces requests from
+  // every branch against one shared budget.
   const branches: Promise<unknown>[] = [
     reminderTick(api).catch((err: unknown) => {
       log.error({ err }, 'reminderTick threw');
