@@ -163,6 +163,18 @@ export class VoiceConnection {
 
   async disconnect(): Promise<void> {
     if (!this.connected) return;
+    await this.forceClose();
+  }
+
+  // Release the native handles unconditionally.
+  //
+  // `disconnect()` returns early when we no longer believe we're
+  // connected — but the remote-disconnect path clears that flag before
+  // any cleanup runs, so going through `disconnect()` there skipped
+  // closing the audio source and the room entirely and leaked the
+  // underlying handles for the lifetime of the process. Anything
+  // reacting to a disconnect it didn't initiate must use this.
+  async forceClose(): Promise<void> {
     this.connected = false;
     try {
       await this.audioSource?.close();

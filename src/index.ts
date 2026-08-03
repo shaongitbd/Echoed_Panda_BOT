@@ -333,6 +333,11 @@ async function main(): Promise<void> {
     // a tick off mid-flight leaves that work in limbo until the claim
     // expires.
     await stopScheduler();
+    // Leave voice before dropping the socket, so we don't linger in
+    // participant lists after the process is gone.
+    await services.voice.leaveAll().catch((err: unknown) => {
+      log.warn({ err }, 'Error leaving voice sessions during shutdown');
+    });
     socket.disconnect();
     try {
       await closeDb();

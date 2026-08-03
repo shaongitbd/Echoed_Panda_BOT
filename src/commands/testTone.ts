@@ -31,6 +31,19 @@ const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
 
 export const handleTestAudio: Handler = async (ctx, svc) => {
+  // This is a diagnostic, not a member-facing feature: it pulls a fixed
+  // third-party file, bypasses every music scope restriction, and can
+  // interrupt playback. Gate it like the other server-config commands.
+  if (!(await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER'))) {
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: 'You need the **Manage Server** permission to run the audio diagnostic.',
+    });
+    return;
+  }
+
   // Resolve voice channel: prefer existing session, else find the
   // caller's current voice channel and join it ourselves.
   let session = svc.voice.get(ctx.serverId);
@@ -62,11 +75,18 @@ export const handleTestAudio: Handler = async (ctx, svc) => {
       });
       return;
     }
-  } else {
-    // Already in a session — stop any active playback so the test
-    // tone isn't mixed/queued behind music.
-    session.player.stop();
-    session.connection.clearAudioBuffer();
+  } else if (session.player.nowPlaying() || session.player.list().length > 0) {
+    // Refuse rather than interrupt. Running this used to stop playback
+    // and clear the queue outright, so a diagnostic wiped whatever the
+    // server had lined up with no warning and no way to restore it.
+    await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content:
+        "I'm playing something right now — the audio test would stop it and clear the queue. Stop playback first if you really want to run it.",
+    });
+    return;
   }
 
   await svc.api.sendMessage({

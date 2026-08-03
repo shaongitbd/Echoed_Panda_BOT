@@ -23,6 +23,8 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { resolveQuery, type Track } from '../voice/source.js';
+import { EchoedApiError } from '../client/echoedClient.js';
+import { SessionLimitError } from '../voice/manager.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
 import { log } from '../log.js';
@@ -273,19 +275,34 @@ export const handlePlay: Handler = async (ctx, svc) => {
     log.warn({ err, query, channelId }, 'Play setup failed');
     // Try to disambiguate: if the session promise rejected, it's a
     // join error; otherwise treat as resolution error.
+    let joinErr: unknown = null;
     let isJoinErr = false;
     try {
       await sessionP;
-    } catch {
+    } catch (err) {
       isJoinErr = true;
+      joinErr = err;
+    }
+    // Say what actually went wrong. Reporting every join failure as a
+    // missing permission sent admins to check settings that were fine.
+    let content: string;
+    if (joinErr instanceof SessionLimitError) {
+      content =
+        "🎶 I'm playing music in as many servers as I can handle right now. Try again in a few minutes.";
+    } else if (isJoinErr) {
+      const status = joinErr instanceof EchoedApiError ? joinErr.status : 0;
+      content =
+        status === 403
+          ? "❌ Couldn't join the voice channel. Make sure I have **Connect** + **Speak** there."
+          : "❌ Couldn't join the voice channel right now — try again in a moment.";
+    } else {
+      content = "❌ Couldn't resolve that. Try a YouTube URL or a different search.";
     }
     await svc.api.sendMessage({
       serverId: ctx.serverId,
       channelId: ctx.channelId,
       replyToId: ctx.messageId,
-      content: isJoinErr
-        ? '❌ Couldn\'t join the voice channel. Make sure I have **Connect** + **Speak** there.'
-        : '❌ Couldn\'t resolve that. Try a YouTube URL or a different search.',
+      content,
     });
     return;
   }
@@ -303,6 +320,13 @@ export const handlePlay: Handler = async (ctx, svc) => {
   // a picker UX.)
   const track = tracks[0];
   if (!track) return;
+
+  // Release the candidates we didn't pick. A search resolves several and
+  // each writes a temp file, so keeping only the winner leaked the rest
+  // for the lifetime of the host.
+  if (tracks.length > 1) {
+    void Promise.all(tracks.slice(1).map((t) => t.cleanup().catch(() => undefined)));
+  }
 
   const position = session.player.enqueue(track);
   const wasIdle = !session.player.nowPlaying();

@@ -373,20 +373,92 @@ async function soundcloudDownload(url: string): Promise<string> {
   return filePath;
 }
 
+// Ceiling on a direct-URL download. Any member who can use the music
+// commands can hand us an arbitrary URL, so this has to be bounded — the
+// previous version read the whole response into memory with no limit at
+// all, which is a one-line way for anyone to exhaust the process.
+const MAX_DIRECT_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+const DIRECT_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+// Reject anything pointed at the host itself or at a private network:
+// a member-supplied URL must not be usable to reach things that are only
+// reachable from where this process runs.
+function isDisallowedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal')) return true;
+  // IPv6 loopback / link-local / unique-local.
+  if (h === '::1' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!v4) return false;
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  if (a === 127 || a === 0 || a === 10) return true;
+  if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a >= 224) return true; // multicast / reserved
+  return false;
+}
+
+function assertAllowedUrl(raw: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('That URL is not valid.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only http and https URLs are supported.');
+  }
+  if (isDisallowedHost(parsed.hostname)) {
+    throw new Error('That URL points somewhere I will not fetch from.');
+  }
+  return parsed;
+}
+
 // Direct HTTP fetch to a temp file. Used for hosted .mp3 / .m4a /
 // .ogg URLs that aren't YouTube or SoundCloud.
+//
+// Streams to disk with a running byte count rather than buffering the
+// response. The cap is enforced on bytes actually received — a
+// Content-Length header is supplied by the remote end and can simply be
+// absent or wrong, so it can't be the thing we rely on.
 async function httpDownload(url: string): Promise<string> {
+  assertAllowedUrl(url);
+
   const id = randomBytes(8).toString('hex');
   const filePath = join(tmpdir(), `panda-http-${id}.audio`);
   const startedAt = Date.now();
 
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(DIRECT_DOWNLOAD_TIMEOUT_MS),
+    redirect: 'follow',
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  await fs.writeFile(filePath, buf);
+  // Redirects are followed above, so re-check where we actually landed.
+  assertAllowedUrl(res.url || url);
+  if (!res.body) throw new Error('Empty response body');
+
+  let received = 0;
+  const handle = await fs.open(filePath, 'w');
+  try {
+    for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+      received += chunk.length;
+      if (received > MAX_DIRECT_DOWNLOAD_BYTES) {
+        throw new Error(
+          `That file is larger than the ${Math.round(MAX_DIRECT_DOWNLOAD_BYTES / 1048576)} MB limit.`,
+        );
+      }
+      await handle.write(chunk);
+    }
+  } catch (err) {
+    await handle.close().catch(() => undefined);
+    await fs.unlink(filePath).catch(() => undefined);
+    throw err;
+  }
+  await handle.close();
 
   log.info(
-    { path: filePath, url, ms: Date.now() - startedAt, sizeKB: Math.round(buf.length / 1024) },
+    { path: filePath, url, ms: Date.now() - startedAt, sizeKB: Math.round(received / 1024) },
     'Direct URL download complete',
   );
   return filePath;

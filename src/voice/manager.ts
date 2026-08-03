@@ -32,11 +32,31 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+// Ceiling on concurrent voice sessions for this process.
+//
+// A session costs a decoder process, a WebRTC connection and a read-ahead
+// buffer, and this one process serves every server. Without a ceiling,
+// enough servers starting music at once takes the process down — and with
+// it every non-music feature for every server. Refusing the request is a
+// far better outcome than that, so this is deliberately a hard limit.
+const MAX_SESSIONS = 12;
+
+export class SessionLimitError extends Error {
+  constructor() {
+    super(`voice session limit reached (${MAX_SESSIONS})`);
+    this.name = 'SessionLimitError';
+  }
+}
+
 export class VoiceManager {
   constructor(private readonly api: EchoedClient) {}
 
   get(serverId: string): Session | undefined {
     return sessions.get(serverId);
+  }
+
+  get sessionCount(): number {
+    return sessions.size;
   }
 
   // Connect the bot to a voice channel — minting a fresh LiveKit token
@@ -53,6 +73,13 @@ export class VoiceManager {
       }
       // Bot was in another channel — leave first.
       await this.leave(serverId);
+    }
+
+    // Admission control. Checked after the same-server case above, so a
+    // server already playing can always move channels.
+    if (sessions.size >= MAX_SESSIONS) {
+      log.warn({ serverId, active: sessions.size }, 'Voice session limit reached — refusing join');
+      throw new SessionLimitError();
     }
 
     const tok = await this.api.joinVoiceChannel(serverId, channelId);
@@ -131,7 +158,19 @@ export class VoiceManager {
           clearTimeout(session.emptyLeaveTimer);
           session.emptyLeaveTimer = null;
         }
+        if (session.idleTimer) {
+          clearTimeout(session.idleTimer);
+          session.idleTimer = null;
+        }
         session.player.stop();
+        // Release the native handles. We can't use disconnect() here —
+        // it returns early once we're already marked disconnected, which
+        // is exactly the state this callback runs in, so the audio source
+        // and room would never be closed.
+        void session.connection.forceClose().catch(() => undefined);
+        // Tell the API we've left, so the bot doesn't linger in the
+        // channel's participant list.
+        void this.api.leaveVoiceChannel(serverId, session.channelId).catch(() => undefined);
       }
       sessions.delete(serverId);
     };
@@ -155,6 +194,15 @@ export class VoiceManager {
     } catch (err) {
       log.warn({ err, serverId }, 'leaveVoiceChannel call failed (continuing)');
     }
+  }
+
+  // Tear down every session. Called on shutdown so a deploy doesn't leave
+  // the bot sitting in voice channels it can no longer drive.
+  async leaveAll(): Promise<void> {
+    const ids = [...sessions.keys()];
+    if (ids.length === 0) return;
+    log.info({ count: ids.length }, 'Leaving voice sessions');
+    await Promise.allSettled(ids.map((id) => this.leave(id)));
   }
 
   private armIdleLeave(serverId: string): void {

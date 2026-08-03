@@ -33,6 +33,91 @@ const FRAME_BYTES_1S = SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE; // 192 000 byt
 // as clicks on resume).
 const SILENT_FRAME_1S: Int16Array = new Int16Array(FRAME_BYTES_1S / BYTES_PER_SAMPLE);
 
+// How much decoded audio to keep ahead of playback. Enough that ffmpeg
+// hiccups and network jitter never starve the push loop, small enough
+// that a session's memory is a few megabytes rather than the whole track.
+// At 192 KB per second of audio, 25 s is about 4.8 MB.
+const READAHEAD_HIGH_BYTES = 25 * FRAME_BYTES_1S;
+const READAHEAD_LOW_BYTES = 10 * FRAME_BYTES_1S;
+
+// Bounded producer/consumer buffer over the decoder's output.
+//
+// The decoder runs faster than realtime, so without a bound it races to
+// the end of the track and holds all of it in memory. This pauses the
+// source once the buffer is full and resumes it as the push loop drains,
+// which keeps a session's footprint flat no matter how long the track is.
+class PcmReadAhead {
+  private chunks: Buffer[] = [];
+  private bytes = 0;
+  private ended = false;
+  private failure: Error | null = null;
+  private wake: (() => void) | null = null;
+  private paused = false;
+
+  constructor(
+    private readonly stream: NodeJS.ReadableStream,
+    private readonly high: number,
+    private readonly low: number,
+  ) {
+    stream.on('data', (chunk: Buffer) => {
+      this.chunks.push(chunk);
+      this.bytes += chunk.length;
+      this.signal();
+      if (!this.paused && this.bytes >= this.high) {
+        this.paused = true;
+        stream.pause();
+      }
+    });
+    stream.on('end', () => {
+      this.ended = true;
+      this.signal();
+    });
+    stream.on('error', (err: Error) => {
+      this.failure = err;
+      this.ended = true;
+      this.signal();
+    });
+  }
+
+  private signal(): void {
+    const w = this.wake;
+    this.wake = null;
+    w?.();
+  }
+
+  // Resolve with up to `n` bytes. Waits for the decoder when the buffer is
+  // short, and returns null once the stream has ended and drained. Only
+  // the push loop reads, so a single waiter slot is enough.
+  async read(n: number): Promise<Buffer | null> {
+    while (this.bytes < n && !this.ended) {
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+      });
+    }
+    if (this.failure) throw this.failure;
+    if (this.bytes === 0) return null;
+
+    const want = Math.min(n, this.bytes);
+    const out = Buffer.allocUnsafe(want);
+    let filled = 0;
+    while (filled < want) {
+      const head = this.chunks[0]!;
+      const take = Math.min(head.length, want - filled);
+      head.copy(out, filled, 0, take);
+      filled += take;
+      if (take === head.length) this.chunks.shift();
+      else this.chunks[0] = head.subarray(take);
+    }
+    this.bytes -= want;
+
+    if (this.paused && this.bytes < this.low) {
+      this.paused = false;
+      this.stream.resume();
+    }
+    return out;
+  }
+}
+
 
 export type LoopMode = 'off' | 'track' | 'queue';
 
@@ -49,6 +134,9 @@ export class MusicPlayer extends EventEmitter {
 
   private queue: Track[] = [];
   private current: Track | null = null;
+  // The track that just finished naturally, kept so loop=track can
+  // repeat it after `current` has been cleared.
+  private lastPlayed: Track | null = null;
   private currentStream: Readable | null = null;
   private currentClose: (() => void) | null = null;
 
@@ -131,6 +219,7 @@ export class MusicPlayer extends EventEmitter {
         break;
       }
       this.current = next;
+      let endCause: 'natural' | 'skipped' | 'stopped' | 'error' = 'error';
       try {
         const { pcm, close } = await next.open();
         this.currentStream = pcm;
@@ -153,6 +242,7 @@ export class MusicPlayer extends EventEmitter {
         }
 
         const cause = await this.playCurrent();
+        endCause = cause;
         this.emit('trackEnd', { track: next, cause });
         if (cause === 'stopped') {
           this.playing = false;
@@ -167,6 +257,12 @@ export class MusicPlayer extends EventEmitter {
         // next iteration will re-download — cheap relative to the
         // disk-space win of keeping /tmp clean.
         void next.cleanup().catch(() => {});
+        // Remember the finished track separately. `current` has to be
+        // cleared here, but pickNext() consults it for loop=track on the
+        // very next iteration — so reading it there always saw null and
+        // looping a single track silently did nothing. Only a natural end
+        // repeats; skipping should still advance.
+        this.lastPlayed = endCause === 'natural' ? next : null;
         this.current = null;
       }
     }
@@ -202,6 +298,9 @@ export class MusicPlayer extends EventEmitter {
       void t.cleanup().catch(() => {});
     }
     this.queue = [];
+    // Drop the loop-repeat candidate too, so a stop under loop=track
+    // doesn't resurrect the track on the next run().
+    this.lastPlayed = null;
     this.trackComplete?.('stopped');
     this.playing = false;
   }
@@ -246,7 +345,8 @@ export class MusicPlayer extends EventEmitter {
   // ─── Internals ───────────────────────────────────────────────────────
 
   private pickNext(): Track | null {
-    if (this.loop === 'track' && this.current) return this.current;
+    const repeat = this.current ?? this.lastPlayed;
+    if (this.loop === 'track' && repeat) return repeat;
     const next = this.queue.shift();
     if (!next) return null;
     if (this.loop === 'queue') {
@@ -296,27 +396,29 @@ export class MusicPlayer extends EventEmitter {
     });
   }
 
-  // Decode-then-push push loop. Mirrors the working `testTone`
-  // diagnostic command exactly:
-  //   1. Drain ffmpeg's stdout fully into a Buffer (entire track PCM
-  //      in memory). For typical music tracks (3–10 min) this is
-  //      ~35–115 MB — fine on any reasonable host. ffmpeg decodes
-  //      faster than realtime, so this finishes in 1–3 s.
-  //   2. Push 1-second frames, awaiting captureFrame on each. The
-  //      native AudioSource has its own queue cap (1 s by default);
-  //      captureFrame blocks at the FFI level when the queue is full,
-  //      which is the only pacing we need. No manual gate / poll.
+  // Read-ahead push loop:
+  //   1. Decode ffmpeg's stdout into a bounded read-ahead buffer. The
+  //      producer pauses once the buffer is full and resumes as the push
+  //      loop drains it, so memory stays flat regardless of track length.
+  //   2. Push 1-second frames, awaiting captureFrame on each. The native
+  //      AudioSource has its own queue cap (1 s by default); captureFrame
+  //      blocks at the FFI level when the queue is full, which is the only
+  //      pacing we need. No manual gate / poll.
   //
-  // Why not stream-and-push? The previous design (100 ms frames,
-  // for-await over ffmpeg stdout, manual queue gate) caused the
-  // breakup the user kept hearing — small frames + bursty stdout +
-  // a polling gate fight each other and produce micro-stalls that
-  // surface as bit-crushed / robot audio. Buffering up front and
-  // pushing in 1 s slices is what LiveKit's own publish-wav example
-  // does, and what `testTone` proved works cleanly.
+  // The frame size and the awaited push are load-bearing and must not
+  // change. An earlier design used 100 ms frames, a for-await over
+  // ffmpeg stdout, and a manual polling queue gate; small frames plus
+  // bursty stdout plus a polling gate fight each other and produce
+  // micro-stalls that sound like bit-crushed or robotic audio. What
+  // changed here is only how much is held in memory at once: this used
+  // to drain the ENTIRE track into one Buffer before pushing a single
+  // frame, which is ~11.5 MB per minute of audio — around 46 MB for a
+  // four-minute track, transiently double that while concatenating.
+  // Across enough servers playing at once that is the whole process, and
+  // this bot is one process for every server it serves.
   //
-  // Pause handling: push 1 s of silence per frame instead of
-  // advancing the buffer, so the queue stays primed.
+  // Pause handling: push 1 s of silence per frame instead of draining the
+  // buffer, so the queue stays primed.
   private async runPushLoop(
     settle: (cause: 'natural' | 'skipped' | 'stopped') => void,
   ): Promise<void> {
@@ -337,34 +439,18 @@ export class MusicPlayer extends EventEmitter {
     const stillCurrent = (): boolean => this.trackComplete === settle;
 
     try {
-      const decodeStart = Date.now();
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        if (!stillCurrent()) return;
-        chunks.push(chunk as Buffer);
-      }
-      if (!stillCurrent()) return;
-      const pcm = Buffer.concat(chunks);
-      log.info(
-        {
-          bytes: pcm.length,
-          durationSec: pcm.length / (SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE),
-          decodeMs: Date.now() - decodeStart,
-        },
-        'PCM decoded — starting push',
-      );
+      const readAhead = new PcmReadAhead(stream, READAHEAD_HIGH_BYTES, READAHEAD_LOW_BYTES);
 
-      let written = 0;
-      while (written < pcm.length && stillCurrent()) {
+      while (stillCurrent()) {
         if (this.paused) {
           await this.connection.pushFrame(SILENT_FRAME_1S);
-          continue; // don't advance written while paused
+          continue; // don't consume audio while paused
         }
-        const frameEnd = Math.min(written + FRAME_BYTES_1S, pcm.length);
-        const frameBuf = pcm.subarray(written, frameEnd);
+        const frameBuf = await readAhead.read(FRAME_BYTES_1S);
+        if (!frameBuf) break; // decoder finished and the buffer is drained
+        if (!stillCurrent()) return;
         const scaled = applyVolume(frameBuf, this.volume);
         await this.connection.pushFrame(bufToInt16(scaled));
-        written = frameEnd;
       }
 
       // Drain whatever's still in LiveKit's queue before advancing —
