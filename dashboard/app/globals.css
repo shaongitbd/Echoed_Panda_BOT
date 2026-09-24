@@ -1,11 +1,13 @@
+/* Fonts via Google Fonts CDN — kept inline rather than in app/layout
+   so the entire stylesheet is self-contained. preconnect happens in
+   the document <head> for performance. An @import must come before every
+   other rule, so it sits above the @tailwind directives (Next 16's
+   Turbopack refuses to build otherwise). */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Fonts via Google Fonts CDN — kept inline rather than in app/layout
-   so the entire stylesheet is self-contained. preconnect happens in
-   the document <head> for performance. */
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 /* ─── Design tokens ─────────────────────────────────────────────────
    Single source of truth. Aliased into Tailwind via tailwind.config.ts

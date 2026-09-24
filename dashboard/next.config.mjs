@@ -1,5 +1,15 @@
+import { fileURLToPath } from 'node:url';
+
+// This folder is the app's root. Next 15+ otherwise walks up to the bot's
+// package-lock.json in panda/ and treats panda/ as the workspace, which moves
+// the standalone server to .next/standalone/dashboard/server.js — breaking the
+// build script's copy steps and `npm start`.
+const appRoot = fileURLToPath(new URL('.', import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingRoot: appRoot,
+  turbopack: { root: appRoot },
   // Strict React mode catches the obvious effect/state bugs early.
   reactStrictMode: true,
   // Self-contained runtime image — Next emits everything needed (server

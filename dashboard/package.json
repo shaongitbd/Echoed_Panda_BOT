@@ -6,20 +6,22 @@
     "dev": "next dev -p 3030",
     "build": "next build && cp -r public .next/standalone/ 2>/dev/null || true && cp -r .next/static .next/standalone/.next/static",
     "start": "PORT=3030 node .next/standalone/server.js",
-    "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "dependencies": {
-    "next": "^14.2.20",
+    "next": "^16.3.6",
     "pg": "^8.13.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
-    "@types/react": "^18.3.13",
-    "@types/react-dom": "^18.3.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
