@@ -1,40 +1,15 @@
-import type { Handler, Services } from './index.js';
-import type { CommandContext } from '../types.js';
-import type { Permission } from '../auth/permissions.js';
+import type { Handler } from './index.js';
 import { addWarning, listWarnings, clearWarnings } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
+import { checkModerator } from '../mod/authority.js';
+import { applyEscalation } from '../mod/escalation.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { resolveUsers } from '../client/names.js';
 import { escapeMentions } from '../client/text.js';
-
-const USER_MENTION_RE = /^<@(?<id>[a-zA-Z0-9_-]+)>$/;
-const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
-
-function parseUserId(arg: string | undefined): string | null {
-  if (!arg) return null;
-  const m = USER_MENTION_RE.exec(arg);
-  if (m?.groups?.id) return m.groups.id;
-  if (BARE_ID_RE.test(arg)) return arg;
-  return null;
-}
-
-async function requirePerm(
-  ctx: CommandContext,
-  svc: Services,
-  perm: Permission,
-  label: string,
-): Promise<boolean> {
-  const ok = await svc.perms.has(ctx.serverId, ctx.senderId, perm);
-  if (!ok) {
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      replyToId: ctx.messageId,
-      content: `You need the **${label}** permission for this command.`,
-    });
-  }
-  return ok;
-}
+import { log } from '../log.js';
+// One permission model across the moderation commands: the platform
+// permission or a moderator role, and never on a protected member.
+import { canActOn, parseUserId, requirePerm } from './mod.js';
 
 // Format a single warning line for display in `!warnings`.
 function fmtAge(date: Date): string {
@@ -65,15 +40,8 @@ export const handleWarn: Handler = async (ctx, svc) => {
     return;
   }
 
-  if (targetId === ctx.senderId) {
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      replyToId: ctx.messageId,
-      content: 'You cannot warn yourself.',
-    });
-    return;
-  }
+  // Yourself, the bot, an admin, a protected or moderator role.
+  if (!(await canActOn(ctx, svc, targetId, 'warn'))) return;
 
   const warning = await addWarning({
     serverId: ctx.serverId,
@@ -97,6 +65,18 @@ export const handleWarn: Handler = async (ctx, svc) => {
     actorId: ctx.senderId,
     reason,
   });
+
+  // "At N warnings, do X."
+  try {
+    const escalated = await applyEscalation(
+      svc.api, svc.perms, svc.botUserId, ctx.serverId, targetId, warning.id,
+    );
+    if (escalated) {
+      await svc.api.sendMessage({ serverId: ctx.serverId, channelId: ctx.channelId, content: escalated });
+    }
+  } catch (err) {
+    log.warn({ err, serverId: ctx.serverId, targetId }, 'Escalation check failed');
+  }
 
   // NOTE: Echoed's bot DM endpoint takes a *username* (not user ID),
   // and we only have the ID from the mention. Once we add a username
@@ -132,7 +112,8 @@ export const handleWarnings: Handler = async (ctx, svc) => {
     targetId = parsed;
     isSelf = parsed === ctx.senderId;
     if (!isSelf) {
-      const ok = await svc.perms.has(ctx.serverId, ctx.senderId, 'KICK_MEMBERS');
+      const ok =
+        (await checkModerator(svc.api, svc.perms, ctx.serverId, ctx.senderId, 'KICK_MEMBERS')) === 'granted';
       if (!ok) {
         await svc.api.sendMessage({
           serverId: ctx.serverId,

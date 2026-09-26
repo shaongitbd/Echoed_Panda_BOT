@@ -81,6 +81,15 @@ import { handleSetup } from './setup.js';
 import { handleCommandSettings } from './commandSettings.js';
 import { handleLock, handleUnlock } from './lock.js';
 import { handleLog } from './logAdmin.js';
+import {
+  handleCase,
+  handleReason,
+  handleModlogs,
+  handleNote,
+  handleModRole,
+  handleProtectedRole,
+  handleEscalation,
+} from './modAdmin.js';
 import { categoryOf } from './help.js';
 import { checkCommandAccess } from './access.js';
 import {
@@ -243,6 +252,48 @@ export const registry: readonly Registered[] = [
     help: 'set mod-log channel — `setmodlog <channel|here|none>`',
   },
   {
+    name: 'case',
+    aliases: [],
+    handler: handleCase,
+    help: 'show one moderation case — `case <number>` (Kick Members or moderator role)',
+  },
+  {
+    name: 'reason',
+    aliases: [],
+    handler: handleReason,
+    help: 'set or change a case\'s reason — `reason <case> <text>` (also edits the mod-log entry)',
+  },
+  {
+    name: 'modlogs',
+    aliases: ['history', 'infractions'],
+    handler: handleModlogs,
+    help: 'a member\'s moderation history — `modlogs <@user>`',
+  },
+  {
+    name: 'note',
+    aliases: [],
+    handler: handleNote,
+    help: 'private moderator note on a member — `note <@user> <text>` (shown in modlogs)',
+  },
+  {
+    name: 'modrole',
+    aliases: ['modroles'],
+    handler: handleModRole,
+    help: 'roles that may use the moderation commands — `modrole add|remove|list @role` (Manage Server)',
+  },
+  {
+    name: 'protectedrole',
+    aliases: ['protectedroles', 'protect'],
+    handler: handleProtectedRole,
+    help: 'roles the bot will never moderate — `protectedrole add|remove|list @role` (Manage Server)',
+  },
+  {
+    name: 'escalation',
+    aliases: ['escalate', 'punishments'],
+    handler: handleEscalation,
+    help: 'act automatically at N warnings — `escalation add 3 timeout 1h`, `escalation add 5 kick`, `escalation remove 3` (Manage Server)',
+  },
+  {
     name: 'log',
     aliases: ['logs', 'logging', 'serverlog'],
     handler: handleLog,
@@ -286,7 +337,9 @@ export const registry: readonly Registered[] = [
   // ─── Custom commands (Manage Server for add/remove; list is open) ─
   {
     name: 'cmd',
-    aliases: ['command', 'customcmd'],
+    // Not 'command': that is the command-permissions command's own name, and
+    // this entry, listed first, used to answer it.
+    aliases: ['customcmd'],
     handler: handleCustomCommand,
     help: 'custom commands — `cmd add|remove|list`',
   },

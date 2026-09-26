@@ -47,6 +47,10 @@ export interface GuildConfig {
   giveawayAllowedRoleIds: string[];
   giveawayExemptRoleIds: string[];
   giveawayExemptUserIds: string[];
+  // Moderator / protected roles — see migrate.ts 'guild_config mod +
+  // protected roles'.
+  modRoleIds: string[];
+  protectedRoleIds: string[];
 }
 
 interface ConfigRow {
@@ -71,6 +75,8 @@ interface ConfigRow {
   giveaway_allowed_role_ids: string[] | null;
   giveaway_exempt_role_ids: string[] | null;
   giveaway_exempt_user_ids: string[] | null;
+  mod_role_ids: string[] | null;
+  protected_role_ids: string[] | null;
 }
 
 function rowToConfig(row: ConfigRow): GuildConfig {
@@ -96,6 +102,8 @@ function rowToConfig(row: ConfigRow): GuildConfig {
     giveawayAllowedRoleIds: row.giveaway_allowed_role_ids ?? [],
     giveawayExemptRoleIds: row.giveaway_exempt_role_ids ?? [],
     giveawayExemptUserIds: row.giveaway_exempt_user_ids ?? [],
+    modRoleIds: row.mod_role_ids ?? [],
+    protectedRoleIds: row.protected_role_ids ?? [],
   };
 }
 
@@ -121,6 +129,8 @@ const EMPTY = (serverId: string): GuildConfig => ({
   giveawayAllowedRoleIds: [],
   giveawayExemptRoleIds: [],
   giveawayExemptUserIds: [],
+  modRoleIds: [],
+  protectedRoleIds: [],
 });
 
 // Cache resolved configs in-process. TTL trades a tiny staleness window
@@ -151,7 +161,8 @@ export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
             pre_lockdown_verification_level,
             giveaway_exclude_admins,
             giveaway_allowed_role_ids, giveaway_exempt_role_ids,
-            giveaway_exempt_user_ids
+            giveaway_exempt_user_ids,
+            mod_role_ids, protected_role_ids
        FROM panda.guild_config
       WHERE server_id = $1`,
     [serverId],
@@ -187,6 +198,8 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   giveawayAllowedRoleIds: 'giveaway_allowed_role_ids',
   giveawayExemptRoleIds: 'giveaway_exempt_role_ids',
   giveawayExemptUserIds: 'giveaway_exempt_user_ids',
+  modRoleIds: 'mod_role_ids',
+  protectedRoleIds: 'protected_role_ids',
 };
 
 export async function setGuildConfig(
@@ -220,7 +233,8 @@ export async function setGuildConfig(
                pre_lockdown_verification_level,
                giveaway_exclude_admins,
                giveaway_allowed_role_ids, giveaway_exempt_role_ids,
-               giveaway_exempt_user_ids`,
+               giveaway_exempt_user_ids,
+               mod_role_ids, protected_role_ids`,
     [serverId, ...values],
   );
 

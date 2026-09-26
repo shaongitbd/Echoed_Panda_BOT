@@ -945,6 +945,75 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
       )
     `,
   },
+  {
+    // Moderator roles: members holding one may use the moderation commands
+    // without the platform permission each needs (the bot acts with its own).
+    // Protected roles: the bot refuses to moderate their holders, and
+    // warning escalation passes them over. Admins (Manage Server) are exempt
+    // from both lists — they are always moderators and can act on anyone.
+    name: 'guild_config mod + protected roles',
+    sql: `
+      ALTER TABLE panda.guild_config
+        ADD COLUMN IF NOT EXISTS mod_role_ids       TEXT[] NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS protected_role_ids TEXT[] NOT NULL DEFAULT '{}'
+    `,
+  },
+  {
+    // Every moderation action is a numbered case, per server, so a
+    // moderator can refer to "case 12", fix its reason later, and read a
+    // member's whole history. Numbers come from mod_case_counters, bumped
+    // atomically — MAX()+1 would hand two concurrent actions the same number.
+    // modlog_message_id is the mod-log post, so editing a reason edits it.
+    name: 'mod_cases table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.mod_cases (
+        server_id          TEXT NOT NULL,
+        case_number        INT NOT NULL,
+        action             TEXT NOT NULL,
+        target_id          TEXT,
+        target_channel_id  TEXT,
+        actor_id           TEXT NOT NULL,
+        reason             TEXT,
+        extra              TEXT,
+        modlog_channel_id  TEXT,
+        modlog_message_id  TEXT,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (server_id, case_number)
+      )
+    `,
+  },
+  {
+    name: 'mod_cases by_target index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS mod_cases_by_target_idx
+        ON panda.mod_cases (server_id, target_id, created_at DESC)
+    `,
+  },
+  {
+    name: 'mod_case_counters table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.mod_case_counters (
+        server_id  TEXT PRIMARY KEY,
+        last_case  INT NOT NULL DEFAULT 0
+      )
+    `,
+  },
+  {
+    // "At N warnings, do X." Checked after every warning — a moderator's or
+    // auto-mod's — against the member's total. A rule fires when the total
+    // lands exactly on its count, so it fires once per crossing.
+    name: 'warn_escalations table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.warn_escalations (
+        server_id         TEXT NOT NULL,
+        warn_count        INT NOT NULL CHECK (warn_count BETWEEN 1 AND 100),
+        action            TEXT NOT NULL CHECK (action IN ('timeout', 'kick', 'ban')),
+        duration_seconds  INT,
+        PRIMARY KEY (server_id, warn_count)
+      )
+    `,
+  },
 ];
 
 // Arbitrary but fixed: every instance must pick the same number for the

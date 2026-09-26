@@ -63,15 +63,22 @@ export async function listWarnings(
   return res.rows.map(rowToWarning);
 }
 
+// With `upToId`, counts only warnings up to and including that one — the
+// warning's own position in the member's history. Escalation uses it so
+// that warnings landing at the same moment (an auto-mod burst) each get a
+// different number, instead of all reading the same total and firing the
+// same rule twice while skipping another.
 export async function countWarnings(
   serverId: string,
   userId: string,
+  upToId?: number,
 ): Promise<number> {
   const res = await pool.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
        FROM panda.warnings
-      WHERE server_id = $1 AND user_id = $2`,
-    [serverId, userId],
+      WHERE server_id = $1 AND user_id = $2
+        AND ($3::bigint IS NULL OR id <= $3::bigint)`,
+    [serverId, userId, upToId ?? null],
   );
   return Number(res.rows[0]?.count ?? 0);
 }

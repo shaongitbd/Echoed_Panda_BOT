@@ -5,6 +5,7 @@ import { setGuildConfig } from '../db/guildConfig.js';
 import { postModAction } from '../mod/modlog.js';
 import { parseDuration, formatDuration, MAX_TIMEOUT_SECONDS } from '../mod/duration.js';
 import { EchoedApiError } from '../client/echoedClient.js';
+import { checkModerator, roleProtection } from '../mod/authority.js';
 
 // ─── Mention parsing ────────────────────────────────────────────────────
 
@@ -12,7 +13,7 @@ const USER_MENTION_RE = /^<@(?<id>[a-zA-Z0-9_-]+)>$/;
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
 
-function parseUserId(arg: string | undefined): string | null {
+export function parseUserId(arg: string | undefined): string | null {
   if (!arg) return null;
   const m = USER_MENTION_RE.exec(arg);
   if (m?.groups?.id) return m.groups.id;
@@ -48,7 +49,7 @@ function joinReason(args: string[], startIndex: number): string | null {
 // by a refusal to act on an administrator; timeout is not, so without this
 // check anyone granted only Mute Members could silence every admin and
 // every fellow moderator, and the timeout is genuinely enforced.
-async function canActOn(
+export async function canActOn(
   ctx: CommandContext,
   svc: Services,
   targetId: string,
@@ -67,6 +68,10 @@ async function canActOn(
     ]);
     if (targetIsAdmin && !callerIsAdmin) {
       refusal = `You can't ${verb} someone who manages this server.`;
+    } else {
+      // Protected and moderator roles (see mod/authority.ts).
+      const blocked = await roleProtection(svc.api, ctx.serverId, targetId, callerIsAdmin);
+      if (blocked) refusal = `${blocked} You can't ${verb} them.`;
     }
   }
 
@@ -82,13 +87,14 @@ async function canActOn(
   return true;
 }
 
-async function requirePerm(
+export async function requirePerm(
   ctx: CommandContext,
   svc: Services,
   perm: Permission,
   label: string,
 ): Promise<boolean> {
-  const result = await svc.perms.check(ctx.serverId, ctx.senderId, perm);
+  // The platform permission, or one of the server's moderator roles.
+  const result = await checkModerator(svc.api, svc.perms, ctx.serverId, ctx.senderId, perm);
   if (result !== 'granted') {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
@@ -100,7 +106,7 @@ async function requirePerm(
       content:
         result === 'unavailable'
           ? "I couldn't verify your permissions just now — try again in a moment."
-          : `You need the **${label}** permission for this command.`,
+          : `You need the **${label}** permission, or a moderator role, for this command.`,
     });
   }
   return result === 'granted';
@@ -115,7 +121,8 @@ async function requirePermInChannel(
   perm: Permission,
   label: string,
 ): Promise<boolean> {
-  const ok = await svc.perms.hasIn(ctx.serverId, ctx.channelId, ctx.senderId, perm);
+  const ok =
+    (await checkModerator(svc.api, svc.perms, ctx.serverId, ctx.senderId, perm, ctx.channelId)) === 'granted';
   if (!ok) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,

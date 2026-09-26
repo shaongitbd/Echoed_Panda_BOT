@@ -8,6 +8,7 @@ import { resetWindow } from './spamWindow.js';
 import { pool } from '../db/pool.js';
 import { addWarning } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
+import { applyEscalation } from '../mod/escalation.js';
 import { log } from '../log.js';
 import { fetchMemberRoles } from '../util/memberRoles.js';
 
@@ -77,12 +78,13 @@ export async function processMessage(
   });
   if (!match) return false;
 
-  await applyAction(api, msg, match, botUserId);
+  await applyAction(api, perms, msg, match, botUserId);
   return true;
 }
 
 async function applyAction(
   api: EchoedClient,
+  perms: PermissionService,
   msg: MessageCreatedData,
   match: FilterMatch,
   botUserId: string,
@@ -118,8 +120,9 @@ async function applyAction(
   // Add a warning to the user's regular warning history. The actor is
   // the bot itself — we don't know which moderator configured automod.
   const reason = `Auto-mod: ${match.reason}`;
+  let warningId: number | null = null;
   try {
-    await addWarning({
+    const warning = await addWarning({
       serverId: msg.serverId,
       userId: msg.senderId,
       // Attributed to the bot, not to the member who tripped the
@@ -128,6 +131,7 @@ async function applyAction(
       actorId: botUserId,
       reason,
     });
+    warningId = warning.id;
   } catch (err) {
     log.warn({ err }, 'Failed to add automod warning');
   }
@@ -154,4 +158,16 @@ async function applyAction(
     reason,
     extra: `Filter: ${match.kind}`,
   });
+
+  // An auto-mod warning counts toward escalation like any other — this is
+  // what turns "delete and warn" into "third strike, timed out".
+  if (warningId === null) return;
+  try {
+    const escalated = await applyEscalation(api, perms, botUserId, msg.serverId, msg.senderId, warningId);
+    if (escalated) {
+      await api.sendMessage({ serverId: msg.serverId, channelId: msg.channelId, content: escalated });
+    }
+  } catch (err) {
+    log.warn({ err, serverId: msg.serverId }, 'Auto-mod escalation failed');
+  }
 }

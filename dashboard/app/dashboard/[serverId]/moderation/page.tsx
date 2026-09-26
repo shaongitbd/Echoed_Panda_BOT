@@ -1,7 +1,9 @@
 import { getGuildConfig } from '@/lib/queries/guildConfig';
-import { getServerChannels } from '@/lib/botApi';
+import { listEscalations, formatDuration, MAX_RULES } from '@/lib/queries/escalation';
+import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field, inputClassName } from '@/components/FormCard';
 import { ChannelPicker } from '@/components/ChannelPicker';
+import { RolePicker } from '@/components/RolePicker';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import { saveModeration, clearLockdown } from './actions';
@@ -12,10 +14,17 @@ interface PageProps {
 
 export default async function ModerationPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
-  const [config, channels] = await Promise.all([
+  const [config, channels, roles, escalations] = await Promise.all([
     getGuildConfig(serverId),
     getServerChannels(serverId),
+    getServerRoles(serverId),
+    listEscalations(serverId),
   ]);
+  // Existing rules plus a few empty slots, up to the cap.
+  const escalationRows = Array.from(
+    { length: Math.min(MAX_RULES, Math.max(escalations.length + 2, 3)) },
+    (_, i) => escalations[i] ?? null,
+  );
   const action = saveModeration.bind(null, serverId);
   const clearAction = clearLockdown.bind(null, serverId);
 
@@ -78,6 +87,69 @@ export default async function ModerationPage({ params }: PageProps): Promise<JSX
               clearable
             />
           </Field>
+        </FormCard>
+
+        <FormCard
+          title="Moderator roles"
+          description="Members with a moderator role can use Panda's moderation commands — kick, ban, timeout, warn, purge, lock, cases — without holding the platform permissions themselves. Panda acts with its own."
+        >
+          <Field
+            label="Moderator roles"
+            name="modRoleIds"
+            hint="Moderators can't use Panda on each other; only admins can."
+          >
+            <RolePicker mode="multi" name="modRoleIds" roles={roles} initial={config.modRoleIds} />
+          </Field>
+          <Field
+            label="Protected roles"
+            name="protectedRoleIds"
+            hint="Panda won't moderate members with these roles, except when an admin asks, and warning escalation skips them."
+          >
+            <RolePicker mode="multi" name="protectedRoleIds" roles={roles} initial={config.protectedRoleIds} />
+          </Field>
+        </FormCard>
+
+        <FormCard
+          title="Warning escalation"
+          description="Act automatically when a member's warnings reach a number. Counts every warning — from moderators and from auto-mod. Clearing someone's warnings starts them over."
+        >
+          <div className="space-y-3">
+            {escalationRows.map((rule, i) => (
+              <div key={i} className="grid grid-cols-[88px_1fr_1fr] items-center gap-3">
+                <input
+                  aria-label={`Rule ${i + 1}: warnings`}
+                  name={`esc_count_${i}`}
+                  type="number"
+                  min={1}
+                  max={100}
+                  placeholder="3"
+                  defaultValue={rule?.warnCount ?? ''}
+                  className={inputClassName}
+                />
+                <select
+                  aria-label={`Rule ${i + 1}: action`}
+                  name={`esc_action_${i}`}
+                  defaultValue={rule?.action ?? ''}
+                  className={inputClassName}
+                >
+                  <option value="">No rule</option>
+                  <option value="timeout">Time out</option>
+                  <option value="kick">Kick</option>
+                  <option value="ban">Ban</option>
+                </select>
+                <input
+                  aria-label={`Rule ${i + 1}: timeout length`}
+                  name={`esc_duration_${i}`}
+                  placeholder="1h (timeouts only)"
+                  defaultValue={rule?.action === 'timeout' && rule.durationSeconds ? formatDuration(rule.durationSeconds) : ''}
+                  className={inputClassName}
+                />
+              </div>
+            ))}
+            <p className="text-xs text-text-muted">
+              Warnings · action · timeout length (like 10m, 1h, 1d). Save to get more empty rows, up to {MAX_RULES}.
+            </p>
+          </div>
         </FormCard>
 
         <FormCard

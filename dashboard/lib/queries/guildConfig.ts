@@ -38,6 +38,10 @@ export interface GuildConfig {
   giveawayAllowedRoleIds: string[];
   giveawayExemptRoleIds: string[];
   giveawayExemptUserIds: string[];
+  // Moderator roles use the mod commands without the platform permissions;
+  // protected roles can't be moderated through the bot (admins excepted).
+  modRoleIds: string[];
+  protectedRoleIds: string[];
 }
 
 interface Row {
@@ -61,6 +65,8 @@ interface Row {
   giveaway_allowed_role_ids: string[] | null;
   giveaway_exempt_role_ids: string[] | null;
   giveaway_exempt_user_ids: string[] | null;
+  mod_role_ids: string[] | null;
+  protected_role_ids: string[] | null;
 }
 
 const EMPTY = (serverId: string): GuildConfig => ({
@@ -84,6 +90,8 @@ const EMPTY = (serverId: string): GuildConfig => ({
   giveawayAllowedRoleIds: [],
   giveawayExemptRoleIds: [],
   giveawayExemptUserIds: [],
+  modRoleIds: [],
+  protectedRoleIds: [],
 });
 
 function rowToConfig(row: Row): GuildConfig {
@@ -108,6 +116,8 @@ function rowToConfig(row: Row): GuildConfig {
     giveawayAllowedRoleIds: row.giveaway_allowed_role_ids ?? [],
     giveawayExemptRoleIds: row.giveaway_exempt_role_ids ?? [],
     giveawayExemptUserIds: row.giveaway_exempt_user_ids ?? [],
+    modRoleIds: row.mod_role_ids ?? [],
+    protectedRoleIds: row.protected_role_ids ?? [],
   };
 }
 
@@ -120,7 +130,8 @@ const SELECT = `
   music_allowed_role_ids,    music_exempt_role_ids,
   giveaway_exclude_admins,
   giveaway_allowed_role_ids, giveaway_exempt_role_ids,
-  giveaway_exempt_user_ids
+  giveaway_exempt_user_ids,
+  mod_role_ids, protected_role_ids
 `;
 
 export async function getGuildConfig(serverId: string): Promise<GuildConfig> {
@@ -153,6 +164,8 @@ const FIELD_TO_COLUMN: Record<keyof UpsertableFields, string> = {
   giveawayAllowedRoleIds: 'giveaway_allowed_role_ids',
   giveawayExemptRoleIds: 'giveaway_exempt_role_ids',
   giveawayExemptUserIds: 'giveaway_exempt_user_ids',
+  modRoleIds: 'mod_role_ids',
+  protectedRoleIds: 'protected_role_ids',
 };
 
 // upsert with dynamic column list — only writes the fields the form

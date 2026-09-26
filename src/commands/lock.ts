@@ -5,6 +5,7 @@ import { EchoedApiError } from '../client/echoedClient.js';
 import { postModAction } from '../mod/modlog.js';
 import { parseChannelId } from '../util/parse.js';
 import { channelBelongsTo } from '../client/names.js';
+import { checkModerator } from '../mod/authority.js';
 import { log } from '../log.js';
 
 // `!lock` / `!unlock` — stop @everyone sending in a channel, then give it back.
@@ -59,7 +60,10 @@ async function parseTarget(
 }
 
 async function requireManageChannels(ctx: CommandContext, svc: Services, channelId: string): Promise<boolean> {
-  const ok = await svc.perms.hasIn(ctx.serverId, channelId, ctx.senderId, 'MANAGE_CHANNELS');
+  // Manage Channels there, or a moderator role.
+  const ok =
+    (await checkModerator(svc.api, svc.perms, ctx.serverId, ctx.senderId, 'MANAGE_CHANNELS', channelId)) ===
+    'granted';
   if (!ok) await reply(ctx, svc, 'You need the **Manage Channels** permission to lock or unlock a channel.');
   return ok;
 }
