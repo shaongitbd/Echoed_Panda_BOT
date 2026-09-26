@@ -9,33 +9,7 @@ import { pool } from '../db/pool.js';
 import { addWarning } from '../mod/warnings.js';
 import { postModAction } from '../mod/modlog.js';
 import { log } from '../log.js';
-import { registerTtlCache } from '../util/ttlCache.js';
-
-// Per-user member-role cache. Auto-mod runs on every message, so the
-// role lookup needs caching. 60s TTL absorbs admin role changes
-// without making the hot path issue a network call per message.
-const ROLE_CACHE_TTL_MS = 60 * 1000;
-const memberRolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
-registerTtlCache('automodMemberRoles', memberRolesCache, 20_000);
-
-async function fetchMemberRoles(
-  api: EchoedClient,
-  serverId: string,
-  userId: string,
-): Promise<string[] | null> {
-  const key = `${serverId}:${userId}`;
-  const cached = memberRolesCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.roles;
-  try {
-    const res = await api.getMemberRoles(serverId, userId);
-    const roles = res.roles ?? [];
-    memberRolesCache.set(key, { roles, expiresAt: Date.now() + ROLE_CACHE_TTL_MS });
-    return roles;
-  } catch (err) {
-    log.warn({ err, serverId, userId }, 'Auto-mod role-scope fetch failed');
-    return null;
-  }
-}
+import { fetchMemberRoles } from '../util/memberRoles.js';
 
 // processMessage is the auto-mod entry-point. Returns true if the
 // message was acted on (deleted) — caller skips XP grant + dispatch.

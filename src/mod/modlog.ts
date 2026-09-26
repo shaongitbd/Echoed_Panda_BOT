@@ -10,7 +10,9 @@ export type ModAction =
   | 'timeout'
   | 'untimeout'
   | 'warn'
-  | 'purge';
+  | 'purge'
+  | 'lock'
+  | 'unlock';
 
 interface ModLogInput {
   serverId: string;
@@ -18,6 +20,8 @@ interface ModLogInput {
   // ID of the affected user, or null for action that don't target a
   // single user (e.g. !purge).
   targetId: string | null;
+  // For actions on a channel (lock/unlock): named instead of a user.
+  targetChannelId?: string;
   actorId: string;
   reason?: string | null;
   // Free-form extra context, e.g. "1h30m" for timeout, "12 messages" for purge.
@@ -32,6 +36,8 @@ const EMOJI: Record<ModAction, string> = {
   untimeout: '🔊',
   warn: '⚠️',
   purge: '🧹',
+  lock: '🔒',
+  unlock: '🔓',
 };
 
 const VERB: Record<ModAction, string> = {
@@ -42,6 +48,8 @@ const VERB: Record<ModAction, string> = {
   untimeout: 'Removed timeout from',
   warn: 'Warned',
   purge: 'Purged messages by',
+  lock: 'Locked',
+  unlock: 'Unlocked',
 };
 
 // Best-effort post to the server's configured mod-log channel. Failures
@@ -60,7 +68,11 @@ export async function postModAction(
   if (!channelId) return;
 
   const lines: string[] = [];
-  const targetText = input.targetId ? `<@${input.targetId}>` : 'channel';
+  const targetText = input.targetId
+    ? `<@${input.targetId}>`
+    : input.targetChannelId
+      ? `<#${input.targetChannelId}>`
+      : 'channel';
   lines.push(`${EMOJI[input.action]} **${VERB[input.action]}** ${targetText}`);
   if (input.extra) lines.push(`Duration: ${input.extra}`);
   lines.push(`Moderator: <@${input.actorId}>`);

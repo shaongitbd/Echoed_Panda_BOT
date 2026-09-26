@@ -354,45 +354,6 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     `,
   },
   {
-    name: 'temp_channels lease columns',
-    sql: `
-      ALTER TABLE panda.temp_channels
-        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
-    `,
-  },
-  {
-    // A giveaway used to be marked ended before its winners were drawn, so
-    // any failure in between left it ended with nobody picked — and the
-    // early-end path only matches un-ended rows, so it couldn't be redone.
-    // The lease lets the draw be retried; `ended` is now set only once
-    // winners have actually been announced.
-    name: 'giveaways lease columns',
-    sql: `
-      ALTER TABLE panda.giveaways
-        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
-    `,
-  },
-  {
-    // Rotation cursor for the stat-counter sweep. `updated_at` only moves
-    // when a rename actually happens, so ordering a limited batch by it
-    // would park permanently on counters whose value never changes and
-    // never reach the rest. `checked_at` advances on every pass.
-    name: 'stat_counters checked_at',
-    sql: `
-      ALTER TABLE panda.stat_counters
-        ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ
-    `,
-  },
-  {
-    name: 'stat_counters checked_at index',
-    sql: `
-      CREATE INDEX IF NOT EXISTS stat_counters_checked_at_idx
-        ON panda.stat_counters (checked_at NULLS FIRST)
-    `,
-  },
-  {
     // Who is currently wearing the birthday role, and which role it was.
     //
     // The rotation used to strip the role from "whoever has a birthday
@@ -484,6 +445,48 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     sql: `
       CREATE INDEX IF NOT EXISTS temp_channels_expiry_idx
         ON panda.temp_channels (expires_at)
+    `,
+  },
+  // The next four alter tables created just above. They used to sit before
+  // those CREATE TABLEs, which worked on the long-lived database (the tables
+  // already existed) and failed the first boot against an empty one.
+  {
+    name: 'temp_channels lease columns',
+    sql: `
+      ALTER TABLE panda.temp_channels
+        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
+    `,
+  },
+  {
+    // A giveaway used to be marked ended before its winners were drawn, so
+    // any failure in between left it ended with nobody picked — and the
+    // early-end path only matches un-ended rows, so it couldn't be redone.
+    // The lease lets the draw be retried; `ended` is now set only once
+    // winners have actually been announced.
+    name: 'giveaways lease columns',
+    sql: `
+      ALTER TABLE panda.giveaways
+        ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS attempts   INT NOT NULL DEFAULT 0
+    `,
+  },
+  {
+    // Rotation cursor for the stat-counter sweep. `updated_at` only moves
+    // when a rename actually happens, so ordering a limited batch by it
+    // would park permanently on counters whose value never changes and
+    // never reach the rest. `checked_at` advances on every pass.
+    name: 'stat_counters checked_at',
+    sql: `
+      ALTER TABLE panda.stat_counters
+        ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ
+    `,
+  },
+  {
+    name: 'stat_counters checked_at index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS stat_counters_checked_at_idx
+        ON panda.stat_counters (checked_at NULLS FIRST)
     `,
   },
   {
@@ -891,6 +894,33 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
         reset_on_fail  BOOLEAN NOT NULL DEFAULT TRUE,
         created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
+  {
+    // Where and by whom a command may be used (MEE6's per-command
+    // permissions). `scope` is one of:
+    //   '*'              every command, custom ones included
+    //   'category:<name>' every command in a help category
+    //   '<command>'      one built-in (canonical name) or custom command
+    // A command runs only if EVERY rule that applies to it passes, so a
+    // server can say "music only in #music" once and still tighten one
+    // command further. Empty allow list = anywhere / anyone; an ignore list
+    // wins over the allow list — the same model auto-mod's scope uses.
+    name: 'command_settings table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.command_settings (
+        server_id            TEXT NOT NULL,
+        scope                TEXT NOT NULL,
+        enabled              BOOLEAN NOT NULL DEFAULT TRUE,
+        allowed_channel_ids  TEXT[] NOT NULL DEFAULT '{}',
+        ignored_channel_ids  TEXT[] NOT NULL DEFAULT '{}',
+        allowed_role_ids     TEXT[] NOT NULL DEFAULT '{}',
+        ignored_role_ids     TEXT[] NOT NULL DEFAULT '{}',
+        cooldown_seconds     INT,
+        delete_invocation    BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (server_id, scope)
       )
     `,
   },

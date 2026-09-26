@@ -28,7 +28,7 @@ pre-create the schema and grant `USAGE, CREATE` on it instead.
 ## Features
 
 - **Leveling** — XP per message with role rewards, no-XP channels, customizable level-up messages
-- **Moderation** — kick / ban / unban / timeout / warn with searchable history, mod-log routing, bulk purge
+- **Moderation** — kick / ban / unban / timeout / warn with searchable history, mod-log routing, bulk purge, channel lock / unlock
 - **Auto-mod** — eight filters (invites, bad words, spam, caps, mass mentions, emoji spam, zalgo, links) with per-channel/role exempt lists
 - **Welcome flows** — greeting messages, auto-role on join
 - **Reaction roles** — three modes (normal, unique, verify) with bot-seeded reactions
@@ -39,11 +39,15 @@ pre-create the schema and grant `USAGE, CREATE` on it instead.
 - **Stats counters** — auto-rename channels with live member/channel counts
 - **Temp channels** — time-limited channels that auto-delete
 - **Notifications** — Reddit subreddit / Twitch streams / YouTube uploads
+- **Command permissions** — turn any command off, or limit it to channels and roles
+  (allow list + ignore list), per command, per category or for every command at once;
+  per-command cooldowns and delete-after-use. `!command <name|category|all>` or the
+  dashboard's Commands page
 
 ## Dashboard
 
 A web dashboard for configuring everything visually lives in `dashboard/`
-(Next.js 14, App Router). It logs in via Echoed OAuth2, reads/writes the
+(Next.js 16, App Router). It logs in via Echoed OAuth2, reads/writes the
 same `panda` schema, and runs as an independent service. See
 `dashboard/README.md` for setup.
 

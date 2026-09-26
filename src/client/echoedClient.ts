@@ -845,4 +845,61 @@ export class EchoedClient {
   async deleteChannel(serverId: string, channelId: string): Promise<DeleteResponse> {
     return this.request('DELETE', `/v1/bots/${serverId}/channels/${channelId}`);
   }
+
+  // ─── Channel permission overrides ────────────────────────────────────
+  // Needs Manage Channels, and the bot can only allow/deny permissions it
+  // holds in that channel itself (unless it is an administrator). Names are
+  // the app's override names: view_channels, send_messages, add_reactions, …
+  // A role target is a role id or 'everyone'.
+
+  async getChannelOverrides(serverId: string, channelId: string): Promise<ChannelOverride[]> {
+    const res = await this.request<{ permissionOverrides?: ChannelOverride[] }>(
+      'GET',
+      `/v1/bots/${serverId}/channels/${channelId}/permissions`,
+    );
+    return res.permissionOverrides ?? [];
+  }
+
+  // Replaces one target's override; setting nothing removes it. Permissions as
+  // names, as bit masks, or both (OR'd server-side). Use the bits to write an
+  // override back after changing one permission — a few storable permissions
+  // have no name, and a names-only round trip would drop them. Setting a fixed
+  // value is idempotent, so a retry is safe.
+  async setChannelOverride(
+    serverId: string,
+    channelId: string,
+    target: { type: 'role' | 'user'; id: string },
+    perms: { allow?: string[]; deny?: string[]; allowBits?: number; denyBits?: number },
+  ): Promise<ChannelOverride[]> {
+    const res = await this.request<{ permissionOverrides?: ChannelOverride[] }>(
+      'PUT',
+      `/v1/bots/${serverId}/channels/${channelId}/permissions/${target.type}/${encodeURIComponent(target.id)}`,
+      perms,
+      { idempotent: true },
+    );
+    return res.permissionOverrides ?? [];
+  }
+
+  async deleteChannelOverride(
+    serverId: string,
+    channelId: string,
+    target: { type: 'role' | 'user'; id: string },
+  ): Promise<ChannelOverride[]> {
+    const res = await this.request<{ permissionOverrides?: ChannelOverride[] }>(
+      'DELETE',
+      `/v1/bots/${serverId}/channels/${channelId}/permissions/${target.type}/${encodeURIComponent(target.id)}`,
+    );
+    return res.permissionOverrides ?? [];
+  }
+}
+
+export interface ChannelOverride {
+  targetType: 'role' | 'user';
+  // '@everyone' for the everyone role.
+  targetId: string;
+  allow: string[];
+  deny: string[];
+  // The exact masks (up to bit 40 — combine them with BigInt, not `|`/`&`).
+  allowBits: number;
+  denyBits: number;
 }

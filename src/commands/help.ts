@@ -31,9 +31,9 @@ const CATEGORIES: readonly Category[] = [
   {
     name: 'moderation',
     emoji: '⚒',
-    blurb: 'Kick, ban, timeout, warn, purge',
+    blurb: 'Kick, ban, timeout, warn, purge, lock',
     commands: [
-      'kick', 'ban', 'unban', 'timeout', 'untimeout', 'purge',
+      'kick', 'ban', 'unban', 'timeout', 'untimeout', 'purge', 'lock', 'unlock',
       'warn', 'warnings', 'clearwarnings', 'setmodlog',
       'nick', 'resetnick',
     ],
@@ -108,10 +108,22 @@ const CATEGORIES: readonly Category[] = [
   {
     name: 'meta',
     emoji: '🐼',
-    blurb: 'Help, health, permission check',
-    commands: ['ping', 'help', 'checkperms'],
+    blurb: 'Help, health, permission check, where commands may be used',
+    commands: ['ping', 'help', 'checkperms', 'command'],
   },
 ];
+
+// The categories double as command-permission scopes ('category:music'
+// restricts every music command at once), so the same map answers both.
+export const CATEGORY_NAMES: readonly string[] = CATEGORIES.map((c) => c.name);
+
+export function categoryOf(command: string): string | null {
+  return CATEGORIES.find((c) => c.commands.includes(command))?.name ?? null;
+}
+
+export function commandsInCategory(category: string): readonly string[] {
+  return findCategory(category)?.commands ?? [];
+}
 
 function findRegistered(name: string) {
   const lower = name.toLowerCase();

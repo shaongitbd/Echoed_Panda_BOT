@@ -124,6 +124,31 @@ async function ensureChannel(
   }
 }
 
+// Members can read the channel but not post; the bot keeps an explicit allow
+// so denying @everyone can't silence it. Best-effort: a failure is reported
+// in the setup card, never thrown.
+async function makeReadOnly(
+  api: EchoedClient,
+  serverId: string,
+  channelId: string,
+  botUserId: string,
+): Promise<boolean> {
+  try {
+    await api.setChannelOverride(serverId, channelId, { type: 'user', id: botUserId }, {
+      allow: ['send_messages'],
+      deny: [],
+    });
+    await api.setChannelOverride(serverId, channelId, { type: 'role', id: 'everyone' }, {
+      allow: [],
+      deny: ['send_messages'],
+    });
+    return true;
+  } catch (err) {
+    log.warn({ err, serverId, channelId }, 'Auto-setup could not make the mod-log read-only');
+    return false;
+  }
+}
+
 export interface AutoSetupOptions {
   // override: reset every feature to defaults (replace existing level rewards,
   // re-enable + reconfigure each feature). Non-override skips anything already
@@ -213,7 +238,15 @@ export async function runEngagementSetup(
     const ch = await ensureChannel(api, serverId, channels, MODLOG_HINTS, 'mod-log', '🛡️ Moderation + auto-mod actions.');
     if (ch) {
       modlogId = ch.id;
-      lines.push(`✅ **Mod-log** — actions log to <#${ch.id}>${ch.created ? ' *(created)*' : ''} — _lock @everyone's send in channel settings (I can't set per-role channel overrides)_`);
+      // A channel we just created is made read-only for @everyone; one that
+      // already existed keeps whatever the admins set on it.
+      const readOnly = ch.created ? await makeReadOnly(api, serverId, ch.id, actorId) : false;
+      const note = !ch.created
+        ? ''
+        : readOnly
+          ? ' — read-only for members'
+          : " — _couldn't make it read-only; deny @everyone's Send Messages in channel settings_";
+      lines.push(`✅ **Mod-log** — actions log to <#${ch.id}>${ch.created ? ' *(created)*' : ''}${note}`);
     } else {
       lines.push('⚠️ **Mod-log** — needs a channel; I lack **Manage Channels** to make one.');
     }

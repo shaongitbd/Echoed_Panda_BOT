@@ -78,6 +78,16 @@ import { handleStarboard } from './starboard.js';
 import { handleDaily } from './daily.js';
 import { handleCounting } from './counting.js';
 import { handleSetup } from './setup.js';
+import { handleCommandSettings } from './commandSettings.js';
+import { handleLock, handleUnlock } from './lock.js';
+import { categoryOf } from './help.js';
+import { checkCommandAccess } from './access.js';
+import {
+  effectiveCooldownMs,
+  shouldDeleteInvocation,
+  MAX_COMMAND_COOLDOWN_SECONDS,
+  type CommandRule,
+} from './settings.js';
 
 export interface Services {
   api: EchoedClient;
@@ -194,6 +204,18 @@ export const registry: readonly Registered[] = [
     aliases: ['clear', 'clean'],
     handler: handlePurge,
     help: 'bulk delete messages — `purge <1-100>`',
+  },
+  {
+    name: 'lock',
+    aliases: ['lockdown'],
+    handler: handleLock,
+    help: 'stop @everyone sending in a channel — `lock [#channel] [reason]` (Manage Channels)',
+  },
+  {
+    name: 'unlock',
+    aliases: [],
+    handler: handleUnlock,
+    help: 'let @everyone send again — `unlock [#channel]` (Manage Channels)',
   },
   {
     name: 'warn',
@@ -539,7 +561,17 @@ export const registry: readonly Registered[] = [
     handler: handleHelp,
     help: 'show this list',
   },
+  {
+    name: 'command',
+    aliases: ['cmdperms', 'commandsettings'],
+    handler: handleCommandSettings,
+    help: 'where and by whom commands may be used — `command <name|category|all>` to see, `… enable|disable|channel|role|cooldown|delete|reset` (Manage Server)',
+  },
 ];
+
+// The permission command is never subject to command rules — it is how an
+// admin undoes a rule that locked something out.
+const UNRESTRICTABLE = new Set(['command']);
 
 const cooldowns = new Map<string, number>();
 
@@ -551,9 +583,11 @@ function cooldownKey(channelId: string, senderId: string, command: string): stri
   return `${channelId}:${senderId}:${command}`;
 }
 
-function isOnCooldown(key: string): boolean {
+// A command's own cooldown setting overrides the default; 0 turns it off.
+function isOnCooldown(key: string, windowMs: number = config.perChannelCooldownMs): boolean {
+  if (windowMs <= 0) return false;
   const last = cooldowns.get(key) ?? 0;
-  return Date.now() - last < config.perChannelCooldownMs;
+  return Date.now() - last < windowMs;
 }
 
 function markCooldown(key: string): void {
@@ -566,7 +600,10 @@ let cooldownSweeper: NodeJS.Timeout | null = null;
 function startCooldownSweeper(): void {
   if (cooldownSweeper) return;
   cooldownSweeper = setInterval(() => {
-    const cutoff = Date.now() - Math.max(config.perChannelCooldownMs * 10, 60_000);
+    // Kept as long as the longest cooldown a command can be given, or a
+    // sweep would end a long cooldown early.
+    const cutoff =
+      Date.now() - Math.max(config.perChannelCooldownMs * 10, 60_000, MAX_COMMAND_COOLDOWN_SECONDS * 1000);
     for (const [k, ts] of cooldowns) {
       if (ts < cutoff) cooldowns.delete(k);
     }
@@ -631,8 +668,18 @@ export async function dispatch(
     const custom = await getCustomCommand(msg.serverId, customName);
     if (!custom) return;
 
+    // Custom commands answer to the all-commands rule and their own.
+    const customAccess = await checkCommandAccess(
+      svc.api,
+      svc.perms,
+      { ...msg, prefix },
+      customName,
+      null,
+    );
+    if (!customAccess.allowed) return;
+
     const customKey = cooldownKey(msg.channelId, msg.senderId, customName);
-    if (isOnCooldown(customKey)) {
+    if (isOnCooldown(customKey, effectiveCooldownMs(customAccess.applicable, config.perChannelCooldownMs))) {
       log.debug({ channelId: msg.channelId, command: customName }, 'Cooldown — skipping');
       return;
     }
@@ -660,15 +707,34 @@ export async function dispatch(
     } catch (err) {
       log.warn({ err, customName }, 'Custom-command send failed');
     }
+    deleteInvocationIfSet(svc, msg, customAccess.applicable);
     return;
   }
 
+  let applicable: CommandRule[] = [];
+  if (!UNRESTRICTABLE.has(command.name)) {
+    const access = await checkCommandAccess(
+      svc.api,
+      svc.perms,
+      { ...msg, prefix },
+      command.name,
+      categoryOf(command.name),
+    );
+    if (!access.allowed) return;
+    applicable = access.applicable;
+  }
+
   // Help and status commands are how someone works out why the bot seems
-  // unresponsive — never make those the thing that gets throttled.
-  const EXEMPT = new Set(['help', 'ping', 'setup']);
-  if (!EXEMPT.has(command.name)) {
+  // unresponsive — never make those the thing that gets throttled by the
+  // default. An admin can still give them a cooldown of their own.
+  const EXEMPT = new Set(['help', 'ping', 'setup', 'command']);
+  const cooldownMs = effectiveCooldownMs(
+    applicable,
+    EXEMPT.has(command.name) ? 0 : config.perChannelCooldownMs,
+  );
+  if (cooldownMs > 0) {
     const key = cooldownKey(msg.channelId, msg.senderId, command.name);
-    if (isOnCooldown(key)) {
+    if (isOnCooldown(key, cooldownMs)) {
       log.debug({ channelId: msg.channelId, command: command.name }, 'Cooldown — skipping');
       return;
     }
@@ -706,4 +772,14 @@ export async function dispatch(
       // Already in error path — don't cascade.
     }
   }
+  deleteInvocationIfSet(svc, msg, applicable);
+}
+
+// "Delete the command after use" keeps channels readable. Needs the bot to
+// hold Manage Messages; without it the delete fails quietly.
+function deleteInvocationIfSet(svc: Services, msg: DispatchInput, applicable: CommandRule[]): void {
+  if (!shouldDeleteInvocation(applicable)) return;
+  svc.api.deleteMessage(msg.serverId, msg.messageId).catch((err) => {
+    log.debug({ err, messageId: msg.messageId }, 'Delete-after-use failed');
+  });
 }

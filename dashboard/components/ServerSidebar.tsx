@@ -18,6 +18,7 @@ interface SidebarSection {
 const SECTIONS: SidebarSection[] = [
   { href: '', label: 'Overview', icon: '◆' },
   { href: '/general', label: 'General', icon: '⚙' },
+  { href: '/commands', label: 'Commands', icon: '⌘' },
   { href: '/levels', label: 'Levels', icon: '✦' },
   { href: '/welcome', label: 'Welcome', icon: '✿' },
   { href: '/moderation', label: 'Moderation', icon: '⚒' },
@@ -41,11 +42,13 @@ export function ServerSidebar({ server }: { server: SidebarServer }): JSX.Elemen
   const base = `/dashboard/${server.id}`;
   const initial = server.name.trim().charAt(0).toUpperCase() || '?';
 
-  // We mark a section "active" when the URL exactly matches its href —
-  // not "starts with", because Overview's `''` href would always win.
+  // A section is "active" on its own URL and on pages under it (Commands →
+  // /commands/edit). Overview's `''` href only matches exactly, or it would
+  // win everywhere.
   const isActive = (href: string): boolean => {
     const target = `${base}${href}`;
-    return pathname === target || (href === '' && pathname === `${base}/`);
+    if (href === '') return pathname === target || pathname === `${base}/`;
+    return pathname === target || pathname.startsWith(`${target}/`);
   };
 
   return (
