@@ -39,7 +39,7 @@ export const COMMAND_CATALOG: CatalogCategory[] = [
   {
     name: 'moderation',
     label: 'Moderation',
-    blurb: 'Kick, ban, timeout, warn, purge, lock',
+    blurb: 'Kick, ban, timeout, warn, purge, lock, server log',
     commands: [
       c('kick', 'Kick a member'),
       c('ban', 'Ban a member'),
@@ -53,6 +53,7 @@ export const COMMAND_CATALOG: CatalogCategory[] = [
       c('warnings', 'List warnings'),
       c('clearwarnings', "Clear a member's warnings"),
       c('setmodlog', 'Set the mod-log channel'),
+      c('log', 'Set up the server log'),
       c('nick', "Change a member's nickname"),
       c('resetnick', "Clear a member's nickname"),
     ],

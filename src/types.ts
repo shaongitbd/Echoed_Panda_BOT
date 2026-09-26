@@ -17,7 +17,68 @@ export interface MessageCreatedData extends Sequenced {
   content: string;
   messageType: string;
   createdAt: string;
-  author?: { id: string; name: string; avatarUrl?: string | null };
+  author?: { id: string; name: string; avatarUrl?: string | null; isBot?: boolean };
+}
+
+// MESSAGE_UPDATE. `previousContent` is the text before this edit — present
+// only when the text changed, and only from backends that send it.
+export interface MessageUpdatedData extends Sequenced {
+  id: string;
+  channelId: string;
+  serverId?: string;
+  senderId: string;
+  content: string;
+  previousContent?: string;
+  isDirect?: boolean;
+  threadPostId?: string;
+}
+
+// MESSAGE_DELETE. Carries the deleted text and who deleted it ('automod'
+// for the platform's own filter).
+export interface MessageDeletedData extends Sequenced {
+  id: string;
+  channelId: string;
+  serverId?: string;
+  senderId: string;
+  content?: string;
+  deletedBy?: string;
+  attachmentIds?: unknown[] | null;
+  isDirect?: boolean;
+  threadPostId?: string;
+}
+
+// MESSAGE_DELETE_BULK — ids only.
+export interface MessagesBulkDeletedData extends Sequenced {
+  channelId: string;
+  serverId: string;
+  messageIds: string[];
+  deletedBy?: string;
+}
+
+// SERVER_MEMBER_KICK / SERVER_MEMBER_BAN. `reason` is either the
+// moderator's text (bot API) or a fixed sentence written for the removed
+// member ("You have been kicked from this server"), which says nothing.
+export interface MemberRemovedData extends Sequenced {
+  serverId: string;
+  userId: string;
+  kickedBy?: string;
+  bannedBy?: string;
+  reason?: string;
+}
+
+// server:member_departed — a member left on their own. Sent to bots only.
+export interface MemberDepartedData extends Sequenced {
+  serverId: string;
+  userId: string;
+  userName?: string;
+}
+
+// SERVER_MEMBER_NICKNAME_UPDATE. An empty nickname means it was cleared.
+export interface NicknameUpdatedData extends Sequenced {
+  serverId: string;
+  userId: string;
+  nickname?: string;
+  updatedBy?: string;
 }
 
 // Payload of SERVER_MEMBER_ADD. Echoed only ships IDs + the post-join

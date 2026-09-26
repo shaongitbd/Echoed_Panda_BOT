@@ -80,6 +80,7 @@ import { handleCounting } from './counting.js';
 import { handleSetup } from './setup.js';
 import { handleCommandSettings } from './commandSettings.js';
 import { handleLock, handleUnlock } from './lock.js';
+import { handleLog } from './logAdmin.js';
 import { categoryOf } from './help.js';
 import { checkCommandAccess } from './access.js';
 import {
@@ -240,6 +241,12 @@ export const registry: readonly Registered[] = [
     aliases: ['modlogchannel'],
     handler: handleSetModlog,
     help: 'set mod-log channel — `setmodlog <channel|here|none>`',
+  },
+  {
+    name: 'log',
+    aliases: ['logs', 'logging', 'serverlog'],
+    handler: handleLog,
+    help: 'server log: edits, deletes, joins, leaves, kicks, bans, nicknames — `log messages|members <#channel|off>`, `log event <name> on|off`, `log ignore #channel` (Manage Server)',
   },
   {
     name: 'nick',

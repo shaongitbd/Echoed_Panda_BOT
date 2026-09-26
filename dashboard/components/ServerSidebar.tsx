@@ -22,6 +22,7 @@ const SECTIONS: SidebarSection[] = [
   { href: '/levels', label: 'Levels', icon: '✦' },
   { href: '/welcome', label: 'Welcome', icon: '✿' },
   { href: '/moderation', label: 'Moderation', icon: '⚒' },
+  { href: '/logging', label: 'Server log', icon: '☰' },
   { href: '/automod', label: 'Auto-mod', icon: '⚡' },
   { href: '/reactionroles', label: 'Reaction roles', icon: '✺' },
   { href: '/customcommands', label: 'Custom commands', icon: '✎' },

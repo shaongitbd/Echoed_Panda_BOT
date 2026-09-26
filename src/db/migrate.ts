@@ -924,6 +924,27 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
       )
     `,
   },
+  {
+    // Server logs (Carl-bot / Dyno style): message edits and deletes go to
+    // message_channel, joins / leaves / kicks / bans / nicknames to
+    // member_channel. Either may be null (that half is off). Events are
+    // stored as the ones switched OFF, so every event is on by default and
+    // one added later starts on without a backfill. ignored_channel_ids
+    // silences message events from those channels; ignore_bots does the same
+    // for messages written by bots.
+    name: 'log_config table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.log_config (
+        server_id            TEXT PRIMARY KEY,
+        message_channel      TEXT,
+        member_channel       TEXT,
+        disabled_events      TEXT[] NOT NULL DEFAULT '{}',
+        ignored_channel_ids  TEXT[] NOT NULL DEFAULT '{}',
+        ignore_bots          BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `,
+  },
 ];
 
 // Arbitrary but fixed: every instance must pick the same number for the

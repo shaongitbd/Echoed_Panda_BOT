@@ -23,6 +23,16 @@ import { processCounting } from './counting/handler.js';
 import { processStarboardReaction } from './starboard/handler.js';
 import { promises as fs } from 'node:fs';
 import { startHeartbeat, stopHeartbeat } from './health.js';
+import { rememberMessage } from './logging/recent.js';
+import {
+  logBulkDelete,
+  logMemberJoin,
+  logMemberLeave,
+  logMemberRemoved,
+  logMessageDelete,
+  logMessageEdit,
+  logNicknameChange,
+} from './logging/logger.js';
 
 // One-time boot-time check that the music feature is configured correctly.
 // Logs at INFO when good, WARN when something's off — never throws,
@@ -134,6 +144,11 @@ async function main(): Promise<void> {
     } catch (err) {
       log.error({ err, serverId: data.serverId, userId: data.userId }, 'Anti-raid check failed');
     }
+    // Logged either way: a join that anti-raid bounced is exactly the one a
+    // moderator wants to see (the kick itself follows as its own entry).
+    void logMemberJoin(api, data).catch((err) =>
+      log.warn({ err, serverId: data.serverId }, 'Join log failed'),
+    );
     if (kicked) return;
     try {
       await handleMemberJoined(api, data);
@@ -204,7 +219,33 @@ async function main(): Promise<void> {
     }
   });
 
+  // Server log. Each handler reads the server's log config first, so a server
+  // without logging costs one cached lookup per event.
+  socket.onLogEvent(async (event) => {
+    // Our own removal: we can no longer post in that server.
+    if ('userId' in event.data && event.data.userId === botUserId) return;
+    switch (event.kind) {
+      case 'message_updated':
+        return logMessageEdit(api, botUserId, event.data);
+      case 'message_deleted':
+        return logMessageDelete(api, botUserId, event.data);
+      case 'messages_bulk_deleted':
+        return logBulkDelete(api, botUserId, event.data);
+      case 'member_kicked':
+        return logMemberRemoved(api, 'kick', event.data);
+      case 'member_banned':
+        return logMemberRemoved(api, 'ban', event.data);
+      case 'member_departed':
+        return logMemberLeave(api, event.data);
+      case 'nickname_updated':
+        return logNicknameChange(api, event.data);
+    }
+  });
+
   socket.onMessage(async (msg) => {
+    // Before any filtering: the server log needs the author and text of
+    // whatever might later be edited or deleted, bots' messages included.
+    rememberMessage(msg);
     if (!msg.content || msg.messageType !== 'user') return;
     if (!msg.serverId || !msg.channelId) return;
 

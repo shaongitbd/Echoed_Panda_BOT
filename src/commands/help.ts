@@ -31,10 +31,10 @@ const CATEGORIES: readonly Category[] = [
   {
     name: 'moderation',
     emoji: '⚒',
-    blurb: 'Kick, ban, timeout, warn, purge, lock',
+    blurb: 'Kick, ban, timeout, warn, purge, lock, server log',
     commands: [
       'kick', 'ban', 'unban', 'timeout', 'untimeout', 'purge', 'lock', 'unlock',
-      'warn', 'warnings', 'clearwarnings', 'setmodlog',
+      'warn', 'warnings', 'clearwarnings', 'setmodlog', 'log',
       'nick', 'resetnick',
     ],
   },

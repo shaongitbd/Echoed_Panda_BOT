@@ -4,9 +4,41 @@ import { log } from '../log.js';
 import type {
   MessageCreatedData,
   MemberJoinedData,
+  MemberDepartedData,
+  MemberRemovedData,
+  MessageDeletedData,
+  MessagesBulkDeletedData,
+  MessageUpdatedData,
+  NicknameUpdatedData,
   ReactionEventData,
   Sequenced,
 } from '../types.js';
+
+// Everything the server log listens to. One handler, one switch: these are
+// only ever consumed together, by src/logging.
+export type LogEventPayload =
+  | { kind: 'message_updated'; data: MessageUpdatedData }
+  | { kind: 'message_deleted'; data: MessageDeletedData }
+  | { kind: 'messages_bulk_deleted'; data: MessagesBulkDeletedData }
+  | { kind: 'member_kicked'; data: MemberRemovedData }
+  | { kind: 'member_banned'; data: MemberRemovedData }
+  | { kind: 'member_departed'; data: MemberDepartedData }
+  | { kind: 'nickname_updated'; data: NicknameUpdatedData };
+
+type LogEventHandler = (event: LogEventPayload) => void | Promise<void>;
+
+// Socket event name → log kind. `server:member_departed` has no socket-side
+// rename and arrives under the backend's own name; it is addressed to bots
+// only (see the Go PublishMemberDeparted).
+const LOG_EVENT_NAMES = {
+  MESSAGE_UPDATE: 'message_updated',
+  MESSAGE_DELETE: 'message_deleted',
+  MESSAGE_DELETE_BULK: 'messages_bulk_deleted',
+  SERVER_MEMBER_KICK: 'member_kicked',
+  SERVER_MEMBER_BAN: 'member_banned',
+  'server:member_departed': 'member_departed',
+  SERVER_MEMBER_NICKNAME_UPDATE: 'nickname_updated',
+} as const satisfies Record<string, LogEventPayload['kind']>;
 
 type MessageHandler = (data: MessageCreatedData) => void | Promise<void>;
 type MemberJoinedHandler = (data: MemberJoinedData) => void | Promise<void>;
@@ -67,6 +99,7 @@ export class EchoedSocket {
   private reactionAddedHandler: ReactionHandler | null = null;
   private reactionRemovedHandler: ReactionHandler | null = null;
   private permissionInvalidatedHandler: PermissionInvalidatedHandler | null = null;
+  private logEventHandler: LogEventHandler | null = null;
   private resumedHandler: ResumedHandler | null = null;
   private fatalHandler: FatalHandler | null = null;
   private botUserId: string | null = null;
@@ -101,6 +134,12 @@ export class EchoedSocket {
 
   onPermissionInvalidated(handler: PermissionInvalidatedHandler): void {
     this.permissionInvalidatedHandler = handler;
+  }
+
+  // Edits, deletes, kicks, bans, leaves and nickname changes — the server
+  // log's inputs.
+  onLogEvent(handler: LogEventHandler): void {
+    this.logEventHandler = handler;
   }
 
   // Fired after a reconnect finishes replaying. Reaction events are not
@@ -297,6 +336,18 @@ export class EchoedSocket {
         log.error({ err }, 'Permission-invalidated handler threw');
       });
     });
+
+    for (const [eventName, kind] of Object.entries(LOG_EVENT_NAMES)) {
+      socket.on(eventName, (data: Sequenced & { serverId?: string }) => {
+        if (!data || typeof data !== 'object') return;
+        this.trackSeq(data);
+        if (!this.logEventHandler) return;
+        const event = { kind, data } as LogEventPayload;
+        Promise.resolve(this.logEventHandler(event)).catch((err) => {
+          log.error({ err, kind }, 'Log-event handler threw');
+        });
+      });
+    }
 
     socket.on('disconnect', (reason) => {
       log.warn({ reason, lastSeq: this.lastSeq }, 'Socket disconnected');
