@@ -7,7 +7,30 @@ import { provisionLevelRoles, type ProvisionResult } from '../levels/provision.j
 import { runEngagementSetup } from '../engagement/autoSetup.js';
 import { log } from '../log.js';
 
-const DASHBOARD_URL = 'https://memebot.echoed.gg';
+const DASHBOARD_URL = 'https://panda.echoed.gg';
+
+// DMed to the server owner on the first install. The dashboard lets only a
+// server's OWNER manage it (it checks the servers you own), so the owner is
+// the one person who needs to know how to get in — and the in-channel
+// welcome scrolls away in an active server.
+function buildOwnerDm(serverName: string): string {
+  return [
+    `👋 Thanks for adding **Panda** to **${serverName}**!`,
+    ``,
+    `**You manage me from the dashboard:** ${DASHBOARD_URL}`,
+    `1. Open ${DASHBOARD_URL} and click **Login with Echoed**.`,
+    `2. Pick **${serverName}** in the sidebar. As the server owner, you're the one who can open it.`,
+    `3. Turn on and tune what you want: welcome messages, auto-mod, levels & role rewards, reaction roles, music, social alerts and more.`,
+    ``,
+    `**Right in your server:**`,
+    `• \`${config.defaultPrefix}help\`: every command`,
+    `• \`${config.defaultPrefix}play <song or link>\`: music in your voice channel`,
+    `• \`${config.defaultPrefix}setup\`: auto-configures daily questions, a starboard, counting and birthdays`,
+    `• \`${config.defaultPrefix}checkperms\`: what I can and can't do with the permissions I have`,
+    ``,
+    `I've also posted a welcome and a permission check in your server.`,
+  ].join('\n');
+}
 
 // Posted in-channel when the bot can't create the level roles for lack of
 // permission. Gives the two concrete fixes an admin can take.
@@ -257,13 +280,18 @@ export async function handleBotJoinedServer(
   const report = await buildPermissionReport(perms, botUserId, serverId);
 
   let content: string;
+  // Outside the branch: the owner DM below needs them too.
+  let serverName = 'this server';
+  let ownerId: string | null = null;
   if (isFirstTime) {
-    let serverName = 'this server';
     let ownerMention: string | null = null;
     try {
       const info = await api.getServerInfo(serverId);
       if (info.name) serverName = info.name;
-      if (info.ownerId) ownerMention = `<@${info.ownerId}>`;
+      if (info.ownerId) {
+        ownerId = info.ownerId;
+        ownerMention = `<@${info.ownerId}>`;
+      }
     } catch (err) {
       log.warn({ err, serverId }, 'getServerInfo failed during bot welcome — using fallbacks');
     }
@@ -281,6 +309,23 @@ export async function handleBotJoinedServer(
     content += `\n\n${report}`;
   } else {
     content = report;
+  }
+
+  // First install: tell the owner, privately, how to manage Panda. Before the
+  // channel post, which can bail out (no text channel, list failed). Only
+  // once per server (isFirstTime), so a remove + re-invite doesn't DM again.
+  // The DM endpoint takes a username, so resolve the owner's profile first;
+  // DMs closed or a failed lookup just means the channel welcome covers it.
+  if (isFirstTime && ownerId) {
+    try {
+      const profile = await api.getMemberProfile(serverId, ownerId);
+      if (profile?.username) {
+        await api.sendDM(profile.username, buildOwnerDm(serverName));
+        log.info({ serverId, ownerId }, 'Owner welcome DM sent');
+      }
+    } catch (err) {
+      log.warn({ err, serverId, ownerId }, 'Owner welcome DM failed');
+    }
   }
 
   // Lowest-position text channel the bot can actually post in. Checking SEND

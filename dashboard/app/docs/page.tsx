@@ -276,7 +276,7 @@ function QuickStart(): JSX.Element {
         <li>In Echoed, open the server you want Panda in. Click the server name at the top of the channel list, then <strong>Server Settings</strong>.</li>
         <li>Click the <strong>Bots</strong> tab. You'll see this tab only if you have <strong>Manage Server</strong> permission — if you don't, ask your server owner to add Panda for you.</li>
         <li>Find <strong>Panda</strong> in the list of available bots and click <strong>Add</strong>. Echoed shows you what permissions Panda is requesting — review them and confirm. Panda appears in your member list immediately.</li>
-        <li>Come back to this site (<Link href="/" className="font-bold text-text-primary underline underline-offset-2 hover:text-accent">memebot.echoed.gg</Link>) and click <strong>Login with Echoed</strong> in the top right.</li>
+        <li>Come back to this site (<Link href="/" className="font-bold text-text-primary underline underline-offset-2 hover:text-accent">panda.echoed.gg</Link>) and click <strong>Login with Echoed</strong> in the top right.</li>
         <li>Pick your server from the sidebar. The first time you land, Panda's already running with sensible defaults — type <code className="font-mono text-[13px] font-bold text-accent">!ping</code> in any text channel to confirm it's responding.</li>
       </Steps>
       <P>
@@ -304,7 +304,7 @@ function Inviting(): JSX.Element {
         <li>Browse the available bots, find <strong>Panda</strong>, and click <strong>Add</strong>.</li>
         <li>Echoed shows you what permissions Panda needs. Read them — you can untick anything you don't want, but some features will stop working without their permissions (e.g. untick <strong>Manage Roles</strong> and reaction roles + level rewards stop working).</li>
         <li>Confirm. Panda joins your server within a second or two and shows up in the member list.</li>
-        <li>To configure Panda, come to <Link href="/" className="font-bold text-text-primary underline underline-offset-2 hover:text-accent">memebot.echoed.gg</Link> and click <strong>Login with Echoed</strong>. Your server appears in the dashboard sidebar.</li>
+        <li>To configure Panda, come to <Link href="/" className="font-bold text-text-primary underline underline-offset-2 hover:text-accent">panda.echoed.gg</Link> and click <strong>Login with Echoed</strong>. Your server appears in the dashboard sidebar.</li>
       </Steps>
       <HeadsUp>
         Don't have Manage Server permission? You can still configure
