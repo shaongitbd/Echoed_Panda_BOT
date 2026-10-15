@@ -98,7 +98,9 @@ export function ServerSidebar({ server, status }: { server: SidebarServer; statu
   return (
     <>
       {/* Desktop: a fixed column beside the page. */}
-      <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-64 shrink-0 overflow-y-auto px-3 py-5 md:block">
+      {/* Scrolls when the list is taller than the window, without a track
+          drawn down its edge (it read as a divider). */}
+      <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-64 shrink-0 overflow-y-auto px-3 py-5 [scrollbar-width:none] md:block [&::-webkit-scrollbar]:hidden">
         <div className="mb-5">{serverCard}</div>
         {nav}
       </aside>

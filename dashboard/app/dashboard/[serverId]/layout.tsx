@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { DashboardTopBar } from '@/components/DashboardTopBar';
 import { ServerSidebar } from '@/components/ServerSidebar';
+import { SettingsSearch } from '@/components/SettingsSearch';
 import { getSession } from '@/lib/auth';
 import { fetchUserinfo } from '@/lib/echoed';
 import { getModuleStatus } from '@/lib/queries/moduleStatus';
@@ -34,7 +35,9 @@ export default async function ServerLayout({ children, params }: LayoutProps): P
 
   return (
     <>
-      <DashboardTopBar user={{ name: user.name ?? user.username ?? 'You', avatarUrl: user.avatar_url ?? null }} />
+      <DashboardTopBar user={{ name: user.name ?? user.username ?? 'You', avatarUrl: user.avatar_url ?? null }}>
+        <SettingsSearch serverId={serverId} />
+      </DashboardTopBar>
       <div className="mx-auto flex max-w-[1400px]">
         <ServerSidebar
           server={{ id: server.id, name: server.name, iconUrl: server.iconUrl ?? null }}

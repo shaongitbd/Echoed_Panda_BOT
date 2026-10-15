@@ -33,9 +33,14 @@ interface FormCardProps {
   id?: string;
 }
 
+/** The anchor a card gets from its title ("Mod-log channel" → "mod-log-channel"). */
+export function cardAnchor(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 export function FormCard({ title, description, children, id }: FormCardProps): JSX.Element {
   return (
-    <section id={id} className="scroll-mt-24 rounded-2xl bg-bg-card p-5 sm:p-6">
+    <section id={id ?? cardAnchor(title)} className="scroll-mt-20 rounded-2xl bg-bg-card p-5 sm:p-6">
       <div className="mb-5">
         <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">{title}</h2>
         {description ? <p className="mt-1 text-sm leading-6 text-text-muted">{description}</p> : null}
