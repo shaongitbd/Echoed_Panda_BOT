@@ -202,7 +202,7 @@ function CapabilityStrip(): JSX.Element {
 
 function Feature({ id, flip, text, visual }: { id?: string; flip?: boolean; text: React.ReactNode; visual: React.ReactNode }): JSX.Element {
   return (
-    <section id={id} className={`${wrap} grid scroll-mt-20 items-center gap-10 py-16 md:py-24 lg:grid-cols-2 lg:gap-16`}>
+    <section id={id} className={`${wrap} grid scroll-mt-20 items-center gap-10 py-12 md:py-16 lg:grid-cols-2 lg:gap-16`}>
       <div className={flip ? 'lg:order-2' : ''}>{text}</div>
       <div className={flip ? 'lg:order-1' : ''}>{visual}</div>
     </section>
