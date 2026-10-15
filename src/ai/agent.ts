@@ -608,11 +608,14 @@ function systemPrompt(run: Run, channelName: string): string {
     '',
     'You cannot act yourself. If — and only if — the moderator asks for an action (delete, warn, time out,',
     'kick, ban), call propose_actions; Panda then shows a preview and they confirm. Never say an action was',
-    'done. You may suggest actions in words without proposing them.',
+    'done. You may suggest actions in words without proposing them. Propose exactly what they asked — not',
+    'narrower, not wider: "delete his messages from today" means all of them (use delete_recent). If you',
+    'think a different scope is better, propose what they asked and say so in one line.',
     '',
     'Answer like a sharp colleague in chat: short and specific, with the evidence (counts, channels, a few',
     'words of what they posted). Plain text and simple markdown, no headings, no tables, under 1200',
-    'characters. Refer to people by display name, never <@id>. When you rank people, number them (1., 2., …)',
+    'characters. Refer to people by display name and to messages by what they say and when — never show a',
+    'user id, a message id or <@id>; ids are for your tool calls only. When you rank people, number them (1., 2., …)',
     'so the moderator can say "#1". If you could only read part of the history, say so in a few words. If',
     'nothing matches, say that plainly.',
   ].join('\n');
@@ -699,9 +702,9 @@ export async function runAgent(input: AgentInput): Promise<AgentOutcome> {
     }
   }
 
-  const text = cleanAnswer(answer) || failure || "I couldn't work that out — try asking more specifically.";
+  const text = cleanAnswer(answer, run) || failure || "I couldn't work that out — try asking more specifically.";
   return {
-    answer: failure && answer ? `${cleanAnswer(answer)}\n\n${failure}` : text,
+    answer: failure && answer ? `${cleanAnswer(answer, run)}\n\n${failure}` : text,
     proposal: run.proposal && (run.proposal.requests.length > 0 || run.proposal.refused.length > 0) ? run.proposal : null,
     people: peopleNamed(run, text),
     channelNames: chans,
@@ -729,9 +732,25 @@ function peopleNamed(run: Run, text: string): Map<string, string> {
   return out;
 }
 
-/** The model's answer, safe to post: no pings or mention tokens, length-capped. */
-function cleanAnswer(text: string): string {
-  const flat = escapeMentions(text.trim()).replace(/\n{3,}/g, '\n\n');
+/**
+ * The model's answer, safe to post: internal ids out (a user id becomes the
+ * name, a message id disappears — the prompt asks for this, the code makes
+ * sure), no pings or mention tokens, length-capped.
+ */
+function cleanAnswer(text: string, run: Run): string {
+  let out = text.trim();
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Only ids that actually occur in the text (the run may have seen thousands).
+  const msgIds = [...run.messages.keys()].filter((id) => id.length >= 3 && out.includes(id)).map(esc);
+  const userIds = [...run.users.keys()].filter((id) => id.length >= 3 && out.includes(id));
+  if (msgIds.length > 0 || userIds.length > 0) {
+    const anyId = [...msgIds, ...userIds.map(esc)].join('|');
+    // "(m46, m50, m54)" / "(u-kai)" — a bracket holding nothing but ids goes.
+    out = out.replace(new RegExp(`\\s*\\((?:\\s*(?:${anyId})\\s*[,;/]?\\s*)+\\)`, 'g'), '');
+    for (const id of userIds) out = out.replace(new RegExp(`(?<![\\w-])${esc(id)}(?![\\w-])`, 'g'), run.users.get(id) ?? '');
+    if (msgIds.length > 0) out = out.replace(new RegExp(`(?<![\\w-])(?:${msgIds.join('|')})(?![\\w-])`, 'g'), '');
+  }
+  const flat = escapeMentions(out).replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n');
   return flat.length > MAX_ANSWER ? `${flat.slice(0, MAX_ANSWER - 1)}…` : flat;
 }
 
