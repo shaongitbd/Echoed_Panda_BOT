@@ -1,7 +1,7 @@
 import {
-  Bell, Braces, CalendarClock, ChartColumn, Gavel, Gift, Hand, LayoutDashboard, MessageSquareText,
-  Music, ScrollText, Settings, ShieldCheck, Sparkles, SquareTerminal, Sticker, Tags, TrendingUp,
-  type LucideIcon,
+  Bell, Braces, Cake, CalendarClock, ChartColumn, Gavel, Gift, Hand, Hash, LayoutDashboard,
+  MessageCircleQuestionMark, MessageSquareText, Music, ScrollText, Settings, ShieldCheck, Sparkles,
+  SquareTerminal, Star, Sticker, Tags, TrendingUp, type LucideIcon,
 } from 'lucide-react';
 
 // One icon per dashboard section (lib/sections.ts hrefs) — shared by the
@@ -19,6 +19,10 @@ export const SECTION_ICONS: Record<string, LucideIcon> = {
   '/levels': TrendingUp,
   '/reactionroles': Tags,
   '/giveaways': Gift,
+  '/qotd': MessageCircleQuestionMark,
+  '/birthdays': Cake,
+  '/starboard': Star,
+  '/counting': Hash,
   '/customcommands': Braces,
   '/keywords': MessageSquareText,
   '/autoreact': Sticker,

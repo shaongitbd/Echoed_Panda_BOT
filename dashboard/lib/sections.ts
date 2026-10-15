@@ -37,6 +37,10 @@ export const SECTIONS: SectionDef[] = [
   { href: '/levels', label: 'Levels', group: 'community', blurb: 'XP for chatting, level-up messages and role rewards.', keywords: ['xp', 'rank', 'leaderboard', 'level up', 'rewards', 'experience'] },
   { href: '/reactionroles', label: 'Reaction roles', group: 'community', blurb: 'Members pick their own roles by reacting.', keywords: ['self roles', 'react', 'emoji roles', 'role menu'] },
   { href: '/giveaways', label: 'Giveaways', group: 'community', blurb: 'Run giveaways with winners, requirements and rerolls.', keywords: ['giveaway', 'prize', 'raffle', 'winners', 'reroll'] },
+  { href: '/qotd', label: 'Question of the day', group: 'community', blurb: 'A daily conversation starter, from your questions or Panda’s.', keywords: ['qotd', 'daily question', 'conversation', 'prompt'] },
+  { href: '/birthdays', label: 'Birthdays', group: 'community', blurb: 'Wish members happy birthday, with an optional birthday role.', keywords: ['birthday', 'bday', 'cake'] },
+  { href: '/starboard', label: 'Starboard', group: 'community', blurb: 'Repost messages that get enough reactions to a highlights channel.', keywords: ['stars', 'highlights', 'best of', 'hall of fame'] },
+  { href: '/counting', label: 'Counting', group: 'community', blurb: 'A channel where members count up together.', keywords: ['count', 'counting game', 'numbers'] },
 
   { href: '/customcommands', label: 'Custom commands', group: 'automation', blurb: 'Your own commands that reply with text you write.', keywords: ['custom', 'tags', 'responses', 'shortcuts'] },
   { href: '/keywords', label: 'Keywords', group: 'automation', blurb: 'Reply automatically when someone says a phrase.', keywords: ['auto reply', 'auto response', 'trigger', 'phrase'] },

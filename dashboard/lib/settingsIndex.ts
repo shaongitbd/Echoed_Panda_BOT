@@ -55,6 +55,12 @@ const SETTINGS: [string, string, string[]][] = [
   ['/levels', 'Add a level reward', ['role rewards', 'level roles']],
 
   ['/giveaways', 'Start a giveaway', ['new giveaway', 'prize']],
+  ['/qotd', 'Schedule', ['qotd channel', 'qotd time', 'question time']],
+  ['/qotd', 'Your questions', ['add question', 'question bank']],
+  ['/birthdays', 'Announcements', ['birthday channel', 'birthday time']],
+  ['/birthdays', 'Birthday role and message', ['birthday role', 'birthday message']],
+  ['/starboard', 'Starboard', ['star channel', 'star threshold', 'reactions needed']],
+  ['/counting', 'Counting game', ['counting channel', 'strict counting', 'reset count']],
   ['/customcommands', 'Add a command', ['new command', 'custom command']],
   ['/keywords', 'Add a rule', ['new keyword', 'auto reply']],
   ['/autoreact', 'Add a rule', ['new auto-react', 'react emoji']],
