@@ -51,6 +51,32 @@ export class LiveCard {
       this.stopTicker();
       void this.finaliseLastEdit();
     });
+    // A track that cannot be downloaded or decoded used to vanish without a
+    // word: the player logged it and skipped, and the channel saw the bot sit
+    // in voice in silence. Say so where !play was typed.
+    this.player.on('trackError', ({ track, err }: { track: Track; err: unknown }) => {
+      void this.onTrackError(track, err);
+    });
+  }
+
+  private async onTrackError(track: Track, err: unknown): Promise<void> {
+    try {
+      await this.api.sendMessage({
+        serverId: this.serverId,
+        channelId: this.textChannelId,
+        content: '',
+        embeds: [
+          buildEmbed({
+            title: "Couldn't play this track",
+            description: `**${track.title}**\n${describePlaybackError(err)}\nSkipping to the next one.`,
+            color: COLORS.DANGER,
+            footer: `Requested by ${track.requestedByName}`,
+          }),
+        ],
+      });
+    } catch (sendErr) {
+      log.warn({ err: sendErr }, 'Track error notice failed to send');
+    }
   }
 
   // Update the channel where future cards post. Useful if the user
@@ -176,6 +202,27 @@ export class LiveCard {
       timestamp: null,
     });
   }
+}
+
+// One line saying why a track failed, in words a member (or whoever runs the
+// bot) can act on. yt-dlp's errors arrive as "yt-dlp exited N: <last stderr
+// lines>"; the common ones get named, anything else is quoted briefly.
+function describePlaybackError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/confirm you.?re not a bot|sign in to confirm/i.test(raw)) {
+    return "YouTube is refusing the bot's server (it wants a sign-in). The bot's YouTube cookies need refreshing.";
+  }
+  if (/binary not found/i.test(raw)) {
+    return "yt-dlp isn't installed on the bot's server.";
+  }
+  if (/private video|video unavailable|age.restricted|confirm your age|members.only|not available in your country/i.test(raw)) {
+    return 'The video is private, removed, age-restricted or blocked in this region.';
+  }
+  if (/HTTP Error 403|403: Forbidden/i.test(raw)) {
+    return "YouTube refused the download (403). yt-dlp on the bot's server may be out of date.";
+  }
+  const brief = raw.replace(/\s+/g, ' ').trim().slice(0, 180);
+  return `The download or decode failed: \`${brief || 'unknown error'}\``;
 }
 
 function renderProgressBar(positionSec: number, totalSec: number): string {
