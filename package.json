@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@livekit/rtc-node": "^0.13.27",
+    "@livekit/rtc-node": "0.13.35",
     "dotenv": "^16.4.5",
     "pg": "^8.13.1",
     "pino": "^9.5.0",
@@ -28,5 +28,9 @@
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "@livekit/rtc-ffi-bindings": "0.12.73",
+    "@livekit/rtc-ffi-bindings-linux-x64-gnu": "https://github.com/shaongitbd/rust-sdks/releases/download/echoed-stereo-v0.12.73-1/livekit-rtc-ffi-bindings-linux-x64-gnu-0.12.73.tgz"
   }
 }

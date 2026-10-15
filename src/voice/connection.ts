@@ -76,6 +76,14 @@ export class VoiceConnection {
       dynacast: false,
     });
 
+    // Stereo depends on the engine, not on anything here: stock
+    // @livekit/rtc-ffi-bindings never flags a 2-channel source as stereo
+    // (livekit/rust-sdks#1018), so LiveKit negotiates mono and listeners get
+    // identical L/R through Opus's speech mode. package.json overrides the
+    // Linux engine with a build of v0.12.73 + that fix
+    // (github.com/shaongitbd/rust-sdks, branch echoed/stereo-v0.12.73) —
+    // which is why @livekit/rtc-node is pinned to the matching 0.13.35. Drop
+    // the override and the pin once an upstream release has the fix.
     const source = new AudioSource(SAMPLE_RATE, CHANNELS);
     const track = LocalAudioTrack.createAudioTrack('panda-music', source);
     const opts = new TrackPublishOptions();
