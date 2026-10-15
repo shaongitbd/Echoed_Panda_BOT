@@ -17,7 +17,9 @@ import {
   type AiAction,
 } from '@/lib/queries/aiModeration';
 
-const MODEL_RE = /^[a-z0-9._\-/:]{3,100}$/i;
+// A leading `~` is OpenRouter's "latest" alias (`~deepseek/deepseek-flash-latest`);
+// those are in the model list, so refusing the `~` made them unsavable.
+const MODEL_RE = /^~?[a-z0-9._\-/:]{3,100}$/i;
 const MAX_CONTEXT = 2000;
 
 function back(serverId: string, query: string): never {
@@ -52,7 +54,7 @@ export async function saveAiSettingsAction(serverId: string, formData: FormData)
     if (!MODEL_RE.test(rawModel)) back(serverId, 'error=model');
     const models = await listStructuredModels();
     // An empty list means OpenRouter couldn't be reached — accept the typed id.
-    if (models.length > 0 && !models.some((m) => m.id === rawModel)) back(serverId, 'error=model');
+    if (models.length > 0 && !models.some((m) => m.id === rawModel)) back(serverId, 'error=model-unsupported');
     model = rawModel;
   }
 
