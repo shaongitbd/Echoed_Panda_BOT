@@ -19,4 +19,5 @@ cmds = [
 cmds = ["npm run build"]
 
 [start]
-cmd = "npm start"
+# Refresh yt-dlp on every start (see the Dockerfile's CMD for why).
+cmd = "pip3 install --break-system-packages -q -U yt-dlp || true; npm start"

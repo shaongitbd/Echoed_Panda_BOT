@@ -1,22 +1,18 @@
 import { spawn } from 'node:child_process';
-import { promises as fs } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { Handler } from './index.js';
 import { log } from '../log.js';
 
-// Diagnostic: pulls down a known-good 10 MB sample WAV (music),
-// pipes it through ffmpeg to our 48 kHz s16le stereo target, and
+// Diagnostic: has ffmpeg generate a known-good test chord as our
+// 48 kHz s16le stereo target, and
 // pushes to LiveKit using the publish-wav pattern (1-second frames,
 // await captureFrame, no throttling). Bypasses voice/player.ts
 // entirely so we isolate "is the LiveKit + ffmpeg path correct?"
 // from the YouTube/yt-dlp chain.
 //
-// What you should hear: ~30+ seconds of music. Resampled from the
-// source rate (likely 44.1 kHz) to 48 kHz by ffmpeg.
+// What you should hear: a steady 12-second chord.
 //
 // Diagnostic interpretation:
-//   - Crystal clear music → LiveKit + ffmpeg pipeline is fine. Bug
+//   - A clean chord → LiveKit + ffmpeg pipeline is fine. Bug
 //     is elsewhere (yt-dlp / HLS handling).
 //   - Bit-crushed / breaking → pipeline has a pacing or queue issue
 //     (most likely captureFrame backpressure assumption).
@@ -24,16 +20,23 @@ import { log } from '../log.js';
 //   - Pure noise → endianness or alignment bug.
 //   - Silent → bot didn't join voice / track not published.
 
-const TEST_WAV_URL =
-  'https://file-examples.com/storage/fe1a31b04469f24d3946003/2017/11/file_example_WAV_10MG.wav';
+// The test sound is made by ffmpeg on the spot — a C-major chord for 12 s —
+// instead of downloaded. It used to fetch a sample WAV from a third-party
+// site; that file went away (404), and a diagnostic that depends on someone
+// else's URL fails exactly when you need it. A held chord still shows every
+// fault listed above: crackle, pitch, noise or silence.
+const TEST_SOURCE = [
+  '-f', 'lavfi',
+  '-i', 'aevalsrc=0.2*sin(2*PI*261.63*t)+0.2*sin(2*PI*329.63*t)+0.2*sin(2*PI*392*t):s=48000:d=12',
+];
 
 const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
 
 export const handleTestAudio: Handler = async (ctx, svc) => {
-  // This is a diagnostic, not a member-facing feature: it pulls a fixed
-  // third-party file, bypasses every music scope restriction, and can
-  // interrupt playback. Gate it like the other server-config commands.
+  // This is a diagnostic, not a member-facing feature: it bypasses every
+  // music scope restriction, and can interrupt playback. Gate it like the
+  // other server-config commands.
   if (!(await svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER'))) {
     await svc.api.sendMessage({
       serverId: ctx.serverId,
@@ -92,27 +95,12 @@ export const handleTestAudio: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: `🔊 Fetching test WAV + piping through ffmpeg + pushing using LiveKit's publish-wav pattern. ~30s of music if pipeline is healthy.`,
+    content: `🔊 Playing a 12-second test chord through ffmpeg and into voice (no YouTube involved). You should hear a steady, clean chord.`,
   });
 
-  // Cache the downloaded WAV so repeat tests don't hammer the host.
-  const wavPath = join(tmpdir(), 'panda-test-sample.wav');
-  try {
-    await fs.access(wavPath);
-  } catch {
-    log.info({ url: TEST_WAV_URL }, 'Downloading test WAV');
-    const res = await fetch(TEST_WAV_URL);
-    if (!res.ok) {
-      await replyError(ctx, svc, `Couldn't download test WAV: ${res.status}`);
-      return;
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
-    await fs.writeFile(wavPath, buf);
-  }
-
-  // Convert via ffmpeg to 48 kHz stereo s16le, capture all PCM into
-  // memory. ~1 MB for 5 seconds — fine to buffer.
-  const pcm = await ffmpegToPcm(wavPath);
+  // Generate via ffmpeg as 48 kHz stereo s16le, captured into memory —
+  // ~2.3 MB for 12 seconds, fine to buffer.
+  const pcm = await ffmpegToPcm(TEST_SOURCE);
   if (!pcm) {
     await replyError(ctx, svc, 'ffmpeg conversion failed.');
     return;
@@ -123,7 +111,7 @@ export const handleTestAudio: Handler = async (ctx, svc) => {
       bytes: pcm.length,
       durationSec: pcm.length / (SAMPLE_RATE * CHANNELS * 2),
     },
-    'Test WAV PCM ready',
+    'Test chord PCM ready',
   );
 
   // Push 1-second slices, copying each into a fresh Int16Array.
@@ -149,19 +137,19 @@ export const handleTestAudio: Handler = async (ctx, svc) => {
   await svc.api.sendMessage({
     serverId: ctx.serverId,
     channelId: ctx.channelId,
-    content: '✓ Test WAV done. Did the music sound clean?',
+    content: '✓ Test chord done. Did you hear it, and was it clean?',
   });
 };
 
-// Run the WAV file through ffmpeg with our exact production args.
-function ffmpegToPcm(wavPath: string): Promise<Buffer | null> {
+// Run the test source through ffmpeg with our production output args.
+function ffmpegToPcm(input: string[]): Promise<Buffer | null> {
   return new Promise((resolve) => {
     const ff = spawn(
       'ffmpeg',
       [
         '-hide_banner',
         '-loglevel', 'error',
-        '-i', wavPath,
+        ...input,
         '-vn',
         '-f', 's16le',
         '-acodec', 'pcm_s16le',

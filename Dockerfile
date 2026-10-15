@@ -60,4 +60,9 @@ RUN npm run build
 # like an idle one and nothing ever restarts it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3   CMD node scripts/healthcheck.cjs
 
-CMD ["npm", "start"]
+# yt-dlp is refreshed at EVERY start, not only at build. The pip install
+# above sits in a layer Docker caches, so a rebuild reused the same yt-dlp
+# for as long as the cache lived — months — while YouTube changes every few
+# weeks; on the server that surfaced as "No video formats found!". A failed
+# update (PyPI down) keeps the installed one rather than blocking the bot.
+CMD ["sh", "-c", "pip3 install --break-system-packages --no-cache-dir -q -U yt-dlp yt-dlp-ejs || echo 'yt-dlp update failed; using the installed version'; yt-dlp --version; exec npm start"]

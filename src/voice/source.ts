@@ -290,11 +290,16 @@ async function ytDlpDownload(url: string, infoJsonPath?: string): Promise<string
   let useInfoJson = false;
   if (infoJsonPath) {
     try {
-      await fs.access(infoJsonPath);
-      sourceArgs.push('--load-info-json', infoJsonPath);
-      useInfoJson = true;
+      // The metadata step runs with --ignore-no-formats-error, so its JSON
+      // can hold no formats at all. Replaying that can only fail ("No video
+      // formats found!"); extract afresh from the URL instead.
+      const cached = JSON.parse(await fs.readFile(infoJsonPath, 'utf8')) as { formats?: unknown[] };
+      if (Array.isArray(cached.formats) && cached.formats.length > 0) {
+        sourceArgs.push('--load-info-json', infoJsonPath);
+        useInfoJson = true;
+      }
     } catch {
-      // Cached info-json gone — fall through to URL.
+      // Cached info-json gone or unreadable — fall through to URL.
     }
   }
   if (!useInfoJson) sourceArgs.push(url);
@@ -543,18 +548,16 @@ function openPcmFromFile(filePath: string): { pcm: Readable; close: () => void }
 // region-locked / spam-flagged will fail.
 
 function ytDlpBaseArgs(): string[] {
-  // --extractor-args 'youtube:player-client=…': we still prefer mobile
-  // clients (android / ios) because they tend to surface progressive
-  // m4a/opus formats with smaller download sizes than the HLS
-  // variants from web/tv. This matters less now that we download
-  // before playback (HLS would still complete fine), but it's a free
-  // bandwidth win.
-  return [
-    '--no-playlist',
-    '--no-warnings',
-    '--extractor-args',
-    'youtube:player-client=android,ios,android_vr,tv,default',
-  ];
+  // No --extractor-args player-client list: yt-dlp's own default clients
+  // are re-chosen every release to whatever YouTube currently serves. The
+  // list we forced (android, ios, android_vr, tv) went stale — YouTube now
+  // returns android/ios formats without URLs ("SABR-only") and android_vr
+  // wants a PO token — and on the server that ended in "No video formats
+  // found!" for ordinary videos.
+  //
+  // No --no-warnings either: those warnings are what explain a failure
+  // (missing JS runtime, SABR, PO token), and they were being thrown away.
+  return ['--no-playlist'];
   // NOTE: cookies are NOT added here — they're added per-call via a
   // throwaway temp copy. See runYtDlp for why.
 }
@@ -597,7 +600,14 @@ async function runYtDlp(args: string[]): Promise<string> {
         if (code === 0 && out.trim()) {
           resolve(out);
         } else {
-          const stderrSummary = err.trim().split('\n').slice(-3).join(' | ');
+          // The ERROR lines say what failed; with warnings no longer
+          // suppressed, the last few lines could otherwise be warnings.
+          const lines = err.trim().split('\n');
+          const errors = lines.filter((l) => l.startsWith('ERROR'));
+          const stderrSummary = (errors.length ? errors : lines).slice(-3).join(' | ');
+          if (lines.length > errors.length) {
+            log.warn({ stderr: lines.slice(-12).join('\n') }, 'yt-dlp stderr');
+          }
           reject(new Error(`yt-dlp exited ${code}: ${stderrSummary || 'no output'}`));
         }
       });
