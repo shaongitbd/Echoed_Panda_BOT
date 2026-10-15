@@ -180,10 +180,13 @@ export async function performAction(svc: Services, actor: Actor, req: ActionRequ
 }
 
 // A flag goes to the mod-log channel as a visible message (a `note` case is
-// recorded but, by design, never posted).
+// recorded but, by design, never posted). ONLY the mod-log: unlike regular
+// case entries, a flag never falls back to the welcome channel — that's a
+// public channel, and a flag is an unconfirmed suspicion about a member.
+// No mod-log → the flag is kept as a case (`!modlogs @member`) and not posted.
 async function postFlag(svc: Services, serverId: string, channelId: string, targetId: string, reason: string): Promise<void> {
   const cfg = await getGuildConfig(serverId);
-  const target = cfg.modlogChannel ?? cfg.welcomeChannel;
+  const target = cfg.modlogChannel;
   if (!target) return;
   try {
     await svc.api.sendMessage(

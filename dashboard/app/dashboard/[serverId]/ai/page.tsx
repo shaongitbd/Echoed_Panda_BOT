@@ -1,4 +1,5 @@
 import { getServerChannels } from '@/lib/botApi';
+import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { listStructuredModels } from '@/lib/openrouter';
 import { secretBoxReady } from '@/lib/secretBox';
 import { checksToday, getAiSettings, listAiChannels, type AiAction } from '@/lib/queries/aiModeration';
@@ -51,13 +52,20 @@ function first(v: string | string[] | undefined): string | undefined {
 export default async function AiModerationPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
   const query = await searchParams;
-  const [settings, channels, rules, models, used] = await Promise.all([
+  const [settings, channels, rules, models, used, guild] = await Promise.all([
     getAiSettings(serverId),
     getServerChannels(serverId),
     listAiChannels(serverId),
     listStructuredModels(),
     checksToday(serverId),
+    getGuildConfig(serverId),
   ]);
+  // Where a flag actually goes — named, not "the mod-log". Flags only ever
+  // post to the mod-log channel (never a public fallback).
+  const modlogName = guild.modlogChannel ? channels.find((c) => c.id === guild.modlogChannel)?.name : null;
+  const flagHint = modlogName
+    ? `leave the message alone and post a 🚩 note in #${modlogName} (your mod-log) for a moderator to decide`
+    : 'leave the message alone and post a 🚩 note in your mod-log channel for a moderator — none is set yet (Moderation page), so for now flags are only kept in the member’s case history';
   const ready = secretBoxReady();
   const error = ERRORS[first(query.error) ?? ''];
   const saved = SAVED[first(query.saved) ?? ''];
@@ -215,7 +223,7 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
                         <input type="checkbox" name="actions" value={a} defaultChecked={rule.allowedActions.includes(a)} className="mt-0.5 h-4 w-4 accent-accent" />
                         <span>
                           <span className="font-medium text-text-primary">{ACTION_INFO[a].label}</span>
-                          <span className="text-text-muted"> — {ACTION_INFO[a].hint}</span>
+                          <span className="text-text-muted"> — {a === 'flag' ? flagHint : ACTION_INFO[a].hint}</span>
                         </span>
                       </label>
                     ))}
