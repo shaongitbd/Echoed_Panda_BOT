@@ -8,6 +8,7 @@ import { checkOpenRouterKey, listStructuredModels } from '@/lib/openrouter';
 import { secretBoxReady } from '@/lib/secretBox';
 import {
   AI_ACTIONS,
+  ALL_CHANNELS,
   addAiChannel,
   getAiSettings,
   listAiChannels,
@@ -72,6 +73,13 @@ export async function saveAiSettingsAction(serverId: string, formData: FormData)
     apiKey,
   );
   back(serverId, 'saved=settings');
+}
+
+/** Turn on the every-channel rule (it starts on the safe defaults, like a new channel). */
+export async function addAllChannelsAction(serverId: string): Promise<void> {
+  await requireOwner(serverId);
+  await addAiChannel(serverId, ALL_CHANNELS);
+  back(serverId, 'saved=all');
 }
 
 export async function addAiChannelAction(serverId: string, formData: FormData): Promise<void> {

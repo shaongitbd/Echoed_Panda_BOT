@@ -113,7 +113,8 @@ export async function listAiChannels(serverId: string): Promise<AiChannelView[]>
   }>(
     `SELECT channel_id, enabled, context, history_size, allowed_actions, timeout_max_minutes,
             min_confidence, kickban_min_confidence
-       FROM ai_mod_channels WHERE server_id = $1 ORDER BY updated_at`,
+       FROM ai_mod_channels WHERE server_id = $1
+      ORDER BY (channel_id = '${ALL_CHANNELS}') DESC, updated_at`,
     [serverId],
   );
   return res.rows.map((r) => ({
@@ -128,10 +129,28 @@ export async function listAiChannels(serverId: string): Promise<AiChannelView[]>
   }));
 }
 
+/**
+ * The "every channel" rule's channel id (the bot's src/ai/settings.ts uses
+ * the same). It applies to every text channel without a row of its own; a
+ * channel's own row wins, including one switched off.
+ */
+export const ALL_CHANNELS = '*';
+
 export async function addAiChannel(serverId: string, channelId: string): Promise<void> {
-  // A new channel starts on the safe end: it may flag and delete, nothing more.
+  // A channel added while the every-channel rule exists starts as a copy of
+  // it (so adding a channel to give it its own rules never drops the server's
+  // chosen actions); otherwise on the safe end: flag and delete, nothing more.
   await pool.query(
-    `INSERT INTO ai_mod_channels (server_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    `INSERT INTO ai_mod_channels
+       (server_id, channel_id, context, history_size, allowed_actions,
+        timeout_max_minutes, min_confidence, kickban_min_confidence)
+     SELECT $1::text, $2::text, COALESCE(a.context, ''), COALESCE(a.history_size, 8),
+            COALESCE(a.allowed_actions, ARRAY['flag', 'delete']::TEXT[]), COALESCE(a.timeout_max_minutes, 60),
+            COALESCE(a.min_confidence, 80), COALESCE(a.kickban_min_confidence, 95)
+       FROM (SELECT 1) AS one
+       LEFT JOIN ai_mod_channels a
+         ON a.server_id = $1::text AND a.channel_id = '${ALL_CHANNELS}' AND $2::text <> '${ALL_CHANNELS}'
+     ON CONFLICT DO NOTHING`,
     [serverId, channelId],
   );
 }

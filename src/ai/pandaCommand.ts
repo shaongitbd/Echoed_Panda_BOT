@@ -38,7 +38,8 @@ import {
   getAiChannelRule,
   getAiCredentials,
   getAiSettings,
-  listAiEnabledChannels,
+  getAiChannelScope,
+  ALL_CHANNELS,
   MAX_CONTEXT_CHARS,
   setAiChannelContext,
   setAiChannelEnabled,
@@ -70,7 +71,7 @@ function helpText(prefix: string): string {
     `\`${prefix}panda <anything>\` — ask in plain words: "who spams the most here?", "what happened in #general last night?", "delete this guy's messages from today and time him out". I look things up and answer; for an action I show a preview and wait for your ✅.`,
     `To follow up, just reply to my answer — "time out #1 for a day" — no \`${prefix}panda\` needed.`,
     `\`${prefix}panda context <rules>\` — set this channel's rules for the AI (\`${prefix}panda context\` shows them, \`clear\` removes them).`,
-    `\`${prefix}panda on\` / \`off\` — AI moderation in this channel. \`${prefix}panda status\` — how it's set up.`,
+    `\`${prefix}panda on\` / \`off\` — AI moderation in this channel. \`${prefix}panda on all\` / \`off all\` — in every channel (a channel switched off stays off). \`${prefix}panda status\` — how it's set up.`,
     'The server owner adds the OpenRouter key and model at https://panda.echoed.gg.',
   ].join('\n');
 }
@@ -115,7 +116,7 @@ async function handleContext(ctx: CommandContext, svc: Services): Promise<void> 
     return reply(
       ctx, svc,
       rule?.context
-        ? `**AI rules for this channel:**\n${rule.context}`
+        ? `**AI rules for this channel${rule.inherited ? ' (the every-channel rules)' : ''}:**\n${rule.context}`
         : `No AI rules for this channel yet. Set them with \`${ctx.prefix}panda context <rules>\`.`,
     );
   }
@@ -139,14 +140,18 @@ async function handleContext(ctx: CommandContext, svc: Services): Promise<void> 
 
 async function handleToggle(ctx: CommandContext, svc: Services, on: boolean): Promise<void> {
   if (!(await requireAdmin(ctx, svc))) return;
-  await setAiChannelEnabled(ctx.serverId, ctx.channelId, on);
+  const everywhere = ctx.args[1]?.toLowerCase() === 'all';
+  await setAiChannelEnabled(ctx.serverId, everywhere ? ALL_CHANNELS : ctx.channelId, on);
+  if (everywhere && !on) {
+    return reply(ctx, svc, 'AI moderation is **off** for every channel. Channels switched on one by one stay on.');
+  }
   if (!on) return reply(ctx, svc, 'AI moderation is **off** in this channel.');
   const settings = await getAiSettings(ctx.serverId);
   const ready = settings?.enabled && settings.keyHint && settings.model;
-  return reply(
-    ctx, svc,
-    `AI moderation is **on** in this channel.${ready ? '' : `\nIt won't run until ${setupHint(ctx.prefix, settings, true)}`}`,
-  );
+  const what = everywhere
+    ? `AI moderation is **on** in every channel. Turn a channel off with \`${ctx.prefix}panda off\` there; the every-channel rules are on the dashboard.`
+    : 'AI moderation is **on** in this channel.';
+  return reply(ctx, svc, `${what}${ready ? '' : `\nIt won't run until ${setupHint(ctx.prefix, settings, true)}`}`);
 }
 
 function setupHint(prefix: string, settings: Awaited<ReturnType<typeof getAiSettings>>, channelOn: boolean): string {
@@ -166,7 +171,7 @@ async function handleStatus(ctx: CommandContext, svc: Services): Promise<void> {
   const lines = [
     `**Server:** ${settings?.enabled ? 'on' : 'off'} · model ${settings?.model ? `\`${settings.model}\`` : '—'} · key ${settings?.keyHint ? `…${settings.keyHint}` : '—'}`,
     `**Today:** ${used} / ${settings?.dailyCheckCap ?? 0} AI checks`,
-    `**This channel:** ${rule?.enabled ? 'on' : 'off'}${rule ? ` · reads the last ${rule.historySize} messages · may ${rule.allowedActions.join(', ') || 'do nothing'} · needs ${rule.minConfidence}% (kick/ban ${rule.kickbanMinConfidence}%)` : ''}`,
+    `**This channel:** ${rule?.enabled ? 'on' : 'off'}${rule?.inherited ? ' (every-channel rules)' : ''}${rule ? ` · reads the last ${rule.historySize} messages · may ${rule.allowedActions.join(', ') || 'do nothing'} · needs ${rule.minConfidence}% (kick/ban ${rule.kickbanMinConfidence}%)` : ''}`,
     rule?.context ? `**Rules:** ${rule.context.slice(0, 300)}${rule.context.length > 300 ? '…' : ''}` : '**Rules:** none',
   ];
   return reply(ctx, svc, lines.join('\n'));
@@ -235,8 +240,8 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
   const request = (text ?? argumentText(ctx, 1)).slice(0, MAX_REQUEST_CHARS);
   if (!request) return reply(ctx, svc, helpText(ctx.prefix));
   // The agent reads only AI-moderated channels — nothing to do without one.
-  const aiChannels = await listAiEnabledChannels(ctx.serverId);
-  if (aiChannels.size === 0) {
+  const aiChannels = await getAiChannelScope(ctx.serverId);
+  if (!aiChannels.any) {
     return reply(ctx, svc, `AI moderation isn't on in any channel yet, so I have nothing to look at. An admin can switch it on here with \`${ctx.prefix}panda on\`, or per channel on the dashboard.`);
   }
   if (!(await claimDailyCheck(ctx.serverId, settings.dailyCheckCap))) {

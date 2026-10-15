@@ -39,6 +39,8 @@ export interface AiChannelRule {
   timeoutMaxMinutes: number;
   minConfidence: number;
   kickbanMinConfidence: number;
+  /** True when this channel has no row of its own and uses the every-channel rule. */
+  inherited?: boolean;
 }
 
 /** Hard limit on owner-written channel rules (matches the column CHECK). */
@@ -142,28 +144,76 @@ async function loadChannels(serverId: string): Promise<Map<string, AiChannelRule
   return map;
 }
 
+/**
+ * The "every channel" rule: a row with this channel id applies to every text
+ * channel that has no row of its own. A channel's own row always wins —
+ * including one that's switched off, which is how a channel is left out.
+ */
+export const ALL_CHANNELS = '*';
+
+/** A channel's rule: its own row, else the every-channel rule (marked `inherited`). */
 export async function getAiChannelRule(serverId: string, channelId: string): Promise<AiChannelRule | null> {
-  return (await loadChannels(serverId)).get(channelId) ?? null;
+  const rules = await loadChannels(serverId);
+  const own = rules.get(channelId);
+  if (own) return own;
+  const all = rules.get(ALL_CHANNELS);
+  return all?.enabled ? { ...all, channelId, inherited: true } : null;
+}
+
+/** Which channels have AI moderation on — the only ones whose messages may go to the model. */
+export interface AiChannelScope {
+  /** The every-channel rule is on. */
+  all: boolean;
+  /** Any channel at all is on. */
+  any: boolean;
+  has(channelId: string): boolean;
 }
 
 /**
- * Channels with AI moderation switched on — the only ones whose messages
- * may be sent to the model (the dashboard promises the owner exactly that).
+ * The channels whose messages may be sent to the model (the dashboard
+ * promises the owner exactly that): each channel switched on by its own
+ * row, or — with the every-channel rule on — every channel not switched off.
  */
-export async function listAiEnabledChannels(serverId: string): Promise<Set<string>> {
-  const out = new Set<string>();
-  for (const [id, rule] of await loadChannels(serverId)) if (rule.enabled) out.add(id);
-  return out;
+export async function getAiChannelScope(serverId: string): Promise<AiChannelScope> {
+  const rules = await loadChannels(serverId);
+  const all = rules.get(ALL_CHANNELS)?.enabled === true;
+  const on = new Set<string>();
+  const off = new Set<string>();
+  for (const [id, rule] of rules) {
+    if (id === ALL_CHANNELS) continue;
+    (rule.enabled ? on : off).add(id);
+  }
+  return {
+    all,
+    any: all || on.size > 0,
+    has: (channelId) => channelId !== ALL_CHANNELS && (on.has(channelId) || (all && !off.has(channelId))),
+  };
 }
+
+// A channel's first row copies the every-channel rule when there is one, so
+// `!panda context` or `!panda on` in a channel never quietly drops the
+// server's chosen actions and thresholds back to the bare defaults.
+// `$1` server, `$2` channel; the caller supplies the enabled and context
+// expressions. The every-channel row itself never copies from itself.
+const insertFromDefaults = (enabled: string, context: string) => `
+  INSERT INTO panda.ai_mod_channels
+    (server_id, channel_id, enabled, context, history_size, allowed_actions,
+     timeout_max_minutes, min_confidence, kickban_min_confidence)
+  SELECT $1::text, $2::text, ${enabled}, ${context},
+         COALESCE(a.history_size, 8), COALESCE(a.allowed_actions, ARRAY['flag', 'delete']::TEXT[]),
+         COALESCE(a.timeout_max_minutes, 60), COALESCE(a.min_confidence, 80), COALESCE(a.kickban_min_confidence, 95)
+    FROM (SELECT 1) AS one
+    LEFT JOIN panda.ai_mod_channels a
+      ON a.server_id = $1::text AND a.channel_id = '${ALL_CHANNELS}' AND $2::text <> '${ALL_CHANNELS}'`;
 
 /**
  * Set a channel's rules text (the `!panda context` command). Creates the
- * channel's row with safe defaults — flag + delete only — when it has none.
+ * channel's row (switched on) when it has none — copying the every-channel
+ * rule's settings, else the safe defaults (flag + delete only).
  */
 export async function setAiChannelContext(serverId: string, channelId: string, context: string): Promise<void> {
   await pool.query(
-    `INSERT INTO panda.ai_mod_channels (server_id, channel_id, context)
-     VALUES ($1, $2, $3)
+    `${insertFromDefaults('TRUE', '$3::text')}
      ON CONFLICT (server_id, channel_id)
      DO UPDATE SET context = EXCLUDED.context, updated_at = NOW()`,
     [serverId, channelId, context.slice(0, MAX_CONTEXT_CHARS)],
@@ -171,10 +221,10 @@ export async function setAiChannelContext(serverId: string, channelId: string, c
   channelCache.delete(serverId);
 }
 
+/** `!panda on|off` — this channel, or ALL_CHANNELS for the every-channel rule. */
 export async function setAiChannelEnabled(serverId: string, channelId: string, enabled: boolean): Promise<void> {
   await pool.query(
-    `INSERT INTO panda.ai_mod_channels (server_id, channel_id, enabled)
-     VALUES ($1, $2, $3)
+    `${insertFromDefaults('$3::boolean', "COALESCE(a.context, '')")}
      ON CONFLICT (server_id, channel_id)
      DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()`,
     [serverId, channelId, enabled],

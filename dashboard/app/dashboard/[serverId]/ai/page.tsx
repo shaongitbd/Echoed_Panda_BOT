@@ -2,13 +2,14 @@ import { getServerChannels } from '@/lib/botApi';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { ModelPicker } from '@/components/ModelPicker';
 import { secretBoxReady } from '@/lib/secretBox';
-import { checksToday, getAiSettings, listAiChannels, type AiAction } from '@/lib/queries/aiModeration';
+import { ALL_CHANNELS, checksToday, getAiSettings, listAiChannels, type AiAction } from '@/lib/queries/aiModeration';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
 import { ChannelPicker } from '@/components/ChannelPicker';
 import { Toggle } from '@/components/Toggle';
 import { SaveBar } from '@/components/SaveBar';
 import {
   addAiChannelAction,
+  addAllChannelsAction,
   removeAiChannelAction,
   saveAiChannelAction,
   saveAiSettingsAction,
@@ -34,7 +35,8 @@ const ERRORS: Record<string, string> = {
 const SAVED: Record<string, string> = {
   settings: 'Saved. The bot picks changes up within 30 seconds.',
   channel: 'Channel saved. The bot picks changes up within 30 seconds.',
-  removed: 'Channel removed from AI moderation.',
+  removed: 'Removed. The bot picks changes up within 30 seconds.',
+  all: 'Every channel is on, with the safe defaults (flag and delete). Set its rules below.',
 };
 
 const ACTION_INFO: Record<AiAction, { label: string; hint: string }> = {
@@ -71,6 +73,8 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
   const saved = SAVED[first(query.saved) ?? ''];
   const channelName = (id: string): string => channels.find((c) => c.id === id)?.name ?? 'unknown channel';
   const unconfigured = channels.filter((c) => c.type === 'text' && !rules.some((r) => r.channelId === c.id));
+  const everyChannel = rules.find((r) => r.channelId === ALL_CHANNELS) ?? null;
+  const ruleTitle = (id: string): string => (id === ALL_CHANNELS ? 'Every channel' : `#${channelName(id)}`);
 
   return (
     <div>
@@ -161,14 +165,34 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
       <div className="mb-6 mt-14">
         <h2 className="font-display text-xl font-semibold tracking-[-0.03em] text-text-primary">Channels</h2>
         <p className="mt-2 max-w-3xl text-text-secondary">
-          The AI only judges channels listed here. Give each one its rules in plain words — e.g. &ldquo;Only programming
-          talk. Memes and off-topic chat get deleted.&rdquo; Admins can also set them in the channel with{' '}
-          <code>!panda context &lt;rules&gt;</code>.
+          The AI only reads the channels you switch on here — one by one, or every channel at once. Give them rules in
+          plain words — e.g. &ldquo;Only programming talk. Memes and off-topic chat get deleted.&rdquo; Admins can also
+          set a channel&apos;s rules in it with <code>!panda context &lt;rules&gt;</code>, and switch AI moderation with{' '}
+          <code>!panda on</code> / <code>off</code> (or <code>on all</code> / <code>off all</code>).
         </p>
       </div>
 
+      {everyChannel ? null : (
+        <form action={addAllChannelsAction.bind(null, serverId)} className="mb-6">
+          <FormCard
+            title="Every channel"
+            description="Moderate every text channel with one set of rules, including channels made later. Channels can still have their own rules, or be left out. Every message in every channel uses a check, so mind the daily limit above."
+          >
+            <p className="text-sm text-text-muted">Starts with the safe defaults: flag and delete only.</p>
+          </FormCard>
+          <SaveBar label="Moderate every channel" />
+        </form>
+      )}
+
       <form action={addAiChannelAction.bind(null, serverId)} className="mb-8">
-        <FormCard title="Add a channel" description="Starts with the safe defaults: flag and delete only.">
+        <FormCard
+          title={everyChannel ? 'Give a channel its own rules' : 'Add a channel'}
+          description={
+            everyChannel
+              ? 'Starts as a copy of Every channel. Switch it off to leave that channel out.'
+              : 'Starts with the safe defaults: flag and delete only.'
+          }
+        >
           <ChannelPicker name="channelId" mode="single" channels={unconfigured} allowedTypes={['text']} placeholder="Pick a text channel…" />
         </FormCard>
         <SaveBar label="Add channel" />
@@ -178,8 +202,19 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
         {rules.map((rule) => (
           <div key={rule.channelId}>
             <form action={saveAiChannelAction.bind(null, serverId, rule.channelId)} className="space-y-6">
-              <FormCard title={`#${channelName(rule.channelId)}`}>
-                <Toggle name="enabled" label="AI moderation in this channel" defaultChecked={rule.enabled} />
+              <FormCard
+                title={ruleTitle(rule.channelId)}
+                description={
+                  rule.channelId === ALL_CHANNELS
+                    ? 'Applies to every text channel that doesn’t have its own rules below. To leave a channel out, add it below and switch it off — or type !panda off in it.'
+                    : undefined
+                }
+              >
+                <Toggle
+                  name="enabled"
+                  label={rule.channelId === ALL_CHANNELS ? 'AI moderation in every channel' : 'AI moderation in this channel'}
+                  defaultChecked={rule.enabled}
+                />
                 <Field label="Rules for this channel" name={`context-${rule.channelId}`} hint="What's allowed and what isn't, in plain words. Up to 2,000 characters.">
                   <textarea
                     id={`context-${rule.channelId}`}
@@ -225,11 +260,15 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
                   <input id={`kbconf-${rule.channelId}`} name="kickbanMinConfidence" type="number" min={50} max={100} defaultValue={rule.kickbanMinConfidence} className={inputClassName} />
                 </Field>
               </FormCard>
-              <SaveBar label={`Save #${channelName(rule.channelId)}`} />
+              <SaveBar label={`Save ${ruleTitle(rule.channelId)}`} />
             </form>
             <form action={removeAiChannelAction.bind(null, serverId, rule.channelId)} className="mt-2 flex justify-end">
               <button type="submit" className="text-xs text-text-muted underline underline-offset-2 hover:text-text-primary">
-                Remove #{channelName(rule.channelId)} from AI moderation
+                {rule.channelId === ALL_CHANNELS
+                  ? 'Stop moderating every channel (channels with their own rules stay)'
+                  : everyChannel?.enabled
+                    ? `Remove #${channelName(rule.channelId)}’s own rules (it goes back to Every channel)`
+                    : `Remove #${channelName(rule.channelId)} from AI moderation`}
               </button>
             </form>
           </div>

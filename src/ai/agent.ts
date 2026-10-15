@@ -38,6 +38,7 @@ import { claimDailyCheck } from './usage.js';
 import { MAX_DELETE, refusalFor, type ActionRequest } from './executor.js';
 import { sanitizeReason } from './autoModerate.js';
 import type { Turn } from './conversation.js';
+import type { AiChannelScope } from './settings.js';
 
 /** Model calls per question (the first is claimed by the caller). */
 const MAX_STEPS = 7;
@@ -61,7 +62,7 @@ export interface AgentInput {
   /** The channel's "messages read" setting — default sample per person. */
   sampleSize: number;
   /** Channels with AI moderation on — the only ones whose messages may reach the model. */
-  aiChannels: Set<string>;
+  aiChannels: AiChannelScope;
   history: Turn[];
   replied: ChannelMessage | null;
   /** A short "what I'm doing" line while the agent works. */
