@@ -1014,6 +1014,83 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
       )
     `,
   },
+  {
+    // AI moderation, per server. The OpenRouter key is the server's own
+    // ("bring your own key"), sealed by ai/secretBox.ts — ciphertext bound to
+    // server_id; key_hint is its last 4 characters, for the dashboard to show
+    // which key is saved without ever showing the key.
+    name: 'ai_mod_settings table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.ai_mod_settings (
+        server_id               TEXT PRIMARY KEY,
+        enabled                 BOOLEAN NOT NULL DEFAULT FALSE,
+        api_key_sealed          TEXT,
+        api_key_hint            TEXT,
+        model                   TEXT,
+        daily_check_cap         INT NOT NULL DEFAULT 2000 CHECK (daily_check_cap BETWEEN 0 AND 100000),
+        max_kickban_per_hour    INT NOT NULL DEFAULT 5 CHECK (max_kickban_per_hour BETWEEN 0 AND 100),
+        updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+  },
+  {
+    // AI moderation, per channel: the server's rules for it (free text the
+    // owner writes — trusted, it comes from the dashboard or a Manage Server
+    // command, never from chat), how many recent messages the model reads,
+    // which actions it may take on its own, and how sure it must be.
+    name: 'ai_mod_channels table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.ai_mod_channels (
+        server_id                TEXT NOT NULL,
+        channel_id               TEXT NOT NULL,
+        enabled                  BOOLEAN NOT NULL DEFAULT TRUE,
+        context                  TEXT NOT NULL DEFAULT '' CHECK (char_length(context) <= 2000),
+        history_size             INT NOT NULL DEFAULT 8 CHECK (history_size BETWEEN 0 AND 20),
+        allowed_actions          TEXT[] NOT NULL DEFAULT ARRAY['flag', 'delete']::TEXT[],
+        timeout_max_minutes      INT NOT NULL DEFAULT 60 CHECK (timeout_max_minutes BETWEEN 1 AND 40320),
+        min_confidence           INT NOT NULL DEFAULT 80 CHECK (min_confidence BETWEEN 50 AND 100),
+        kickban_min_confidence   INT NOT NULL DEFAULT 95 CHECK (kickban_min_confidence BETWEEN 50 AND 100),
+        updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (server_id, channel_id)
+      )
+    `,
+  },
+  {
+    // Daily AI check counter per server — enforces daily_check_cap so a busy
+    // day can't run up the server's OpenRouter bill. One row per server/day.
+    name: 'ai_mod_usage table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.ai_mod_usage (
+        server_id  TEXT NOT NULL,
+        day        DATE NOT NULL,
+        checks     INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (server_id, day)
+      )
+    `,
+  },
+  {
+    // Every action the AI took on its own — the kick/ban circuit breaker
+    // counts these, and a moderator can see what the model did and why.
+    name: 'ai_mod_actions table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.ai_mod_actions (
+        id           BIGSERIAL PRIMARY KEY,
+        server_id    TEXT NOT NULL,
+        channel_id   TEXT NOT NULL,
+        message_id   TEXT,
+        target_id    TEXT NOT NULL,
+        action       TEXT NOT NULL,
+        confidence   INT,
+        reason       TEXT,
+        model        TEXT,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+  },
+  {
+    name: 'ai_mod_actions recent index',
+    sql: `CREATE INDEX IF NOT EXISTS ai_mod_actions_server_time ON panda.ai_mod_actions (server_id, created_at DESC)`,
+  },
 ];
 
 // Arbitrary but fixed: every instance must pick the same number for the

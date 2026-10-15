@@ -71,6 +71,7 @@ import {
   handleDjRole,
 } from './music.js';
 import { handleTestAudio } from './testTone.js';
+import { handlePanda } from '../ai/pandaCommand.js';
 import { handleCheckPerms } from './checkPerms.js';
 import { handleQotd } from './qotd.js';
 import { handleBirthday } from './birthday.js';
@@ -232,6 +233,12 @@ export const registry: readonly Registered[] = [
     aliases: [],
     handler: handleWarn,
     help: 'warn a user — `warn <@user> <reason>`',
+  },
+  {
+    name: 'panda',
+    aliases: [],
+    handler: handlePanda,
+    help: 'AI moderation — `panda <request>` (reply to a message to point at it), `panda context <rules>`, `panda on|off`, `panda status`',
   },
   {
     name: 'warnings',
@@ -690,6 +697,7 @@ interface DispatchInput {
   senderId: string;
   senderName: string;
   messageId: string;
+  replyToId?: string;
 }
 
 export async function dispatch(
@@ -807,6 +815,7 @@ export async function dispatch(
     senderId: msg.senderId,
     senderName: msg.senderName,
     messageId: msg.messageId,
+    replyToId: msg.replyToId,
     args: tokens,
     rawContent,
     prefix,

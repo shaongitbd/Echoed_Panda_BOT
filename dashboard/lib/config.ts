@@ -38,6 +38,12 @@ export const config = {
   },
 
   dashboardBaseUrl: trimTrailingSlash(optional('DASHBOARD_BASE_URL', 'http://localhost:3030')),
+
+  // AI moderation: the same secret the bot has (PANDA_AI_KEY_SECRET), from
+  // which both derive the key that seals servers' OpenRouter keys. Optional
+  // so the dashboard still boots without it; the AI page then says it's
+  // unavailable instead of saving keys nobody could open.
+  aiKeySecret: optional('PANDA_AI_KEY_SECRET', ''),
 };
 
 export const oauthRedirectUri = (): string => `${config.dashboardBaseUrl}/auth/callback`;

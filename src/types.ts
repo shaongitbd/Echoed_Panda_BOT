@@ -18,6 +18,8 @@ export interface MessageCreatedData extends Sequenced {
   messageType: string;
   createdAt: string;
   author?: { id: string; name: string; avatarUrl?: string | null; isBot?: boolean };
+  // Set by the backend when this message is a reply.
+  replyToId?: string;
 }
 
 // MESSAGE_UPDATE. `previousContent` is the text before this edit — present
@@ -116,4 +118,8 @@ export interface CommandContext {
   // The prefix that triggered this dispatch (per-guild, may differ from
   // config.defaultPrefix). Handy for help text and error messages.
   prefix: string;
+  // The message this command replied to, from the backend's event — how a
+  // moderator points at "this message" without anyone (or any model)
+  // naming it in text.
+  replyToId?: string;
 }

@@ -595,6 +595,24 @@ export class EchoedClient {
     return res.messages ?? [];
   }
 
+  // One page of a channel's history, newest first, older than `before` (an
+  // RFC 3339 timestamp; the backend's cursor). Walk back by passing the
+  // oldest message's timestamp from the previous page.
+  async getChannelMessagesBefore(
+    serverId: string,
+    channelId: string,
+    limit: number,
+    before?: string,
+  ): Promise<ChannelMessage[]> {
+    const cap = Math.min(Math.max(1, limit), 100);
+    const cursor = before ? `&before=${encodeURIComponent(before)}` : '';
+    const res = await this.request<GetMessagesResponse>(
+      'GET',
+      `/v1/bots/${serverId}/messages?channel_id=${encodeURIComponent(channelId)}&limit=${cap}${cursor}`,
+    );
+    return res.messages ?? [];
+  }
+
   async bulkDeleteMessages(
     serverId: string,
     channelId: string,

@@ -13,6 +13,8 @@ import { handleLevelUp } from './levels/levelUp.js';
 import { handleMemberJoined } from './welcome/onJoin.js';
 import { handleBotJoinedServer, provisionAndNotify } from './welcome/onBotJoin.js';
 import { processMessage as automodProcess } from './automod/pipeline.js';
+import { aiModerateMessage } from './ai/autoModerate.js';
+import { handlePandaReaction } from './ai/pandaCommand.js';
 import { handleReactionAdded, handleReactionRemoved } from './reactRoles/handler.js';
 import { processAfk } from './afk/handler.js';
 import { processJoin as antiRaidProcessJoin } from './antiRaid/detector.js';
@@ -158,6 +160,12 @@ async function main(): Promise<void> {
   });
 
   socket.onReactionAdded(async (data) => {
+    // ✅ / ❌ on a `!panda` confirmation (only the moderator who asked counts).
+    try {
+      await handlePandaReaction(services, data);
+    } catch (err) {
+      log.error({ err, msgId: data.messageId }, '!panda confirmation failed');
+    }
     try {
       await handleReactionAdded(api, data);
     } catch (err) {
@@ -266,6 +274,11 @@ async function main(): Promise<void> {
     }
     if (actedOn) return;
 
+    // AI moderation (the server's own OpenRouter key), after the built-in
+    // filters. Background: a model round-trip must never delay commands or
+    // XP. It skips staff and protected roles itself, and never throws.
+    void aiModerateMessage(services, msg);
+
     // AFK side-effects: clear-on-return + mention reply. Best-effort,
     // independent of XP/dispatch.
     void (async () => {
@@ -337,6 +350,7 @@ async function main(): Promise<void> {
         senderId: msg.senderId,
         senderName: msg.author?.name ?? 'unknown',
         messageId: msg.id,
+        replyToId: msg.replyToId,
       },
       services,
     );

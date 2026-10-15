@@ -61,6 +61,10 @@ export const config = {
   // "Sign in to confirm you're not a bot" prompt. Generate with the
   // "cookies.txt LOCALLY" browser extension while signed into YouTube.
   ytDlpCookiesFile: optional('YTDLP_COOKIES_FILE', ''),
+  // AI moderation: the secret both the bot and the dashboard derive the
+  // encryption key for servers' OpenRouter keys from (ai/secretBox.ts).
+  // Unset → AI moderation stays off everywhere (keys can't be opened).
+  aiKeySecret: optional('PANDA_AI_KEY_SECRET', ''),
 } as const;
 
 export const twitchEnabled = (): boolean =>
@@ -72,6 +76,7 @@ log.debug(
       ...config,
       botToken: config.botToken.slice(0, 8) + '…',
       databaseUrl: config.databaseUrl.replace(/:([^:@/]+)@/, ':***@'),
+      aiKeySecret: config.aiKeySecret ? '(set)' : '(unset)',
     },
   },
   'Loaded config',
