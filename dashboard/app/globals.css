@@ -96,30 +96,3 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ─── Component utilities ───────────────────────────────────────────
-   Tiny helpers Tailwind can't express tersely. Kept here rather than
-   in @layer components so they're greppable. */
-.vertical-stencil {
-  /* Heavy display label running bottom-to-top along the right edge
-     of feature cards — the JOIN/LEAVE/CLEAR move from tempvoice. */
-  font-family: var(--font-display, 'Bebas Neue'), system-ui, sans-serif;
-  font-size: clamp(3rem, 8vw, 5rem);
-  letter-spacing: 0.05em;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  color: var(--accent);
-  opacity: 0.9;
-  user-select: none;
-  pointer-events: none;
-}
-
-.headline-display {
-  /* Hero headline — Bebas, tight tracking, large display size with
-     responsive clamp so it scales smoothly to mobile. */
-  font-family: var(--font-display, 'Bebas Neue'), system-ui, sans-serif;
-  font-size: clamp(3rem, 8vw, 6rem);
-  line-height: 0.95;
-  letter-spacing: -0.01em;
-  font-weight: 400;
-}
-

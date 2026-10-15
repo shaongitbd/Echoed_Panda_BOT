@@ -1,51 +1,45 @@
 import Link from 'next/link';
 import { getSession } from '@/lib/auth';
+import { PandaLogo } from './PandaMark';
 
-// Top nav. Sticky, mostly transparent — uses the dark base bg with
-// a subtle bottom border. Login state determines the right-side CTA.
+// The public pages' top nav (landing, docs, privacy, terms) — echoed.gg's
+// nav: the rail colour, quiet links that fill on hover, one red button.
+// Signed-in visitors get "Open dashboard" instead of the login.
 export async function Header(): Promise<JSX.Element> {
   const session = await getSession();
+  const link = 'inline-flex h-9 items-center rounded-lg px-3 text-[15px] text-text-muted transition-colors duration-100 hover:bg-bg-card hover:text-text-primary';
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--bg-base),transparent_15%)] backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-2 group">
-          <span className="text-2xl">🐼</span>
-          <span className="font-display text-2xl tracking-wide group-hover:text-accent transition-colors duration-150">
-            panda
-          </span>
+    <header className="sticky top-0 z-50 bg-bg-base">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-5 md:px-8">
+        <Link href="/" className="shrink-0 rounded-lg" aria-label="Panda home">
+          <PandaLogo />
         </Link>
-
-        <nav className="hidden items-center gap-8 text-sm font-medium text-text-secondary md:flex">
-          <Link href="/#features" className="hover:text-text-primary transition-colors duration-150">
-            Features
-          </Link>
-          <Link href="/docs" className="hover:text-text-primary transition-colors duration-150">
-            Docs
-          </Link>
-          <Link
-            href="https://github.com/shaongitbd/Echoed_Panda_BOT"
-            className="hover:text-text-primary transition-colors duration-150"
-          >
-            GitHub
-          </Link>
+        <nav className="hidden items-center gap-1 md:flex">
+          <Link href="/#features" className={link}>Features</Link>
+          <Link href="/#ai" className={link}>AI moderation</Link>
+          <Link href="/docs" className={link}>Docs</Link>
         </nav>
-
-        <div>
+        <div className="ml-auto flex items-center gap-2">
           {session ? (
             <Link
               href="/dashboard"
-              className="rounded bg-accent px-5 py-2 text-sm font-semibold text-accent-fg transition-colors duration-150 hover:bg-accent-hover"
+              className="inline-flex h-10 items-center rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent-hover active:bg-accent-press"
             >
-              Dashboard
+              Open dashboard
             </Link>
           ) : (
-            <Link
-              href="/login"
-              className="rounded bg-accent px-5 py-2 text-sm font-semibold text-accent-fg transition-colors duration-150 hover:bg-accent-hover"
-            >
-              Login with Echoed
-            </Link>
+            <>
+              <Link href="/#add" className="hidden h-10 items-center rounded-lg bg-bg-elevated px-4 text-sm font-semibold text-text-primary transition-colors duration-100 hover:bg-bg-hover sm:inline-flex">
+                Add to server
+              </Link>
+              <Link
+                href="/login"
+                className="inline-flex h-10 items-center rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent-hover active:bg-accent-press"
+              >
+                Log in with Echoed
+              </Link>
+            </>
           )}
         </div>
       </div>

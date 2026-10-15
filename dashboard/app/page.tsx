@@ -1,1054 +1,527 @@
 import Link from 'next/link';
+import {
+  ArrowRight, Bell, Cake, CalendarClock, ChartColumn, Check, Gavel, Gift, Hand, Hash, MessageCircleQuestionMark,
+  Music, ScrollText, ShieldCheck, Sparkles, Star, Tags, TrendingUp, type LucideIcon,
+} from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { PandaMark } from '@/components/PandaMark';
 
-// ─── Landing page ───────────────────────────────────────────────────
-//
-// Sister to tempvoice.xyz — same author, shared brand palette
-// (crimson #d53254 accent, near-black surface stack, Bebas/Inter/JBM
-// stack), same family of typographic restraint. Different product —
-// Panda is a multipurpose moderation/music/levels bot, so the
-// structure and copy are written for what Panda actually does.
-//
-// Type system on this page:
-//   - All displays (hero h1, section h2, final-CTA h2) → Inter
-//     font-black 900, tightly tracked. Reads as visibly heavier than
-//     Bebas Neue's single 400 weight at every size.
-//   - Kicker labels → Inter font-black 900, uppercase, tracked.
-//   - Body          → Inter 400 / 500 / 700.
-//   - Code, IDs, log lines → JetBrains Mono.
-// Bebas Neue stays available via .font-display utility for one-off
-// uses elsewhere, but the landing page commits to a single-family
-// Inter system so weight contrast — not face contrast — does the
-// hierarchy work.
-//
-// Each section uses a *different* product-mockup idiom:
-//   1. Hero        — chat frame + Discord-style music embed
-//   2. Music       — full player widget (track + progress + queue)
-//   3. Moderation  — auto-mod toggle panel paired with case-file
-//   4. Levels      — server leaderboard with XP bars + role rewards
-//   5. Anti-raid   — console log mockup
-//   6. Every feature — typeset inventory of all 14 features (links to /docs)
-//   7. Open by design — paired icon-statements (open source / free)
-//   8. Final CTA   — direct ask
-//
-// No gradients anywhere. Crimson is reserved for the headline emphasis
-// word per section, mono command syntax, and the two primary CTAs.
+// panda.echoed.gg — what Panda does, shown working rather than listed.
+// echoed.gg's language throughout: Unbounded display, Geologica text, flat
+// plates stepped lighter, one red accent for "do this". The product mocks
+// are drawn from Panda's real messages (the AI notice, the !panda confirm
+// card, the now-playing card) so the page never promises something the bot
+// doesn't say.
+
+const wrap = 'mx-auto w-full max-w-6xl px-5 md:px-8';
 
 export default function HomePage(): JSX.Element {
   return (
     <>
       <Header />
-      <main className="bg-bg-base">
+      <main>
         <Hero />
-        <MusicSection />
+        <CapabilityStrip />
+        <AiSection />
         <ModerationSection />
-        <LevelsSection />
-        <AntiRaidSection />
-        <EveryFeatureSection />
-        <OpenByDesignSection />
-        <FinalCTA />
+        <MusicSection />
+        <CommunitySection />
+        <EverythingElse />
+        <HowToAdd />
+        <CloseBand />
       </main>
       <Footer />
     </>
   );
 }
 
-// ─── 1. Hero ────────────────────────────────────────────────────────
+// ── Shared bits ──────────────────────────────────────────────────────────────
 
-function Hero(): JSX.Element {
-  // Hero composition rationale:
-  //
-  // 1. Headline shrunk from 108px max → 72px. Still substantial,
-  //    no longer dominates. Wider page rhythm.
-  // 2. Lede tightened to a single short sentence — feature breadth
-  //    moves out of the lede into a dedicated "Includes" strip
-  //    underneath, where it belongs (lede sets the *positioning*,
-  //    Includes proves *substance*).
-  // 3. CTAs sit closer to the headline so the eye stays in the
-  //    primary action zone instead of drifting through a long
-  //    paragraph first.
-  // 4. The chat frame on the right now tells *two* stories
-  //    (music + levels) — proves "every chore" with two concrete
-  //    examples, not just one. The two embeds use the same
-  //    accent-bordered card primitive so they read as a matched
-  //    pair, the way the Open-by-design icons do.
-  // 5. Asymmetric column ratio (1.15fr / 0.85fr): the type column
-  //    gets the wider slice, the chat column reads as supporting
-  //    evidence rather than competing for the eye.
+function Eyebrow({ children }: { children: React.ReactNode }): JSX.Element {
+  return <p className="text-xs font-semibold uppercase tracking-[0.085em] text-text-muted">{children}</p>;
+}
+
+function H2({ children }: { children: React.ReactNode }): JSX.Element {
   return (
-    <section className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-14 px-6 py-20 md:grid-cols-[1.15fr_0.85fr] md:py-28">
-        <div className="max-w-xl md:pt-6">
-          <h1 className="font-sans text-[clamp(40px,5.8vw,72px)] font-black leading-[0.96] tracking-[-0.03em] text-text-primary">
-            One bot.<br />
-            <span className="text-accent">Every</span> chore.
-          </h1>
-          <p className="mt-6 max-w-md text-[16px] font-medium leading-relaxed text-text-secondary">
-            Built for Echoed. <span className="font-bold text-text-primary">Free.</span>{' '}
-            <span className="font-bold text-text-primary">Open source.</span> No premium tier — ever.
-          </p>
-
-          <div className="mt-8 flex flex-wrap items-center gap-5">
-            <Link
-              href="/login"
-              className="inline-flex h-11 items-center rounded bg-accent px-6 text-sm font-extrabold text-accent-fg transition-colors duration-150 hover:bg-accent-hover"
-            >
-              Login with Echoed
-            </Link>
-            <Link
-              href="/docs#inviting"
-              className="text-sm font-bold text-text-secondary underline-offset-4 transition-colors duration-150 hover:text-text-primary hover:underline"
-            >
-              How to install →
-            </Link>
-          </div>
-
-          {/* Two-line install primer. The CTA above lands you on
-              login — but Panda lives in your server's Bots tab,
-              not in a one-click invite, so we tell you up front
-              what you're walking into. */}
-          <p className="mt-5 max-w-md text-[13px] font-medium leading-snug text-text-muted">
-            Open your server in Echoed → <strong className="font-bold text-text-secondary">Server Settings</strong> → <strong className="font-bold text-text-secondary">Bots</strong>, invite Panda from there, then log in here to configure it.
-          </p>
-
-          {/* Includes strip — feature inventory. Sits behind the CTAs
-              as supporting proof; the bullet · style and tighter type
-              keep it visually quieter than the primary stack. */}
-          <div className="mt-10 max-w-md border-t border-[var(--border-subtle)] pt-5">
-            <span className="mr-3 font-black uppercase tracking-[0.16em] text-text-primary text-[11px]">
-              Includes
-            </span>
-            <span className="text-[12.5px] font-medium leading-relaxed text-text-muted">
-              Music · Levels · Auto-mod · Anti-raid · Welcomes · Reaction roles · Scheduled posts · Social alerts
-            </span>
-          </div>
-        </div>
-
-        <ChatFrame channel="general">
-          <ChatLine author="Tariq" color="#7c3aed" initials="T" mono body="!play lofi study mix" />
-          <ChatLine author="panda" color="var(--accent)" initials="P" bot>
-            <MusicEmbed
-              source="YouTube"
-              title="lofi hip hop radio"
-              subtitle="beats to relax / study to"
-              progress={0.36}
-              elapsed="1:24"
-              total="3:42"
-              queueNote="queue · 1 · requested by Tariq"
-            />
-          </ChatLine>
-          <ChatLine author="drift" color="#ef4444" initials="D" body="AAAAAAAAAAA WHY ISN'T THIS WORKING" />
-          <ChatLine author="panda" color="var(--accent)" initials="P" bot>
-            <ModerationEmbed
-              action="warned"
-              user="drift"
-              filter="caps filter"
-              detail="74% over threshold · 3rd warning in 30d · escalation queued"
-            />
-          </ChatLine>
-        </ChatFrame>
-      </div>
-    </section>
-  );
-}
-
-// ─── ModerationEmbed ────────────────────────────────────────────────
-// Twin to MusicEmbed — same compact accent-bordered card primitive,
-// but warning-amber instead of crimson so the two embeds in the hero
-// chat read as two different "moods" of the bot: crimson = community
-// feature firing for the user who asked, amber = auto-mod quietly
-// catching a violation. Together: panda plays your music *and*
-// handles your trolls. That's the whole pitch.
-
-interface ModerationEmbedProps {
-  action: string;
-  user: string;
-  filter: string;
-  detail: string;
-}
-
-function ModerationEmbed({ action, user, filter, detail }: ModerationEmbedProps): JSX.Element {
-  return (
-    <div className="mt-1 rounded border-l-2 border-status-warning bg-bg-elevated px-4 py-3.5">
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-status-warning">
-        Auto-mod
-      </div>
-      <p className="mt-1 text-[14px] leading-snug text-text-secondary">
-        <span className="font-extrabold text-status-warning">{action}</span>{' '}
-        <span className="font-extrabold text-text-primary">@{user}</span>
-        <span className="text-text-muted"> · {filter}</span>
-      </p>
-      <p className="mt-1.5 text-[12px] font-medium text-text-muted">{detail}</p>
-    </div>
-  );
-}
-
-// ─── 2. Music ───────────────────────────────────────────────────────
-
-function MusicSection(): JSX.Element {
-  return (
-    <section className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 px-6 py-24 md:grid-cols-2 md:py-28">
-        <div>
-          <SectionHead>
-            A real <span className="text-accent">music player</span>.<br />
-            Not just a YouTube link.
-          </SectionHead>
-          <SectionLead>
-            YouTube and SoundCloud, instant queue, persistent volume per
-            server. DJ role gates skip and pause to whoever you trust
-            with the aux cord — admin not required.
-          </SectionLead>
-          <CommandRow items={[
-            { cmd: '!play <query>', desc: 'YouTube or SoundCloud' },
-            { cmd: '!skip',         desc: 'DJ-role only' },
-            { cmd: '!queue',        desc: 'See what\'s next' },
-            { cmd: '!volume <n>',   desc: 'Per-server memory' },
-          ]} />
-        </div>
-
-        <PlayerWidget />
-      </div>
-    </section>
-  );
-}
-
-// ─── 3. Moderation ──────────────────────────────────────────────────
-
-function ModerationSection(): JSX.Element {
-  return (
-    <section className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto max-w-6xl px-6 py-24 md:py-28">
-        <div className="grid grid-cols-1 items-center gap-14 md:grid-cols-2 md:gap-20">
-          <div className="md:order-2">
-            <SectionHead>
-              Auto-mod that <span className="text-accent">explains itself</span>.
-            </SectionHead>
-            <SectionLead>
-              Eight filters, each with their own thresholds, channel
-              scope, and exempt roles. When one fires, the audit log
-              shows you exactly which filter caught it, what triggered
-              it, and what the bot did next.
-            </SectionLead>
-            <CommandRow items={[
-              { cmd: '!warn @user <reason>',      desc: 'Logged + escalation-aware' },
-              { cmd: '!timeout @user <duration>', desc: '1m, 1h, 7d' },
-              { cmd: '!kick @user',               desc: 'DMs the reason' },
-              { cmd: '!ban @user',                desc: 'Permanent, logged' },
-            ]} />
-          </div>
-
-          <div className="space-y-5 md:order-1">
-            <FilterPanel />
-            <CaseFile />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── 4. Levels ──────────────────────────────────────────────────────
-
-function LevelsSection(): JSX.Element {
-  return (
-    <section className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 px-6 py-24 md:grid-cols-2 md:py-28">
-        <div>
-          <SectionHead>
-            Reward the people who <span className="text-accent">show up</span>.
-          </SectionHead>
-          <SectionLead>
-            XP per message, anti-spam decay, role rewards on level
-            milestones. Cooldowns prevent farm-spam; bots and channels
-            you exclude don't count toward XP.
-          </SectionLead>
-          <CommandRow items={[
-            { cmd: '!rank',          desc: 'XP, level, time-to-next' },
-            { cmd: '!leaderboard',   desc: 'Server top members' },
-            { cmd: '!setxp @user <n>', desc: 'Admin override' },
-          ]} />
-        </div>
-
-        <Leaderboard />
-      </div>
-    </section>
-  );
-}
-
-// ─── 5. Anti-raid ───────────────────────────────────────────────────
-
-function AntiRaidSection(): JSX.Element {
-  return (
-    <section className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 px-6 py-24 md:grid-cols-2 md:py-28">
-        <div>
-          <SectionHead>
-            Anti-raid runs <span className="text-accent">while you sleep</span>.
-          </SectionHead>
-          <SectionLead>
-            Watches join velocity and account age. Crosses your
-            threshold and lockdown engages — invites pause, verification
-            climbs, every join goes to a holding queue you review when
-            you're back at the keyboard.
-          </SectionLead>
-        </div>
-
-        <ConsoleLog />
-      </div>
-    </section>
-  );
-}
-
-// ─── 6. Every feature — comprehensive inventory ─────────────────────
-//
-// The four deep-dive sections above (music, moderation, levels,
-// anti-raid) showcase the bread-and-butter. This section tells the
-// rest of the story: every other feature panda offers, listed once,
-// short enough to skim, with sample commands and a docs link per
-// row. The intent is breadth-proof — readers shouldn't have to
-// guess whether panda does X. They should be able to scan and see.
-//
-// Layout: a 2-column typeset list, divider-separated. Each row has
-// kicker (category), feature name in font-black, one-line summary,
-// inline command samples, and a "→ docs" anchor. No card chrome —
-// the typography does the work, the way a well-designed reference
-// page does.
-
-interface FeatureItem {
-  group: 'Community' | 'Automation' | 'Server health' | 'Outside reach';
-  name: string;
-  summary: string;
-  commands?: string[];
-  setup?: string;
-  docsId: string;
-}
-
-const FEATURES: FeatureItem[] = [
-  {
-    group: 'Community',
-    name: 'Music',
-    summary: 'YouTube and SoundCloud playback with persistent queue, per-server volume, and DJ-role gating on skip and pause.',
-    commands: ['!play', '!skip', '!queue', '!volume', '!loop', '!shuffle'],
-    docsId: 'music',
-  },
-  {
-    group: 'Community',
-    name: 'Levels & XP',
-    summary: 'Members earn XP for messages, with anti-spam decay. Award roles automatically at level milestones.',
-    commands: ['!rank', '!leaderboard', '!setxp'],
-    docsId: 'levels',
-  },
-  {
-    group: 'Community',
-    name: 'Welcome messages',
-    summary: 'Greet new members in any channel, optionally hand out a starter role, support {user} / {server} / {count} placeholders.',
-    commands: ['!welcometest'],
-    docsId: 'welcome',
-  },
-  {
-    group: 'Community',
-    name: 'Reaction roles',
-    summary: 'Members self-assign roles by reacting to a message. Toggle, verify, or pick-one modes.',
-    setup: 'dashboard only',
-    docsId: 'reaction-roles',
-  },
-  {
-    group: 'Community',
-    name: 'Giveaways',
-    summary: 'Reaction-based entry, configurable duration and winner count, role and account-age requirements, one-click reroll.',
-    commands: ['!giveaway start', '!giveaway end', '!reroll'],
-    docsId: 'giveaways',
-  },
-
-  {
-    group: 'Automation',
-    name: 'Auto-mod filters',
-    summary: 'Eight filters — spam, caps, links, invites, mass-mention, emoji-spam, zalgo, bad-words — each with own thresholds.',
-    setup: 'dashboard only',
-    docsId: 'auto-mod',
-  },
-  {
-    group: 'Automation',
-    name: 'Auto-react',
-    summary: 'Bot adds reactions automatically to messages matching keyword patterns. Useful for #suggestions and announcements.',
-    setup: 'dashboard only',
-    docsId: 'auto-react',
-  },
-  {
-    group: 'Automation',
-    name: 'Custom commands',
-    summary: 'Define your own !commands with fixed responses, role/channel restrictions, and per-member cooldowns.',
-    setup: 'dashboard only',
-    docsId: 'custom-commands',
-  },
-  {
-    group: 'Automation',
-    name: 'Scheduled messages',
-    summary: 'Post on a schedule — once, daily, weekly, or cron. Timezone-aware so 9am means 9am.',
-    setup: 'dashboard only',
-    docsId: 'schedules',
-  },
-  {
-    group: 'Automation',
-    name: 'Keyword alerts',
-    summary: 'DM-notify when a word or phrase shows up anywhere in the server. Per-member, per-channel scoping.',
-    setup: 'dashboard only',
-    docsId: 'keywords',
-  },
-
-  {
-    group: 'Server health',
-    name: 'Moderation',
-    summary: 'Manual mod actions with case numbers, escalation-aware repeats, full audit logging, and DM-on-action.',
-    commands: ['!warn', '!timeout', '!kick', '!ban', '!case', '!history'],
-    docsId: 'moderation',
-  },
-  {
-    group: 'Server health',
-    name: 'Anti-raid',
-    summary: 'Watches join velocity and account age. Lockdown engages automatically; suspicious joins go to a review queue.',
-    commands: ['!lockdown', '!unlock', '!raidqueue'],
-    docsId: 'anti-raid',
-  },
-  {
-    group: 'Server health',
-    name: 'Stat counters',
-    summary: 'Live-updating voice channel names showing member count, online count, role membership, or custom values.',
-    setup: 'dashboard only',
-    docsId: 'stat-counters',
-  },
-
-  {
-    group: 'Outside reach',
-    name: 'Social alerts',
-    summary: 'Watch Twitch, YouTube, and Reddit. Post in-server when streamers go live, channels upload, or subreddits hit fresh posts.',
-    setup: 'dashboard only',
-    docsId: 'social-alerts',
-  },
-];
-
-function EveryFeatureSection(): JSX.Element {
-  return (
-    <section id="features" className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto max-w-6xl px-6 py-24 md:py-28">
-        <div className="grid grid-cols-1 gap-x-16 gap-y-10 md:grid-cols-[0.85fr_1.15fr]">
-          {/* Left column — section heading + lead-in. Sticks to top
-              on tall viewports so the right-side list feels anchored
-              to a context. */}
-          <div className="md:sticky md:top-24 md:self-start">
-            <SectionHead>
-              Every feature, <span className="text-accent">in full</span>.
-            </SectionHead>
-            <SectionLead>
-              Fourteen tools. One bot. Zero locked behind a paywall.
-              Pick a feature to jump into the docs — written for
-              owners, not bot veterans.
-            </SectionLead>
-            <Link
-              href="/docs"
-              className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-text-primary underline-offset-4 transition-colors duration-150 hover:text-accent hover:underline"
-            >
-              Open the full docs →
-            </Link>
-          </div>
-
-          {/* Right column — the list. Grouped by category, each
-              category preceded by a small kicker so readers can
-              skim by intent. */}
-          <FeatureList />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function FeatureList(): JSX.Element {
-  // Group features by category preserving the array order — gives
-  // a stable, intentional read order (community → automation →
-  // health → reach) without a runtime sort.
-  const groups: { name: FeatureItem['group']; items: FeatureItem[] }[] = [];
-  for (const f of FEATURES) {
-    let g = groups.find((x) => x.name === f.group);
-    if (!g) {
-      g = { name: f.group, items: [] };
-      groups.push(g);
-    }
-    g.items.push(f);
-  }
-
-  return (
-    <div className="space-y-12">
-      {groups.map((g) => (
-        <div key={g.name}>
-          <p className="font-mono text-[10.5px] font-black uppercase tracking-[0.2em] text-text-muted">
-            {g.name}
-          </p>
-          <ul className="mt-3 divide-y divide-[var(--border-subtle)] border-t border-[var(--border-subtle)]">
-            {g.items.map((item) => (
-              <li key={item.name} className="grid grid-cols-1 gap-x-8 gap-y-2 py-5 md:grid-cols-[200px_1fr]">
-                <div>
-                  <h3 className="font-sans text-[16.5px] font-black tracking-tight text-text-primary">
-                    {item.name}
-                  </h3>
-                  <Link
-                    href={`/docs#${item.docsId}`}
-                    className="mt-1 inline-block text-[11.5px] font-bold text-text-muted underline-offset-2 transition-colors duration-150 hover:text-accent hover:underline"
-                  >
-                    Read docs →
-                  </Link>
-                </div>
-                <div>
-                  <p className="text-[14px] font-medium leading-[1.55] text-text-secondary">
-                    {item.summary}
-                  </p>
-                  {item.commands && (
-                    <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[12px] font-bold text-accent">
-                      {item.commands.map((c) => (
-                        <span key={c}>{c}</span>
-                      ))}
-                    </p>
-                  )}
-                  {item.setup && !item.commands && (
-                    <p className="mt-2 font-mono text-[11.5px] font-bold uppercase tracking-[0.14em] text-text-muted">
-                      {item.setup}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── 7. Open by design — paired icon statements ─────────────────────
-
-function OpenByDesignSection(): JSX.Element {
-  return (
-    <section className="border-b border-[var(--border-subtle)]">
-      <div className="mx-auto max-w-6xl px-6 py-24 md:py-28">
-        <SectionHead>
-          Open by <span className="text-accent">design</span>.
-        </SectionHead>
-        <SectionLead>
-          The whole bot fits in one repo. No telemetry, no tracking, no
-          premium tier you'll be nudged toward later.
-        </SectionLead>
-
-        <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
-          <IconStatement icon={<GithubIcon />} title="Open source">
-            MIT licensed. Read the source, file an issue, ship a PR.
-            If we ever cross the lines we promised — fork us. That's
-            the point.
-          </IconStatement>
-          <IconStatement icon={<TagIcon />} title="Free of charge">
-            Every command, every dashboard page, every integration —
-            included. No paywall the moment your community grows.
-          </IconStatement>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── 7. Final CTA ───────────────────────────────────────────────────
-
-function FinalCTA(): JSX.Element {
-  return (
-    <section>
-      <div className="mx-auto max-w-6xl px-6 py-28 md:py-36">
-        <h2 className="max-w-3xl font-sans text-[clamp(44px,6.4vw,88px)] font-black leading-[0.96] tracking-[-0.03em] text-text-primary">
-          Install Panda in three steps.
-        </h2>
-
-        {/* Numbered install primer — three steps, plain English.
-            This is the actual install flow: invite from inside
-            Echoed first, then come back here to configure. No
-            one-click invite URL exists yet. */}
-        <ol className="mt-10 max-w-3xl space-y-5">
-          <InstallStep n="1" title="Open your server's Bots tab">
-            In Echoed, open the server you want Panda in. Click{' '}
-            <strong className="font-bold text-text-primary">Server Settings</strong>{' '}
-            → <strong className="font-bold text-text-primary">Bots</strong>.
-            You'll need <strong className="font-bold text-text-primary">Manage Server</strong>{' '}
-            permission to see this tab.
-          </InstallStep>
-          <InstallStep n="2" title="Invite Panda from the bot list">
-            Find <strong className="font-bold text-text-primary">Panda</strong> in
-            the available bots, click <strong className="font-bold text-text-primary">Add</strong>,
-            and confirm the permissions. Panda joins your server immediately.
-          </InstallStep>
-          <InstallStep n="3" title="Come back here and log in">
-            Click <strong className="font-bold text-text-primary">Login with Echoed</strong>{' '}
-            below. Pick your server from the sidebar to start configuring.
-            Default settings are sensible — you can ship as-is or tune anything.
-          </InstallStep>
-        </ol>
-
-        <div className="mt-12 flex flex-wrap items-center gap-6">
-          <Link
-            href="/login"
-            className="inline-flex h-12 items-center rounded bg-accent px-7 text-[15px] font-extrabold text-accent-fg transition-colors duration-150 hover:bg-accent-hover"
-          >
-            Login with Echoed
-          </Link>
-          <Link
-            href="/docs"
-            className="text-[14px] font-bold text-text-secondary underline-offset-4 transition-colors duration-150 hover:text-text-primary hover:underline"
-          >
-            Read the docs first →
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function InstallStep({ n, title, children }: { n: string; title: string; children: React.ReactNode }): JSX.Element {
-  return (
-    <li className="grid grid-cols-[44px_1fr] gap-5">
-      <div className="font-mono text-[28px] font-black leading-none text-accent">{n}</div>
-      <div>
-        <h3 className="font-sans text-[18px] font-black tracking-tight text-text-primary">
-          {title}
-        </h3>
-        <p className="mt-1.5 text-[14.5px] font-medium leading-[1.6] text-text-secondary">
-          {children}
-        </p>
-      </div>
-    </li>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Typographic primitives
-// ═══════════════════════════════════════════════════════════════════
-
-// SectionHead — the consistent h2 treatment used by every section
-// other than the hero + final-CTA. Inter font-black 900 lands
-// substantially heavier than Bebas Neue's single 400 weight, which
-// is exactly what the design needs at this size.
-function SectionHead({ children }: { children: React.ReactNode }): JSX.Element {
-  return (
-    <h2 className="font-sans text-[clamp(36px,4.7vw,60px)] font-black leading-[1.02] tracking-[-0.02em] text-text-primary">
+    <h2 className="mt-3 max-w-[16ch] font-display text-[clamp(28px,3.4vw,42px)] font-semibold leading-[1.08] tracking-[-0.04em] text-text-primary [text-wrap:balance]">
       {children}
     </h2>
   );
 }
 
-function SectionLead({ children }: { children: React.ReactNode }): JSX.Element {
+function Lead({ children }: { children: React.ReactNode }): JSX.Element {
+  return <p className="mt-4 max-w-[52ch] text-[17px] leading-[1.6] text-text-muted">{children}</p>;
+}
+
+function Points({ items }: { items: React.ReactNode[] }): JSX.Element {
   return (
-    <p className="mt-5 max-w-md text-[15.5px] font-medium leading-relaxed text-text-secondary">
-      {children}
-    </p>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Mockup primitives
-// ═══════════════════════════════════════════════════════════════════
-
-function ChatFrame({ channel, children }: { channel: string; children: React.ReactNode }): JSX.Element {
-  return (
-    <div className="overflow-hidden rounded border border-[var(--border-subtle)] bg-bg-card shadow-2xl shadow-black/40">
-      <div className="border-b border-[var(--border-subtle)] px-4 py-2.5 text-[13px] font-semibold text-text-muted">
-        <span className="text-text-secondary">#</span> {channel}
-      </div>
-      <div className="space-y-4 px-4 py-5">{children}</div>
-    </div>
-  );
-}
-
-interface ChatLineProps {
-  author: string;
-  color: string;
-  initials: string;
-  bot?: boolean;
-  body?: string;
-  mono?: boolean;
-  children?: React.ReactNode;
-}
-
-function ChatLine({ author, color, initials, bot, body, mono, children }: ChatLineProps): JSX.Element {
-  return (
-    <div className="flex items-start gap-3">
-      <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-black text-white"
-        style={{ background: color }}
-      >
-        {initials}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13.5px] font-extrabold text-text-primary">{author}</span>
-          {bot && (
-            <span className="rounded-sm bg-accent/15 px-1.5 py-[1px] text-[9px] font-black uppercase tracking-wider text-accent">
-              bot
-            </span>
-          )}
-          <span className="text-[11px] text-text-muted">just now</span>
-        </div>
-        <div className={['mt-0.5', mono ? 'font-mono text-[13px] font-bold text-accent' : 'text-[13.5px] leading-relaxed text-text-secondary'].join(' ')}>
-          {body ?? children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── MusicEmbed ─────────────────────────────────────────────────────
-
-interface MusicEmbedProps {
-  source: string;
-  title: string;
-  subtitle: string;
-  progress: number;
-  elapsed: string;
-  total: string;
-  queueNote: string;
-}
-
-function MusicEmbed({ source, title, subtitle, progress, elapsed, total, queueNote }: MusicEmbedProps): JSX.Element {
-  return (
-    <div className="mt-1 flex gap-3 rounded border-l-2 border-accent bg-bg-elevated px-4 py-3.5">
-      {/* Thumbnail tile — the album-art slot in real music bots.
-          Solid neutral square with an inset play triangle. Reads as
-          "this is a track card," no fake imagery needed. */}
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded border border-[var(--border-subtle)] bg-bg-base">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" className="text-text-secondary translate-x-[1px]" aria-hidden>
-          <polygon points="6 4 20 12 6 20" />
-        </svg>
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-accent">{source}</div>
-        <div className="mt-0.5 text-[15px] font-extrabold text-text-primary truncate">{title}</div>
-        <div className="text-[12.5px] font-medium text-text-secondary truncate">{subtitle}</div>
-        <div className="mt-2.5 h-[3px] overflow-hidden rounded bg-bg-base">
-          <div className="h-full bg-accent" style={{ width: `${progress * 100}%` }} />
-        </div>
-        <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] font-bold text-text-muted">
-          <span>{elapsed}</span>
-          <span className="font-medium">{queueNote}</span>
-          <span>{total}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── PlayerWidget ───────────────────────────────────────────────────
-
-function PlayerWidget(): JSX.Element {
-  const queue = [
-    { user: 'Tariq', title: 'feature track 1',     duration: '4:21' },
-    { user: 'Mei',   title: 'sleep playlist mix',  duration: '3:58' },
-    { user: 'Riley', title: 'monster blue (live)', duration: '10:32' },
-  ];
-  return (
-    <div className="overflow-hidden rounded border border-[var(--border-subtle)] bg-bg-card shadow-2xl shadow-black/40">
-      <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-3">
-        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-text-muted">panda · player</span>
-        <span className="flex items-center gap-1.5 text-[11px] font-bold text-text-muted">
-          <span className="h-1.5 w-1.5 rounded-full bg-status-online" /> live
-        </span>
-      </div>
-
-      <div className="px-5 pt-5">
-        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-accent">YouTube</div>
-        <div className="mt-1 text-[19px] font-extrabold text-text-primary truncate">lofi hip hop radio</div>
-        <div className="text-[13px] font-medium text-text-secondary truncate">beats to relax / study to</div>
-        <div className="mt-4 h-[3px] overflow-hidden rounded bg-bg-base">
-          <div className="h-full bg-accent" style={{ width: '36%' }} />
-        </div>
-        <div className="mt-1.5 flex items-center justify-between font-mono text-[11px] font-bold text-text-muted">
-          <span>1:24</span>
-          <span>3:42</span>
-        </div>
-      </div>
-
-      <div className="mt-4 border-t border-[var(--border-subtle)] px-5 py-4">
-        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Up next</p>
-        <ul className="mt-3 space-y-2.5">
-          {queue.map((q, i) => (
-            <li key={i} className="grid grid-cols-[18px_1fr_auto] items-baseline gap-3 text-[13px]">
-              <span className="font-mono text-[11px] font-bold text-text-muted">{i + 1}</span>
-              <span className="min-w-0 truncate">
-                <span className="font-bold text-text-primary">{q.title}</span>
-                <span className="text-text-muted"> · {q.user}</span>
-              </span>
-              <span className="font-mono text-[11px] font-bold text-text-muted">{q.duration}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="border-t border-[var(--border-subtle)] bg-bg-base/40 px-5 py-3 font-mono text-[11px] text-text-muted">
-        <span className="font-extrabold text-accent">!skip</span>{'  '}
-        <span className="font-extrabold text-accent">!queue</span>{'  '}
-        <span className="font-extrabold text-accent">!volume</span>{'  '}
-        <span className="font-extrabold text-accent">!loop</span>
-      </div>
-    </div>
-  );
-}
-
-// ─── FilterPanel ────────────────────────────────────────────────────
-
-function FilterPanel(): JSX.Element {
-  const filters = [
-    { name: 'spam',          rule: '5 msgs / 3s',     action: 'timeout', on: true },
-    { name: 'caps',          rule: '> 60 % over 6 c', action: 'warn',    on: true },
-    { name: 'invites',       rule: 'all DMs',         action: 'delete',  on: true },
-    { name: 'mass-mention',  rule: '5 in one msg',    action: '—',       on: false },
-    { name: 'zalgo',         rule: 'ratio > 1.5',     action: 'delete',  on: true },
-    { name: 'emoji',         rule: '20 in a row',     action: '—',       on: false },
-    { name: 'bad-words',     rule: 'custom list',     action: 'warn',    on: true },
-    { name: 'links',         rule: 'allow-list',      action: '—',       on: false },
-  ];
-  return (
-    <div className="overflow-hidden rounded border border-[var(--border-subtle)] bg-bg-card shadow-2xl shadow-black/40">
-      <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-3">
-        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-text-muted">auto-mod</span>
-        <span className="text-[11px] font-bold text-text-secondary">5 of 8 active</span>
-      </div>
-      <ul className="divide-y divide-[var(--border-subtle)]">
-        {filters.map((f) => (
-          <li key={f.name} className="grid grid-cols-[28px_1fr_auto] items-center gap-3 px-5 py-3 text-[12.5px]">
-            <span
-              className={`relative inline-flex h-[14px] w-[24px] items-center rounded-full transition-colors duration-150 ${
-                f.on ? 'bg-accent' : 'bg-bg-input'
-              }`}
-              aria-hidden
-            >
-              <span
-                className={`inline-block h-2.5 w-2.5 rounded-full bg-white transition-transform duration-150 ${
-                  f.on ? 'translate-x-[11px]' : 'translate-x-[2px]'
-                }`}
-              />
-            </span>
-            <div className="flex items-baseline gap-2 min-w-0">
-              <span className={f.on ? 'font-extrabold text-text-primary' : 'text-text-muted'}>{f.name}</span>
-              <span className="font-mono text-[11px] text-text-muted truncate">{f.rule}</span>
-            </div>
-            <span className={`font-mono text-[11px] font-bold ${f.on ? 'text-accent' : 'text-text-muted/60'}`}>
-              {f.action}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// ─── CaseFile ───────────────────────────────────────────────────────
-
-function CaseFile(): JSX.Element {
-  return (
-    <div className="rounded border border-[var(--border-subtle)] bg-bg-card shadow-2xl shadow-black/40">
-      <div className="border-b border-[var(--border-subtle)] px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-text-muted">
-        audit log · case 482
-      </div>
-      <div className="px-5 py-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-black text-accent-fg">
-            P
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13.5px] leading-snug text-text-secondary">
-              <span className="font-extrabold text-text-primary">panda</span>{' '}
-              <span className="font-extrabold text-accent">warned</span>{' '}
-              <span className="font-extrabold text-text-primary">@drift</span>
-            </p>
-            <p className="mt-1 text-[12px] font-medium text-text-muted">
-              caps filter · 74% over threshold · 3rd warning in 30d
-            </p>
-            <p className="mt-2 text-[12px] text-text-muted italic border-l-2 border-[rgba(255,255,255,0.10)] pl-3">
-              "AAAAAAAAAAA WHY ISNT IT WORKING"
-            </p>
-          </div>
-          <span className="font-mono text-[10.5px] font-bold text-text-muted">#general</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Leaderboard ────────────────────────────────────────────────────
-
-function Leaderboard(): JSX.Element {
-  const rows = [
-    { rank: 1, user: 'Tariq',   color: '#7c3aed', level: 28, pct: 82 },
-    { rank: 2, user: 'Mei',     color: '#0ea5e9', level: 26, pct: 64 },
-    { rank: 3, user: 'ash',     color: '#10b981', level: 24, pct: 41 },
-    { rank: 4, user: 'noctis_', color: '#f59e0b', level: 23, pct: 38 },
-    { rank: 5, user: 'Anya',    color: '#ef4444', level: 22, pct: 19 },
-  ];
-  const rewards = [
-    { level: 5,  role: '@member' },
-    { level: 15, role: '@regular' },
-    { level: 30, role: '@veteran' },
-  ];
-  return (
-    <div className="overflow-hidden rounded border border-[var(--border-subtle)] bg-bg-card shadow-2xl shadow-black/40">
-      <div className="border-b border-[var(--border-subtle)] px-5 py-3">
-        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-text-muted">
-          Lavender Cafe · leaderboard
-        </span>
-      </div>
-
-      <ul className="divide-y divide-[var(--border-subtle)]">
-        {rows.map((r) => (
-          <li key={r.user} className="grid grid-cols-[24px_28px_1fr_auto] items-center gap-3 px-5 py-3">
-            <span className="font-mono text-[12px] font-black text-text-muted">{r.rank}</span>
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-black text-white"
-              style={{ background: r.color }}
-            >
-              {r.user[0]?.toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span className="truncate text-[13.5px] font-extrabold text-text-primary">{r.user}</span>
-                <span className="text-[11px] font-bold text-text-secondary">level {r.level}</span>
-              </div>
-              <div className="mt-1.5 h-[3px] overflow-hidden rounded bg-bg-base">
-                <div className="h-full bg-accent" style={{ width: `${r.pct}%` }} />
-              </div>
-            </div>
-            <span className="font-mono text-[11px] font-black text-text-muted">{r.pct}%</span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="border-t border-[var(--border-subtle)] px-5 py-4">
-        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Role rewards</p>
-        <dl className="mt-3 grid grid-cols-[72px_1fr] gap-y-2 text-[12.5px]">
-          {rewards.map((r) => (
-            <div key={r.level} className="contents">
-              <dt className="font-mono font-bold text-text-secondary">level {r.level}</dt>
-              <dd className="font-extrabold text-accent">{r.role}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-    </div>
-  );
-}
-
-// ─── ConsoleLog ─────────────────────────────────────────────────────
-
-function ConsoleLog(): JSX.Element {
-  return (
-    <div className="rounded border border-[var(--border-subtle)] bg-bg-card font-mono text-[12px] leading-relaxed shadow-2xl shadow-black/40">
-      <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-2.5">
-        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-text-muted">anti-raid · log</span>
-        <span className="rounded-full bg-status-danger/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-status-danger">
-          lockdown
-        </span>
-      </div>
-      <div className="px-4 py-4 text-text-secondary">
-        <p><span className="text-text-muted">03:24:11</span> <span className="font-bold text-text-primary">14 joins / 60s</span> — threshold 12</p>
-        <p><span className="text-text-muted">03:24:11</span> verification → <span className="font-extrabold text-status-warning">Medium</span></p>
-        <p><span className="text-text-muted">03:24:11</span> invites <span className="font-extrabold text-status-danger">paused</span></p>
-        <p className="mt-2 text-text-muted">— holding —</p>
-        <p><span className="text-text-muted">03:24:14</span> <span className="font-extrabold text-text-primary">@noctis_</span> · 6h account</p>
-        <p><span className="text-text-muted">03:24:15</span> <span className="font-extrabold text-text-primary">@halo7</span> · 11h account</p>
-        <p><span className="text-text-muted">03:24:18</span> <span className="font-extrabold text-text-primary">@plumeria</span> · 4h account</p>
-        <p className="mt-3 text-text-muted">11 more queued. Review when you're ready.</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── CommandRow ─────────────────────────────────────────────────────
-
-function CommandRow({ items }: { items: { cmd: string; desc: string }[] }): JSX.Element {
-  return (
-    <ul className="mt-7 divide-y divide-[var(--border-subtle)] border-y border-[var(--border-subtle)]">
-      {items.map((item) => (
-        <li
-          key={item.cmd}
-          className="grid grid-cols-[1fr_auto] items-baseline gap-6 py-2.5 sm:grid-cols-[200px_1fr]"
-        >
-          <code className="font-mono text-[12.5px] font-bold text-accent">{item.cmd}</code>
-          <p className="text-[12.5px] font-medium text-text-secondary">{item.desc}</p>
+    <ul className="mt-6 space-y-3">
+      {items.map((t, i) => (
+        <li key={i} className="flex gap-3 text-[15px] leading-6 text-text-secondary">
+          <Check aria-hidden="true" size={18} className="mt-[3px] shrink-0 text-status-online" />
+          <span>{t}</span>
         </li>
       ))}
     </ul>
   );
 }
 
-// ─── IconStatement (open / free section) ────────────────────────────
+function Cmd({ children }: { children: React.ReactNode }): JSX.Element {
+  return <code className="rounded-md bg-bg-elevated px-1.5 py-0.5 font-mono text-[12.5px] text-text-secondary">{children}</code>;
+}
 
-function IconStatement({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}): JSX.Element {
+/** A member's rounded-square avatar, as Echoed draws them. */
+function Avatar({ name, tone }: { name: string; tone: string }): JSX.Element {
   return (
-    <div className="rounded border border-[var(--border-subtle)] bg-bg-card px-6 py-7">
-      <div className="text-text-muted">{icon}</div>
-      <h3 className="mt-5 font-sans text-[20px] font-black tracking-tight text-text-primary">
-        {title}
-      </h3>
-      <p className="mt-2 text-[14px] font-medium leading-relaxed text-text-secondary">
-        {children}
-      </p>
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold text-white" style={{ background: tone }}>
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+function BotTag(): JSX.Element {
+  return <span className="relative -top-px rounded-[3px] bg-[rgba(110,160,220,.13)] px-[5px] text-[11px] font-bold uppercase leading-4 tracking-[0.06em] text-[#8ab9e6]">Bot</span>;
+}
+
+function Msg({ name, tone, bot, time = 'Today at 21:14', children }: { name: string; tone?: string; bot?: boolean; time?: string; children: React.ReactNode }): JSX.Element {
+  return (
+    <div className="flex gap-3">
+      {bot ? <PandaMark size={36} className="shrink-0 rounded-xl" /> : <Avatar name={name} tone={tone ?? '#5865f2'} />}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[15px] font-semibold text-text-primary">{name}</span>
+          {bot ? <BotTag /> : null}
+          <span className="text-xs text-text-faint">{time}</span>
+        </div>
+        <div className="mt-0.5 text-[15px] leading-6 text-text-secondary">{children}</div>
+      </div>
     </div>
   );
 }
 
-// Inline SVGs — Lucide-style stroke icons, sized 28×28, currentColor
-// inherited from parent (text-text-muted on the section). No fills,
-// no gradients, no decorative tints — pure neutral grey, matched
-// stroke weight so the two icons read as a pair.
-
-function GithubIcon(): JSX.Element {
+/** The app window the chat mocks sit in: a channel header and a plate. */
+function ChatWindow({ channel, children, className = '' }: { channel: string; children: React.ReactNode; className?: string }): JSX.Element {
   return (
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
-      <path d="M9 18c-4.51 2-5-2-7-2" />
-    </svg>
+    <div className={`overflow-hidden rounded-2xl bg-bg-card ${className}`}>
+      <div className="flex h-12 items-center gap-2 bg-bg-input px-4">
+        <Hash aria-hidden="true" size={16} className="text-text-faint" />
+        <span className="text-sm font-semibold text-text-primary">{channel}</span>
+      </div>
+      <div className="space-y-5 p-4 sm:p-5">{children}</div>
+    </div>
   );
 }
 
-function TagIcon(): JSX.Element {
-  // Price-tag with a hash-style mark — reads as "labelled / no charge"
-  // when paired with the "Free of charge" title. Same stroke weight
-  // and corner style as GithubIcon so they read as a matched pair.
+// ── Hero ────────────────────────────────────────────────────────────────────
+
+function Hero(): JSX.Element {
   return (
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-      <line x1="7" y1="7" x2="7.01" y2="7" />
-    </svg>
+    <section className={`${wrap} grid items-center gap-12 pb-16 pt-12 md:pt-20 lg:grid-cols-[1.05fr_1fr]`}>
+      <div>
+        <Eyebrow>The bot for Echoed servers</Eyebrow>
+        <h1 className="mt-4 max-w-[13ch] font-display text-[clamp(40px,5.6vw,72px)] font-semibold leading-[1.02] tracking-[-0.045em] text-text-primary [text-wrap:balance]">
+          Your server, <span className="text-accent-text">looked after.</span>
+        </h1>
+        <p className="mt-6 max-w-[48ch] text-[clamp(17px,1.5vw,19px)] leading-[1.6] text-text-muted">
+          Panda moderates with AI on your own key, plays music in voice, levels members up, welcomes newcomers and
+          keeps a record of everything — <span className="text-text-secondary">set up from one dashboard, free, with no premium tier.</span>
+        </p>
+        <div className="mt-8 flex flex-wrap gap-2.5">
+          <Link href="#add" className="inline-flex h-12 items-center gap-2 rounded-[10px] bg-accent px-5 text-[15px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent-hover active:bg-accent-press">
+            Add Panda to your server
+            <ArrowRight aria-hidden="true" size={18} />
+          </Link>
+          <Link href="/dashboard" className="inline-flex h-12 items-center rounded-[10px] bg-bg-elevated px-5 text-[15px] font-semibold text-text-primary transition-colors duration-100 hover:bg-bg-hover">
+            Open the dashboard
+          </Link>
+        </div>
+        <p className="mt-5 text-sm text-text-faint">80 commands · 20+ features · all of it free</p>
+      </div>
+
+      {/* Panda doing the job: an AI catch, then a moderator asking in plain words. */}
+      <ChatWindow channel="general">
+        <Msg name="kai_77" tone="#3a7d5c">
+          free nitro for the first 50 people → disc0rd-gift.store/claim
+        </Msg>
+        <div className="flex items-center gap-2 rounded-xl bg-bg-input px-3 py-2 text-sm text-text-muted">
+          <ShieldCheck aria-hidden="true" size={16} className="shrink-0 text-status-online" />
+          <span>
+            <span className="text-text-secondary">@kai_77</span>, your message was removed: a scam link posing as a
+            giveaway.
+          </span>
+        </div>
+        <Msg name="mira" tone="#a8507a">
+          <span className="text-text-faint">↪ replying to kai_77 · </span>
+          <span className="font-mono text-[13.5px] text-text-primary">!panda delete everything this guy posted in the last hour and time him out for a day</span>
+        </Msg>
+        <Msg name="Panda" bot>
+          <div className="mt-1 rounded-xl bg-bg-elevated p-3.5">
+            <p className="text-sm font-semibold text-text-primary">Confirm moderation</p>
+            <ul className="mt-2 space-y-1 text-sm text-text-secondary">
+              <li>• Delete <b className="font-semibold text-text-primary">14</b> messages from <b className="font-semibold text-text-primary">kai_77</b> in this channel</li>
+              <li>• Time out <b className="font-semibold text-text-primary">kai_77</b> for 1 day — posting scam links</li>
+            </ul>
+            <p className="mt-2 text-xs text-text-faint">React ✅ to run it or ❌ to cancel. Only mira can confirm.</p>
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent-muted px-2 text-sm text-accent-text">✅ 2</span>
+            <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-bg-elevated px-2 text-sm text-text-muted">❌ 1</span>
+          </div>
+        </Msg>
+      </ChatWindow>
+    </section>
+  );
+}
+
+// ── Everything Panda does, in one line ──────────────────────────────────────
+
+const STRIP: [LucideIcon, string][] = [
+  [Sparkles, 'AI moderation'], [ShieldCheck, 'Auto-mod'], [Gavel, 'Cases & warnings'], [ScrollText, 'Server log'],
+  [Music, 'Music'], [TrendingUp, 'Levels'], [Hand, 'Welcomes'], [Tags, 'Reaction roles'], [Gift, 'Giveaways'],
+  [Star, 'Starboard'], [MessageCircleQuestionMark, 'Question of the day'], [Cake, 'Birthdays'], [Hash, 'Counting'],
+  [CalendarClock, 'Schedules'], [Bell, 'Social alerts'], [ChartColumn, 'Stat counters'],
+];
+
+function CapabilityStrip(): JSX.Element {
+  return (
+    <section id="features" className={`${wrap} scroll-mt-20 pb-6`}>
+      <ul className="flex flex-wrap gap-2">
+        {STRIP.map(([Icon, label]) => (
+          <li key={label} className="inline-flex h-9 items-center gap-2 rounded-lg bg-bg-card px-3 text-sm text-text-secondary">
+            <Icon aria-hidden="true" size={16} className="text-text-faint" />
+            {label}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// ── Feature sections ────────────────────────────────────────────────────────
+
+function Feature({ id, flip, text, visual }: { id?: string; flip?: boolean; text: React.ReactNode; visual: React.ReactNode }): JSX.Element {
+  return (
+    <section id={id} className={`${wrap} grid scroll-mt-20 items-center gap-10 py-16 md:py-24 lg:grid-cols-2 lg:gap-16`}>
+      <div className={flip ? 'lg:order-2' : ''}>{text}</div>
+      <div className={flip ? 'lg:order-1' : ''}>{visual}</div>
+    </section>
+  );
+}
+
+function AiSection(): JSX.Element {
+  return (
+    <Feature
+      id="ai"
+      text={
+        <>
+          <Eyebrow>AI moderation</Eyebrow>
+          <H2>Moderation that reads the room.</H2>
+          <Lead>
+            Big servers outgrow human moderators. Give each channel its rules in plain words and Panda judges new
+            messages against them — with the conversation before them as context, so a joke between friends isn&apos;t
+            treated like an attack.
+          </Lead>
+          <Points
+            items={[
+              <>Your own <b className="font-semibold text-text-primary">OpenRouter key and model</b>, with a daily limit you set — you&apos;re never billed by us.</>,
+              <>You choose what it may do per channel: flag, delete, warn, time out — even kick or ban, behind a higher bar and an hourly brake.</>,
+              <>Moderators ask in plain words with <Cmd>!panda</Cmd>. It shows exactly what it will do and waits for their ✅.</>,
+              <>Staff and protected roles are never judged, and every action lands in the mod-log.</>,
+            ]}
+          />
+        </>
+      }
+      visual={
+        <div className="space-y-3">
+          <div className="rounded-2xl bg-bg-card p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.085em] text-text-faint">Rules for #dev-help</p>
+            <p className="mt-2 text-[15px] leading-6 text-text-secondary">
+              Programming questions and answers only. Memes, self-promotion and off-topic chat get deleted. Be patient with
+              beginners.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-1.5 text-xs">
+              {['Reads the last 8 messages', 'May flag, delete, warn', '80% sure to act'].map((t) => (
+                <span key={t} className="rounded-md bg-bg-elevated px-2 py-1 text-text-muted">{t}</span>
+              ))}
+            </div>
+          </div>
+          <ul className="divide-y divide-[var(--border-subtle)] rounded-2xl bg-bg-card">
+            {[
+              { verdict: 'Kept', tone: 'text-status-online', msg: '“why does my useEffect run twice in dev?”', why: 'On topic' },
+              { verdict: 'Deleted', tone: 'text-accent-text', msg: '“anyone want to see my cat lol”', why: 'Off-topic for this channel' },
+              { verdict: 'Flagged', tone: 'text-status-warning', msg: '“dm me for cheap accounts”', why: 'Likely selling — a moderator should look' },
+            ].map((r) => (
+              <li key={r.msg} className="flex items-start gap-4 px-5 py-3.5">
+                <span className={`w-16 shrink-0 text-xs font-semibold uppercase tracking-[0.07em] ${r.tone}`}>{r.verdict}</span>
+                <span className="min-w-0">
+                  <span className="block text-sm text-text-secondary">{r.msg}</span>
+                  <span className="block text-xs text-text-faint">{r.why}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      }
+    />
+  );
+}
+
+function ModerationSection(): JSX.Element {
+  const cases = [
+    { n: 482, action: 'Warn', who: 'drift', why: 'Caps filter — 3rd warning in 30 days', by: 'Auto-mod' },
+    { n: 483, action: 'Timeout', who: 'drift', why: 'Reached 3 warnings · 1 hour', by: 'Escalation' },
+    { n: 484, action: 'Ban', who: 'spam_bot_91', why: 'Posting scam links', by: 'mira' },
+  ];
+  return (
+    <Feature
+      flip
+      text={
+        <>
+          <Eyebrow>Moderation</Eyebrow>
+          <H2>Every action, on the record.</H2>
+          <Lead>
+            Kick, ban, time out, warn and purge from chat — every one becomes a numbered case in your mod-log, with who
+            did it and why.
+          </Lead>
+          <Points
+            items={[
+              <>Warnings that escalate on their own: at 3 a timeout, at 5 a kick — your numbers.</>,
+              <>Auto-mod with eight filters: spam, bad words, caps, links, invites, mass mentions, emoji, zalgo.</>,
+              <>Moderator roles use the commands without platform permissions; protected roles are off-limits.</>,
+              <>Anti-raid locks the server down when joins flood in. A server log records edits, deletes, joins and leaves.</>,
+            ]}
+          />
+        </>
+      }
+      visual={
+        <div className="rounded-2xl bg-bg-card p-2">
+          <p className="px-3 pb-2 pt-2.5 text-xs font-semibold uppercase tracking-[0.085em] text-text-faint"># mod-log</p>
+          <ul className="space-y-1">
+            {cases.map((c) => (
+              <li key={c.n} className="rounded-xl bg-bg-input px-4 py-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-semibold text-text-primary">Case #{c.n}</span>
+                  <span className="rounded-md bg-bg-elevated px-1.5 text-xs font-semibold text-text-secondary">{c.action}</span>
+                  <span className="text-text-secondary">@{c.who}</span>
+                </div>
+                <p className="mt-1 text-xs text-text-faint">{c.why} · by {c.by}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      }
+    />
+  );
+}
+
+function MusicSection(): JSX.Element {
+  return (
+    <Feature
+      text={
+        <>
+          <Eyebrow>Music</Eyebrow>
+          <H2>Music that sounds like music.</H2>
+          <Lead>
+            Type <Cmd>!play</Cmd> and a song name. Panda says what it&apos;s doing while it searches and gets the track
+            ready, then keeps a live now-playing card updated in the channel.
+          </Lead>
+          <Points
+            items={[
+              <>YouTube, SoundCloud and direct links, with a queue, loop and shuffle.</>,
+              <>Stereo, and every song brought to the same loudness — without flattening its dynamics.</>,
+              <>A DJ role for skip, stop and volume; limit music to the channels you choose.</>,
+            ]}
+          />
+        </>
+      }
+      visual={
+        <div className="rounded-2xl bg-bg-card p-5">
+          <div className="flex gap-4">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#3b2a5a,#7a3b55)]">
+              <Music aria-hidden="true" size={28} className="text-white/80" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.085em] text-text-faint">Now playing</p>
+              <p className="mt-1 truncate text-[17px] font-semibold text-text-primary">Summertime Sadness</p>
+              <p className="truncate text-sm text-text-muted">Lana Del Rey · requested by mira</p>
+            </div>
+          </div>
+          <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-bg-elevated">
+            <div className="h-full w-[38%] rounded-full bg-accent" />
+          </div>
+          <div className="mt-2 flex justify-between text-xs tabular-nums text-text-faint">
+            <span>1:41</span>
+            <span>Up next: 3 in queue</span>
+            <span>4:25</span>
+          </div>
+        </div>
+      }
+    />
+  );
+}
+
+function CommunitySection(): JSX.Element {
+  const board = [
+    { name: 'tariq', lvl: 28, pct: 82, tone: '#7c5cd6' },
+    { name: 'mei', lvl: 26, pct: 64, tone: '#2f8fc9' },
+    { name: 'ash', lvl: 24, pct: 41, tone: '#3a9a6b' },
+  ];
+  return (
+    <Feature
+      flip
+      text={
+        <>
+          <Eyebrow>Community</Eyebrow>
+          <H2>Reasons to come back.</H2>
+          <Lead>
+            The small rituals that make a server feel alive — and keep it from going quiet after the first week.
+          </Lead>
+          <Points
+            items={[
+              <>Levels and XP for chatting, with roles as rewards and a leaderboard.</>,
+              <>A daily question of the day, birthday wishes with a birthday role, and a daily check-in streak.</>,
+              <>A starboard for the best messages, a counting game, giveaways and reaction roles.</>,
+              <>Welcome messages and a role for every newcomer.</>,
+            ]}
+          />
+        </>
+      }
+      visual={
+        <div className="rounded-2xl bg-bg-card p-2">
+          <p className="px-3 pb-2 pt-2.5 text-xs font-semibold uppercase tracking-[0.085em] text-text-faint">Leaderboard</p>
+          <ul className="space-y-1">
+            {board.map((m, i) => (
+              <li key={m.name} className="flex items-center gap-3 rounded-xl bg-bg-input px-3 py-2.5">
+                <span className="w-4 text-center text-sm tabular-nums text-text-faint">{i + 1}</span>
+                <Avatar name={m.name} tone={m.tone} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-text-primary">{m.name}</span>
+                    <span className="text-xs text-text-faint">level {m.lvl}</span>
+                  </div>
+                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-bg-elevated">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${m.pct}%` }} />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      }
+    />
+  );
+}
+
+// ── Everything else, as an index ────────────────────────────────────────────
+
+const EVERYTHING: { group: string; items: [string, string, string][] }[] = [
+  {
+    group: 'Automation',
+    items: [
+      ['Custom commands', 'Your own commands that reply with text you write.', '!yourcommand'],
+      ['Keywords', 'Reply automatically when someone says a phrase.', 'keyword add'],
+      ['Auto-react', 'React to every message in a channel.', 'autoreact add'],
+      ['Schedules', 'Post messages on a schedule.', 'schedule add'],
+    ],
+  },
+  {
+    group: 'Alerts',
+    items: [
+      ['Twitch', 'Post when a streamer goes live.', 'twitch follow'],
+      ['YouTube', 'Post when a channel uploads.', 'youtube follow'],
+      ['Reddit', 'Post new posts from a subreddit.', 'reddit follow'],
+    ],
+  },
+  {
+    group: 'Utilities',
+    items: [
+      ['Stat counters', 'Channel names that show member counts.', 'statcounter add'],
+      ['Temp channels', 'Channels that delete themselves when time is up.', 'tempchannel'],
+      ['Polls & suggestions', 'Quick polls and a suggestions channel.', 'poll · suggest'],
+      ['Reminders & AFK', 'Remind me later; tell people you’re away.', 'remind · afk'],
+    ],
+  },
+];
+
+function EverythingElse(): JSX.Element {
+  return (
+    <section className={`${wrap} py-16 md:py-24`}>
+      <Eyebrow>And the rest</Eyebrow>
+      <H2>Everything else, already in the box.</H2>
+      <div className="mt-10 grid gap-8 md:grid-cols-3">
+        {EVERYTHING.map((g) => (
+          <div key={g.group}>
+            <p className="mb-3 text-sm font-semibold text-text-primary">{g.group}</p>
+            <ul className="divide-y divide-[var(--border-subtle)] rounded-2xl bg-bg-card">
+              {g.items.map(([name, what, cmd]) => (
+                <li key={name} className="px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm font-medium text-text-primary">{name}</span>
+                    <span className="shrink-0 font-mono text-[11.5px] text-text-faint">{cmd}</span>
+                  </div>
+                  <p className="mt-0.5 text-[13px] leading-5 text-text-muted">{what}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <p className="mt-8 text-sm text-text-muted">
+        Every command is listed with <Cmd>!help</Cmd>, and in the{' '}
+        <Link href="/docs" className="text-text-primary underline decoration-text-faint underline-offset-[3px] hover:decoration-text-primary">
+          docs
+        </Link>
+        .
+      </p>
+    </section>
+  );
+}
+
+// ── How to add ──────────────────────────────────────────────────────────────
+
+function HowToAdd(): JSX.Element {
+  const steps: [string, React.ReactNode][] = [
+    ['Add it in Echoed', <>Open your server, then <b className="font-semibold text-text-primary">Server Settings → Bots</b>, and add Panda. You need the Manage Server permission.</>],
+    ['Log in here', <>Log in to this dashboard with your Echoed account. Servers you own where Panda is in show up straight away.</>],
+    ['Switch on what you want', <>Pick your server and turn features on — or type <Cmd>!setup</Cmd> in chat and Panda sets up daily questions, a starboard, counting and birthdays for you.</>],
+  ];
+  return (
+    <section id="add" className={`${wrap} scroll-mt-20 py-16 md:py-24`}>
+      <Eyebrow>Get started</Eyebrow>
+      <H2>Three steps, two minutes.</H2>
+      <ol className="mt-10 grid gap-3 md:grid-cols-3">
+        {steps.map(([title, body], i) => (
+          <li key={title} className="rounded-2xl bg-bg-card p-5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-bg-elevated font-display text-sm font-semibold text-text-primary">
+              {i + 1}
+            </span>
+            <p className="mt-4 text-[17px] font-semibold text-text-primary">{title}</p>
+            <p className="mt-1.5 text-[15px] leading-6 text-text-muted">{body}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function CloseBand(): JSX.Element {
+  return (
+    <section className={`${wrap} pb-8 pt-8`}>
+      <div className="flex flex-col items-start gap-6 rounded-[20px] bg-accent px-6 py-10 md:flex-row md:items-center md:justify-between md:px-12 md:py-14">
+        <div>
+          <h2 className="max-w-[18ch] font-display text-[clamp(28px,3.6vw,44px)] font-semibold leading-[1.06] tracking-[-0.04em] text-white">
+            Free. No premium tier. Ever.
+          </h2>
+          <p className="mt-3 max-w-[46ch] text-[16px] leading-6 text-white/85">
+            Every feature on this page is in Panda for every server. The code is public on GitHub.
+          </p>
+        </div>
+        <Link href="/dashboard" className="inline-flex h-12 shrink-0 items-center gap-2 rounded-[10px] bg-white px-5 text-[15px] font-semibold text-[#1a1d23] transition-opacity duration-100 hover:opacity-90">
+          Open the dashboard
+          <ArrowRight aria-hidden="true" size={18} />
+        </Link>
+      </div>
+    </section>
   );
 }

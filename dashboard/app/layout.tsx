@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'panda — moderation, leveling, and more for Echoed',
+  title: 'Panda — the bot for Echoed servers',
   description:
-    'Configurable bot for Echoed servers. Levels, moderation, auto-mod, welcome flows, reaction roles, custom commands, scheduled messages.',
+    'AI moderation on your own key, auto-mod, music, levels, welcomes, reaction roles, giveaways and more for Echoed servers — set up from one dashboard. Free, with no premium tier.',
   icons: { icon: '/favicon.ico' },
 };
 
