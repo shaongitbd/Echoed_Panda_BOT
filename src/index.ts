@@ -14,7 +14,7 @@ import { handleMemberJoined } from './welcome/onJoin.js';
 import { handleBotJoinedServer, provisionAndNotify } from './welcome/onBotJoin.js';
 import { processMessage as automodProcess } from './automod/pipeline.js';
 import { aiModerateMessage } from './ai/autoModerate.js';
-import { handlePandaReaction } from './ai/pandaCommand.js';
+import { handlePandaFollowUp, handlePandaReaction } from './ai/pandaCommand.js';
 import { handleReactionAdded, handleReactionRemoved } from './reactRoles/handler.js';
 import { processAfk } from './afk/handler.js';
 import { processJoin as antiRaidProcessJoin } from './antiRaid/detector.js';
@@ -341,6 +341,22 @@ async function main(): Promise<void> {
         log.error({ err, msgId: msg.id }, 'XP grant pipeline failed');
       }
     })();
+
+    // A moderator replying to one of !panda's answers in plain words
+    // continues that conversation. Only replies are considered, in the
+    // background; anything that isn't such a reply stops at one indexed
+    // lookup, and commands are left to the dispatcher below.
+    if (msg.replyToId) {
+      void handlePandaFollowUp(services, {
+        serverId: msg.serverId,
+        channelId: msg.channelId,
+        senderId: msg.senderId,
+        senderName: msg.author?.name ?? 'unknown',
+        messageId: msg.id,
+        rawContent: msg.content,
+        replyToId: msg.replyToId,
+      }).catch((err: unknown) => log.error({ err, msgId: msg.id }, '!panda follow-up failed'));
+    }
 
     await dispatch(
       msg.content,

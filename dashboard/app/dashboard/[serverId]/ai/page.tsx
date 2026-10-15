@@ -81,9 +81,11 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
           judges it against that channel&apos;s rules using an AI model on <strong>your own OpenRouter key</strong>.
           Moderators can also ask it for things in plain words with <code>!panda</code>, e.g. replying to a message with{' '}
           <code>!panda delete everything this person posted in the last hour</code> — Panda shows exactly what it will
-          do and waits for their ✅. They can ask it questions too — <code>!panda who spams the most here?</code> or{' '}
-          <code>!panda who said &quot;free nitro&quot; this week?</code> — and Panda counts the channel&apos;s messages per
-          person and answers, without doing anything to anyone.
+          do and waits for their ✅. They can ask it questions too — <code>!panda who spams the most here?</code> — and
+          Panda reads the last few days across the channels that moderator can see, judges each person on their own
+          recent messages (as many as the channel&apos;s &ldquo;messages read&rdquo; setting) and ranks them, without
+          doing anything to anyone. To follow up, they just reply to Panda&apos;s answer in plain words, like
+          &ldquo;time out #1 for a day&rdquo;.
         </p>
         <p className="mt-2 max-w-3xl text-sm text-text-muted">
           Messages in AI-moderated channels are sent to OpenRouter and the model provider you pick. Staff, moderator

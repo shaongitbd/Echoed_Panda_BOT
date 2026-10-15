@@ -1124,6 +1124,19 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     name: 'ai_panda_turns age index',
     sql: `CREATE INDEX IF NOT EXISTS ai_panda_turns_created ON panda.ai_panda_turns (created_at)`,
   },
+  {
+    // The message Panda answered with, so a moderator can reply to it in
+    // plain words — no `!panda` — and it reads as a follow-up.
+    name: 'ai_panda_turns reply message column',
+    sql: `ALTER TABLE panda.ai_panda_turns ADD COLUMN IF NOT EXISTS reply_message_id TEXT`,
+  },
+  {
+    // The follow-up check runs on replies in AI-moderated servers: one
+    // point lookup by the replied-to message.
+    name: 'ai_panda_turns reply message index',
+    sql: `CREATE INDEX IF NOT EXISTS ai_panda_turns_reply
+            ON panda.ai_panda_turns (reply_message_id) WHERE reply_message_id IS NOT NULL`,
+  },
 ];
 
 // Arbitrary but fixed: every instance must pick the same number for the

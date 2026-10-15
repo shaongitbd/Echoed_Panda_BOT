@@ -66,16 +66,21 @@ export async function recallTurns(key: ConversationKey): Promise<Turn[]> {
   }
 }
 
-/** Keep one exchange. Never throws. */
+/**
+ * Keep one exchange. `replyMessageId` is the message Panda answered with —
+ * replying to it continues the conversation without `!panda`. Never throws.
+ */
 export async function rememberTurn(
   key: ConversationKey & { userName: string },
   turn: Turn,
+  replyMessageId: string | null,
 ): Promise<void> {
   const people = [...turn.people].slice(0, MAX_PEOPLE).map(([id, how]) => ({ id, how: how.slice(0, 120) }));
   try {
     await pool.query(
-      `INSERT INTO panda.ai_panda_turns (server_id, channel_id, user_id, user_name, request, answer, people)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+      `INSERT INTO panda.ai_panda_turns
+         (server_id, channel_id, user_id, user_name, request, answer, people, reply_message_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
       [
         key.serverId,
         key.channelId,
@@ -84,10 +89,33 @@ export async function rememberTurn(
         turn.request.slice(0, MAX_REQUEST),
         turn.answer.slice(0, MAX_ANSWER),
         JSON.stringify(people),
+        replyMessageId,
       ],
     );
   } catch (err) {
     log.warn({ err, serverId: key.serverId }, '!panda: saving the conversation failed');
+  }
+}
+
+/**
+ * Is `messageId` an answer Panda gave THIS moderator in THIS channel within
+ * the follow-up window? Only then does their plain-text reply to it count as
+ * a request. Never throws (false on error).
+ */
+export async function isAnswerTo(key: ConversationKey, messageId: string): Promise<boolean> {
+  try {
+    const res = await pool.query(
+      `SELECT 1 FROM panda.ai_panda_turns
+        WHERE reply_message_id = $1
+          AND server_id = $2 AND channel_id = $3 AND user_id = $4
+          AND created_at > NOW() - make_interval(mins => $5)
+        LIMIT 1`,
+      [messageId, key.serverId, key.channelId, key.userId, WINDOW_MINUTES],
+    );
+    return (res.rowCount ?? 0) > 0;
+  } catch (err) {
+    log.warn({ err, serverId: key.serverId }, '!panda: follow-up lookup failed');
+    return false;
   }
 }
 
