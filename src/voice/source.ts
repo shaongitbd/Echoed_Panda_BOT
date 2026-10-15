@@ -40,6 +40,10 @@ export interface Track {
   // The user who queued this track — used for "remove your own" rules.
   requestedBy: string;
   requestedByName: string;
+  // The "Searching… / Getting it ready…" message !play posted for this
+  // track. The live card turns it into the now-playing card (or the error)
+  // instead of posting a second message; cleared once used.
+  announceMessageId?: string;
   // Eagerly download the audio to disk. Idempotent — calling multiple
   // times returns the same result. The player invokes this on the
   // next queued track during current playback so the next track's

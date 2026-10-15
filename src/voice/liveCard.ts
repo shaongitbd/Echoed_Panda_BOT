@@ -60,19 +60,29 @@ export class LiveCard {
   }
 
   private async onTrackError(track: Track, err: unknown): Promise<void> {
+    const notice = buildEmbed({
+      title: "Couldn't play this track",
+      description: `**${track.title}**\n${describePlaybackError(err)}\nSkipping to the next one.`,
+      color: COLORS.DANGER,
+      footer: `Requested by ${track.requestedByName}`,
+    });
+    // Still showing "Getting it ready…"? Then the error replaces it.
+    const announced = track.announceMessageId;
+    track.announceMessageId = undefined;
+    if (announced) {
+      try {
+        await this.api.editMessage({ serverId: this.serverId, messageId: announced, embeds: [notice] });
+        return;
+      } catch {
+        /* fall through to a new message */
+      }
+    }
     try {
       await this.api.sendMessage({
         serverId: this.serverId,
         channelId: this.textChannelId,
         content: '',
-        embeds: [
-          buildEmbed({
-            title: "Couldn't play this track",
-            description: `**${track.title}**\n${describePlaybackError(err)}\nSkipping to the next one.`,
-            color: COLORS.DANGER,
-            footer: `Requested by ${track.requestedByName}`,
-          }),
-        ],
+        embeds: [notice],
       });
     } catch (sendErr) {
       log.warn({ err: sendErr }, 'Track error notice failed to send');
@@ -88,6 +98,25 @@ export class LiveCard {
   private async onTrackStart(track: Track): Promise<void> {
     this.editsErrored = false;
     this.currentMessageId = null;
+    // The status message !play has been updating ("Searching…", "Getting it
+    // ready…") becomes the card, so the channel sees one message progress
+    // rather than a status line and then a separate card.
+    const announced = track.announceMessageId;
+    track.announceMessageId = undefined; // a loop replay posts a fresh card
+    if (announced) {
+      try {
+        await this.api.editMessage({
+          serverId: this.serverId,
+          messageId: announced,
+          embeds: [this.buildCard(track, this.player.nowPlaying())],
+        });
+        this.currentMessageId = announced;
+        this.startTicker();
+        return;
+      } catch (err) {
+        log.debug({ err }, 'Status message could not become the card — posting it instead');
+      }
+    }
     try {
       const sent = await this.api.sendMessage({
         serverId: this.serverId,

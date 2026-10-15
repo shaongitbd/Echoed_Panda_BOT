@@ -23,7 +23,7 @@
 import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { resolveQuery, type Track } from '../voice/source.js';
-import { EchoedApiError } from '../client/echoedClient.js';
+import { EchoedApiError, type Embed } from '../client/echoedClient.js';
 import { SessionLimitError } from '../voice/manager.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
@@ -258,6 +258,19 @@ export const handlePlay: Handler = async (ctx, svc) => {
     return;
   }
 
+  // Say something NOW. Searching, joining voice and downloading take several
+  // seconds, and with nothing in the channel the person who typed !play
+  // assumed it was broken and left. One message, edited as it goes:
+  // "Searching…" → "Getting it ready…" → the now-playing card (the live card
+  // adopts it via track.announceMessageId), or "Queued", or what went wrong.
+  const statusId = await postStatus(ctx, svc, buildEmbed({
+    title: URL_QUERY_RE.test(query) ? 'Looking up that link…' : 'Searching…',
+    description: URL_QUERY_RE.test(query) ? undefined : `🔍 ${clip(query, 120)}`,
+    color: COLORS.MUTED,
+    timestamp: null,
+  }));
+  const updateStatus = (embed: Embed) => updateStatusMessage(ctx, svc, statusId, embed);
+
   // Run yt-dlp resolution + LiveKit join in parallel — they're
   // independent and each costs 1-3s, so overlapping them shaves the
   // slower one off the user-perceived startup time.
@@ -298,21 +311,16 @@ export const handlePlay: Handler = async (ctx, svc) => {
     } else {
       content = "❌ Couldn't resolve that. Try a YouTube URL or a different search.";
     }
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      replyToId: ctx.messageId,
-      content,
-    });
+    await updateStatus(buildEmbed({ description: content, color: COLORS.DANGER, timestamp: null }));
     return;
   }
   if (tracks.length === 0) {
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      replyToId: ctx.messageId,
-      content: 'No matches.',
-    });
+    await updateStatus(buildEmbed({
+      title: 'No matches',
+      description: `Nothing found for ${clip(query, 120)}. Try different words or a YouTube link.`,
+      color: COLORS.WARNING,
+      timestamp: null,
+    }));
     return;
   }
 
@@ -328,31 +336,85 @@ export const handlePlay: Handler = async (ctx, svc) => {
     void Promise.all(tracks.slice(1).map((t) => t.cleanup().catch(() => undefined)));
   }
 
-  const position = session.player.enqueue(track);
   const wasIdle = !session.player.nowPlaying();
+  const trackLine = `**${track.title}**\n${track.uploader ? `by ${track.uploader} · ` : ''}${formatTime(track.durationSeconds)}`;
+
+  if (wasIdle) {
+    // Found it; now the download. Shown before enqueue/run so the card that
+    // replaces it can never be overwritten by this edit arriving late.
+    await updateStatus(buildEmbed({
+      title: 'Getting it ready…',
+      description: trackLine,
+      color: COLORS.MUTED,
+      thumbnail: track.thumbnailUrl,
+      footer: `Requested by ${ctx.senderName}`,
+      timestamp: null,
+    }));
+    // The live card turns this message into "Now playing" when it starts.
+    if (statusId) track.announceMessageId = statusId;
+  }
+
+  const position = session.player.enqueue(track);
   // Kick off the run loop if it's not already going.
   void session.player.run();
 
-  // If the queue was empty, the live "Now playing" card will fire from
-  // the trackStart hook — no need for a static embed. Just acknowledge
-  // the queue add when there's already a track playing.
+  // Something is already playing: this one waits its turn, and its own
+  // card is posted when it starts.
   if (!wasIdle) {
-    await svc.api.sendMessage({
-      serverId: ctx.serverId,
-      channelId: ctx.channelId,
-      content: '',
-      embeds: [
-        buildEmbed({
-          title: `+ Queued (#${position})`,
-          description: `**${track.title}**\n${track.uploader ? `by ${track.uploader} · ` : ''}${formatTime(track.durationSeconds)}`,
-          color: COLORS.ACCENT,
-          thumbnail: track.thumbnailUrl,
-          footer: `Requested by ${ctx.senderName}`,
-        }),
-      ],
-    });
+    await updateStatus(buildEmbed({
+      title: `+ Queued (#${position})`,
+      description: trackLine,
+      color: COLORS.ACCENT,
+      thumbnail: track.thumbnailUrl,
+      footer: `Requested by ${ctx.senderName}`,
+    }));
   }
 };
+
+const URL_QUERY_RE = /^https?:\/\//i;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+// Post the status message as a reply to the command. Null when the send
+// fails — every later step then posts its own message instead of editing.
+async function postStatus(ctx: CommandContext, svc: Services, embed: Embed): Promise<string | null> {
+  try {
+    const sent = await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: '',
+      embeds: [embed],
+    });
+    return sent.messageId;
+  } catch (err) {
+    log.warn({ err }, 'Play status message failed to send');
+    return null;
+  }
+}
+
+async function updateStatusMessage(
+  ctx: CommandContext,
+  svc: Services,
+  statusId: string | null,
+  embed: Embed,
+): Promise<void> {
+  if (statusId) {
+    try {
+      await svc.api.editMessage({ serverId: ctx.serverId, messageId: statusId, embeds: [embed] });
+      return;
+    } catch (err) {
+      log.debug({ err }, 'Play status edit failed — posting instead');
+    }
+  }
+  try {
+    await svc.api.sendMessage({ serverId: ctx.serverId, channelId: ctx.channelId, content: '', embeds: [embed] });
+  } catch (err) {
+    log.warn({ err }, 'Play status message failed to send');
+  }
+}
 
 // ─── !skip ────────────────────────────────────────────────────────────
 
