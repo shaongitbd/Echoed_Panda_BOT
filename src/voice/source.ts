@@ -87,9 +87,7 @@ export async function resolveQuery(
   // signature workaround + supports cookies for accounts that hit
   // the prompt anyway.
   const entries = await ytDlpSearch(trimmed, 5);
-  return entries.map((e) =>
-    youtubeMetaToTrack(e.meta, requestedBy, requestedByName, e.infoJsonPath),
-  );
+  return entries.map((e) => youtubeMetaToTrack(e.meta, requestedBy, requestedByName));
 }
 
 async function resolveYoutubeUrl(
@@ -108,6 +106,10 @@ interface YtDlpMeta {
   thumbnail?: string;
   uploader?: string;
   channel?: string;
+  // A flat search entry (--flat-playlist) carries these instead of
+  // webpage_url / thumbnail.
+  url?: string;
+  thumbnails?: { url?: string }[];
 }
 
 interface TrackMetadata {
@@ -141,7 +143,7 @@ function buildTrack(
     if (!downloadPromise) {
       downloadPromise = download()
         .then(async (path) => {
-          gainDb = await measureGainDb(path);
+          gainDb = await measureGainDb(path, meta.durationSeconds);
           downloadedPath = path;
           return path;
         })
@@ -194,14 +196,15 @@ function youtubeMetaToTrack(
   requestedByName: string,
   infoJsonPath?: string,
 ): Track {
-  const url = m.webpage_url ?? '';
+  const url = m.webpage_url ?? m.url ?? '';
   const track = buildTrack(
     'youtube',
     {
       title: m.title ?? '(untitled)',
       url,
       durationSeconds: typeof m.duration === 'number' ? m.duration : 0,
-      thumbnailUrl: m.thumbnail,
+      // Flat entries list thumbnails smallest first; take the largest.
+      thumbnailUrl: m.thumbnail ?? m.thumbnails?.[m.thumbnails.length - 1]?.url,
       uploader: m.uploader ?? m.channel,
       requestedBy,
       requestedByName,
@@ -490,21 +493,24 @@ const PEAK_CEILING_DBTP = -1.5;
 // floor comes up with it.
 const MAX_BOOST_DB = 12;
 const MEASURE_TIMEOUT_MS = 60_000;
+// Songs longer than this are measured from three windows rather than whole.
+const SAMPLE_WINDOW_SECONDS = 20;
+const SAMPLE_ABOVE_SECONDS = 90;
+// Windows can miss a song's loudest moment, so a BOOST from a sampled
+// measurement keeps this much more headroom. (A cut can't clip.)
+const SAMPLED_PEAK_MARGIN_DB = 2;
 
-// Measure a file's integrated loudness (EBU R128) and true peak, and return
-// the single gain that brings it to TARGET_LUFS without its peak passing
-// PEAK_CEILING_DBTP. One decode pass, ~1–3 s for a song; it runs when the
-// download finishes, so for every queued track after the first it happens
-// while the previous one is playing. Any failure means 0 dB — the track
-// plays as published rather than not at all.
-async function measureGainDb(filePath: string): Promise<number> {
-  const startedAt = Date.now();
-  const stderr = await new Promise<string | null>((resolve) => {
+interface Loudness { integrated: number; truePeak: number }
+
+// One ebur128 pass over the file, or over [start, start + window).
+function runEbur128(filePath: string, start: number | null): Promise<Loudness | null> {
+  return new Promise((resolve) => {
+    const window = start === null ? [] : ['-ss', String(start), '-t', String(SAMPLE_WINDOW_SECONDS)];
     // framelog=verbose: the per-frame readings go to a level we don't
     // print; the summary is still logged at info.
     const ff = spawn(
       'ffmpeg',
-      ['-hide_banner', '-nostats', '-i', filePath, '-vn', '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'],
+      ['-hide_banner', '-nostats', ...window, '-i', filePath, '-vn', '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'],
       { stdio: ['ignore', 'ignore', 'pipe'] },
     );
     let err = '';
@@ -514,22 +520,56 @@ async function measureGainDb(filePath: string): Promise<number> {
     });
     const timer = setTimeout(() => ff.kill('SIGKILL'), MEASURE_TIMEOUT_MS);
     ff.on('error', () => { clearTimeout(timer); resolve(null); });
-    ff.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? err : null); });
+    ff.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) { resolve(null); return; }
+      const summary = err.slice(err.lastIndexOf('Summary:'));
+      resolve({
+        integrated: Number(/I:\s+(-?[\d.]+) LUFS/.exec(summary)?.[1]),
+        truePeak: Number(/Peak:\s+(-?[\d.]+) dBFS/.exec(summary)?.[1]),
+      });
+    });
   });
-  if (!stderr) {
-    log.warn({ filePath }, 'Loudness measurement failed — playing without gain');
+}
+
+// Measure a file's integrated loudness (EBU R128) and true peak, and return
+// the single gain that brings it to TARGET_LUFS without its peak passing
+// PEAK_CEILING_DBTP. It runs when the download finishes — for every queued
+// track after the first, while the previous one plays; for the first, it is
+// part of the wait before music starts. Measuring decodes the audio, and a
+// whole song took ~3 s to decode, so a song over SAMPLE_ABOVE_SECONDS is
+// measured from three windows (early, middle, late — in parallel) instead:
+// a fraction of the decoding, with extra headroom on any boost for the peak
+// the windows might miss. Any failure means 0 dB — the track plays as
+// published rather than not at all.
+async function measureGainDb(filePath: string, durationSeconds: number): Promise<number> {
+  const startedAt = Date.now();
+  const sampled = durationSeconds > SAMPLE_ABOVE_SECONDS;
+  const starts = sampled ? [0.12, 0.48, 0.8].map((f) => Math.floor(durationSeconds * f)) : [null];
+  const results = (await Promise.all(starts.map((s) => runEbur128(filePath, s)))).filter(
+    (r): r is Loudness => r !== null,
+  );
+  // Silence measures as -70 LUFS (the gate floor); nothing to normalise.
+  const audible = results.filter((r) => Number.isFinite(r.integrated) && r.integrated > -69);
+  if (audible.length === 0) {
+    if (results.length === 0) log.warn({ filePath }, 'Loudness measurement failed — playing without gain');
     return 0;
   }
-  const summary = stderr.slice(stderr.lastIndexOf('Summary:'));
-  const integrated = Number(/I:\s+(-?[\d.]+) LUFS/.exec(summary)?.[1]);
-  const truePeak = Number(/Peak:\s+(-?[\d.]+) dBFS/.exec(summary)?.[1]);
-  // Silence measures as -70 LUFS (the gate floor); nothing to normalise.
-  if (!Number.isFinite(integrated) || integrated <= -69) return 0;
+  // Combine the windows by energy, not by averaging dB values.
+  const integrated =
+    10 * Math.log10(audible.reduce((sum, r) => sum + 10 ** (r.integrated / 10), 0) / audible.length);
+  const peaks = results.map((r) => r.truePeak).filter(Number.isFinite);
+  const truePeak = peaks.length > 0 ? Math.max(...peaks) : NaN;
+
   let gain = TARGET_LUFS - integrated;
-  if (Number.isFinite(truePeak)) gain = Math.min(gain, PEAK_CEILING_DBTP - truePeak);
+  if (Number.isFinite(truePeak)) {
+    gain = Math.min(gain, PEAK_CEILING_DBTP - truePeak - (sampled ? SAMPLED_PEAK_MARGIN_DB : 0));
+  } else {
+    gain = Math.min(gain, 0); // no peak reading: never boost blind
+  }
   gain = Math.min(gain, MAX_BOOST_DB);
   log.info(
-    { filePath, integrated, truePeak, gainDb: Number(gain.toFixed(2)), ms: Date.now() - startedAt },
+    { filePath, integrated: Number(integrated.toFixed(1)), truePeak, sampled, gainDb: Number(gain.toFixed(2)), ms: Date.now() - startedAt },
     'Loudness measured',
   );
   return gain;
@@ -723,33 +763,20 @@ async function ytDlpMetadata(
 async function ytDlpSearch(
   query: string,
   limit: number,
-): Promise<{ meta: YtDlpMeta; infoJsonPath: string }[]> {
-  // ytsearch5:<query> returns up to 5 hits. Same format-error
-  // suppression as ytDlpMetadata — search hits the same default
-  // format selector and would otherwise fail on any single
-  // unavailable result, which kills the whole search.
+): Promise<{ meta: YtDlpMeta }[]> {
+  // --flat-playlist: the result LIST only — id, title, duration, channel,
+  // watch URL and thumbnails, from one search request. Without it yt-dlp
+  // fully extracted every result (player clients, signature/JS challenge)
+  // before answering: 7.4 s for five hits vs 1.4 s flat, measured on the
+  // same query, and four of the five were thrown away. The track that
+  // actually plays is extracted once, by its download.
   const out = await runYtDlp([
     ...ytDlpBaseArgs(),
     '-J',
-    '--skip-download',
-    '--ignore-no-formats-error',
+    '--flat-playlist',
     `ytsearch${limit}:${query}`,
   ]);
   const parsed = JSON.parse(out) as { entries?: (YtDlpMeta | null)[] };
-  // --ignore-errors / no-formats-error can leave nulls in entries
-  // when a single result fails — drop them.
   const entries = (parsed.entries ?? []).filter((e): e is YtDlpMeta => e !== null);
-  // Each entry needs its own info-json file so --load-info-json
-  // works at download time. The search result JSON is one big
-  // playlist dict, so we write each entry separately.
-  return Promise.all(
-    entries.map(async (meta) => {
-      const infoJsonPath = join(
-        tmpdir(),
-        `panda-info-${randomBytes(8).toString('hex')}.json`,
-      );
-      await fs.writeFile(infoJsonPath, JSON.stringify(meta));
-      return { meta, infoJsonPath };
-    }),
-  );
+  return entries.map((meta) => ({ meta }));
 }
