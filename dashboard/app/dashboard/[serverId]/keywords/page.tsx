@@ -19,7 +19,7 @@ export default async function KeywordsPage({ params }: PageProps): Promise<JSX.E
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Keywords</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Keywords</h1>
         <p className="mt-2 text-text-secondary">
           Reply automatically when a phrase is said. First match wins per message.
         </p>
@@ -32,9 +32,9 @@ export default async function KeywordsPage({ params }: PageProps): Promise<JSX.E
         <AddKeywordForm serverId={serverId} channels={channels} />
       </FormCard>
 
-      <div className="mt-6 rounded-lg border border-[var(--border-subtle)] bg-bg-card">
+      <div className="mt-6 rounded-2xl bg-bg-card">
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-5">
-          <h2 className="font-display text-2xl tracking-tight text-text-primary">
+          <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">
             Configured rules
           </h2>
           <span className="rounded-sm bg-bg-elevated px-2 py-0.5 text-xs font-semibold text-text-muted">

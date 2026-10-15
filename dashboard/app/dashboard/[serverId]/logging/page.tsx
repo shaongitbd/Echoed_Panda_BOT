@@ -27,7 +27,7 @@ export default async function LoggingPage({ params }: PageProps): Promise<JSX.El
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Server log</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Server log</h1>
         <p className="mt-2 text-text-secondary">
           A record of what changes in your server: edited and deleted messages, and who joins,
           leaves, is kicked or banned, or changes nickname. Moderation actions taken through Panda

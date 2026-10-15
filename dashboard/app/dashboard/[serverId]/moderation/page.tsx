@@ -38,7 +38,7 @@ export default async function ModerationPage({ params }: PageProps): Promise<JSX
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Moderation</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Moderation</h1>
         <p className="mt-2 text-text-secondary">
           Mod-log routing and anti-raid protection. Kick / ban / timeout are issued from chat
           commands.

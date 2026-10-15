@@ -102,7 +102,7 @@ export default async function CommandsPage({ params }: PageProps): Promise<JSX.E
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Commands</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Commands</h1>
         <p className="mt-2 text-text-secondary">
           Turn commands off, or limit which channels and roles can use them. Rules stack: a
           command has to pass the rule for all commands, its category&apos;s rule and its own.
@@ -115,7 +115,7 @@ export default async function CommandsPage({ params }: PageProps): Promise<JSX.E
       <div className={CARD}>
         <div className="flex items-start justify-between gap-4 p-5">
           <div>
-            <h2 className="font-display text-2xl tracking-tight text-text-primary">All commands</h2>
+            <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">All commands</h2>
             <p className="mt-1 text-sm text-text-secondary">
               A rule here applies to every command, custom ones included — for example, keep the
               bot to #bot-commands.
@@ -138,7 +138,7 @@ export default async function CommandsPage({ params }: PageProps): Promise<JSX.E
           <div key={category.name} className={`${CARD} mt-6`}>
             <div className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] p-5">
               <div>
-                <h2 className="font-display text-2xl tracking-tight text-text-primary">
+                <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">
                   {category.label}
                 </h2>
                 <p className="mt-1 text-sm text-text-secondary">{category.blurb}</p>
@@ -171,7 +171,7 @@ export default async function CommandsPage({ params }: PageProps): Promise<JSX.E
       {/* ─── Custom commands ───────────────────────────────────────── */}
       <div className={`${CARD} mt-6`}>
         <div className="border-b border-[var(--border-subtle)] p-5">
-          <h2 className="font-display text-2xl tracking-tight text-text-primary">
+          <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">
             Custom commands
           </h2>
           <p className="mt-1 text-sm text-text-secondary">

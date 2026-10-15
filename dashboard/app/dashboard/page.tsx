@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Header } from '@/components/Header';
-import { Footer } from '@/components/Footer';
+import { ChevronRight, Plus } from 'lucide-react';
+import { DashboardTopBar } from '@/components/DashboardTopBar';
+import { PageHeader } from '@/components/FormCard';
+import { PandaMark } from '@/components/PandaMark';
 import { getSession } from '@/lib/auth';
 import { fetchUserinfo } from '@/lib/echoed';
 import { getBotServers } from '@/lib/botApi';
@@ -33,7 +35,7 @@ export default async function DashboardHome(): Promise<JSX.Element> {
   // Intersect "servers the user owns" with "servers the bot is in".
   // Showing the bot-less ones would let the admin save config that the
   // bot can't see — useless and confusing. The bot-less servers are
-  // surfaced separately as an "invite panda" section below the picker.
+  // surfaced separately as an "add panda" section below the picker.
   const ownedServers = user.owned_servers ?? [];
   const botServers = await getBotServers();
   const botServerIds = new Set(botServers.map((s) => s.serverId));
@@ -43,56 +45,35 @@ export default async function DashboardHome(): Promise<JSX.Element> {
 
   return (
     <>
-      <Header />
+      <DashboardTopBar user={{ name: user.name ?? user.username ?? 'You', avatarUrl: user.avatar_url ?? null }} />
 
-      <main className="mx-auto max-w-6xl px-6 pt-12 pb-24">
-        <div className="mb-10">
-          <h1 className="font-display text-5xl tracking-tight text-text-primary">
-            Pick a server
-          </h1>
-          <p className="mt-2 text-text-secondary">
-            Servers where you own and panda is already invited.
-          </p>
-        </div>
+      <main className="mx-auto max-w-5xl px-4 pb-24 pt-8 md:px-6 md:pt-12">
+        <PageHeader title="Your servers" description="Servers you own where Panda is in. Pick one to set it up." />
 
         {servers.length === 0 ? (
           <EmptyState hasInviteSuggestions={inviteSuggestions.length > 0} />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {servers.map((s) => (
-              <ServerTile
-                key={s.id}
-                id={s.id}
-                name={s.name}
-                iconUrl={s.iconUrl ?? null}
-              />
+              <ServerTile key={s.id} id={s.id} name={s.name} iconUrl={s.iconUrl ?? null} />
             ))}
           </div>
         )}
 
         {inviteSuggestions.length > 0 ? (
-          <div className="mt-12">
-            <h2 className="font-display text-2xl tracking-tight text-text-primary">
-              Invite panda to your other servers
-            </h2>
-            <p className="mt-1 mb-5 text-sm text-text-secondary">
-              These servers belong to you but panda hasn't joined yet.
+          <section className="mt-14">
+            <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">Add Panda to another server</h2>
+            <p className="mb-5 mt-1 text-sm text-text-muted">
+              You own these, but Panda isn&apos;t in them yet. In Echoed: Server Settings → Bots → add Panda.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {inviteSuggestions.map((s) => (
-                <InviteTile
-                  key={s.id}
-                  id={s.id}
-                  name={s.name}
-                  iconUrl={s.iconUrl ?? null}
-                />
+                <InviteTile key={s.id} id={s.id} name={s.name} iconUrl={s.iconUrl ?? null} />
               ))}
             </div>
-          </div>
+          </section>
         ) : null}
       </main>
-
-      <Footer />
     </>
   );
 }
@@ -103,106 +84,72 @@ interface ServerTileProps {
   iconUrl: string | null;
 }
 
+function ServerIcon({ name, iconUrl, size }: { name: string; iconUrl: string | null; size: number }): JSX.Element {
+  // Plain <img> — server icons can come from any host the operator
+  // configured (MINIO_PUBLIC_URL), and next/image requires every host to
+  // be allowlisted in next.config.mjs.
+  return iconUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={iconUrl} alt="" width={size} height={size} style={{ width: size, height: size }} className="shrink-0 rounded-xl object-cover" />
+  ) : (
+    <div
+      style={{ width: size, height: size }}
+      className="flex shrink-0 items-center justify-center rounded-xl bg-bg-elevated text-base font-semibold text-text-secondary"
+    >
+      {name.trim().charAt(0).toUpperCase() || '?'}
+    </div>
+  );
+}
+
 function ServerTile({ id, name, iconUrl }: ServerTileProps): JSX.Element {
-  // First letter of the server name as the icon fallback. Same
-  // visual treatment as the landing's sample-servers row, so the
-  // dashboard feels continuous with the marketing page.
-  const initial = name.trim().charAt(0).toUpperCase() || '?';
   return (
     <Link
       href={`/dashboard/${id}`}
-      className="group flex items-center gap-4 rounded-lg border border-[var(--border-subtle)] bg-bg-card p-5 transition-all duration-150 hover:border-accent/40 hover:bg-bg-hover"
+      className="group flex items-center gap-3.5 rounded-2xl bg-bg-card p-4 transition-colors duration-100 hover:bg-bg-elevated"
     >
-      {iconUrl ? (
-        // Plain <img> — server icons can come from any host the
-        // operator configured (MINIO_PUBLIC_URL), and next/image
-        // requires every host to be allowlisted in next.config.mjs.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={iconUrl}
-          alt=""
-          width={56}
-          height={56}
-          className="h-14 w-14 rounded-sm object-cover ring-1 ring-[var(--border-subtle)]"
-        />
-      ) : (
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-sm bg-accent-muted font-display text-2xl text-accent">
-          {initial}
-        </div>
-      )}
+      <ServerIcon name={name} iconUrl={iconUrl} size={48} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-base font-semibold text-text-primary">{name}</div>
-        <div className="text-xs text-text-muted">
-          ID: <span className="font-mono">{id.slice(0, 8)}…</span>
-        </div>
+        <div className="truncate text-[15px] font-semibold text-text-primary">{name}</div>
+        <div className="text-xs text-text-faint">Open settings</div>
       </div>
-      <span className="ml-auto text-text-muted transition-colors duration-150 group-hover:text-accent">
-        →
-      </span>
+      <ChevronRight aria-hidden="true" size={18} className="shrink-0 text-text-faint transition-transform duration-100 group-hover:translate-x-0.5 group-hover:text-text-secondary" />
     </Link>
   );
 }
 
 function EmptyState({ hasInviteSuggestions }: { hasInviteSuggestions: boolean }): JSX.Element {
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-bg-card p-12 text-center">
-      <div className="mb-4 text-5xl">🐼</div>
-      <h2 className="font-display text-3xl tracking-tight text-text-primary">
-        Panda hasn't joined any of your servers yet
-      </h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-text-secondary">
+    <div className="flex flex-col items-center rounded-2xl bg-bg-card px-6 py-12 text-center">
+      <PandaMark size={48} />
+      <h2 className="mt-5 text-lg font-semibold text-text-primary">Panda isn&apos;t in any of your servers yet</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm text-text-muted">
         {hasInviteSuggestions
-          ? 'Invite panda to one of the servers below. Once it joins, the server will appear here for you to configure.'
-          : 'You own no servers panda can join. Create a server on Echoed first — then come back and invite panda.'}
+          ? 'Add Panda to one of the servers below. Once it joins, the server shows up here to set up.'
+          : 'You don’t own a server Panda can join yet. Create one on Echoed, then add Panda from Server Settings → Bots.'}
       </p>
     </div>
   );
 }
 
-// Invite tile — visually similar to ServerTile but greyed-out and
-// links to the bot-invite flow rather than the config page.
-function InviteTile({
-  id,
-  name,
-  iconUrl,
-}: {
-  id: string;
-  name: string;
-  iconUrl: string | null;
-}): JSX.Element {
-  const initial = name.trim().charAt(0).toUpperCase() || '?';
-  // Link target is the bot invite endpoint. Once the URL-invite
-  // OAuth flow lands, swap this for `https://go.echoed.gg/oauth2/authorize?client_id=<bot-id>&scope=bot&server_id=${id}`.
+// A server Panda isn't in. Links to the server on Echoed, where Server
+// Settings → Bots adds it.
+function InviteTile({ id, name, iconUrl }: { id: string; name: string; iconUrl: string | null }): JSX.Element {
+  // Once the URL-invite OAuth flow lands, swap this for
+  // `https://go.echoed.gg/oauth2/authorize?client_id=<bot-id>&scope=bot&server_id=${id}`.
   const inviteHref = `https://echoed.gg/server/${id}?invite=panda`;
   return (
     <a
       href={inviteHref}
       target="_blank"
       rel="noreferrer"
-      className="group flex items-center gap-3 rounded-lg border border-dashed border-[var(--border-subtle)] bg-bg-card/40 p-4 transition-all duration-150 hover:border-accent/40 hover:bg-bg-hover"
+      className="group flex items-center gap-3 rounded-xl p-2.5 transition-colors duration-100 hover:bg-bg-card"
     >
-      {iconUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={iconUrl}
-          alt=""
-          width={40}
-          height={40}
-          className="h-10 w-10 rounded-sm object-cover opacity-70 ring-1 ring-[var(--border-subtle)]"
-        />
-      ) : (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-bg-elevated font-display text-base text-text-muted">
-          {initial}
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-text-secondary group-hover:text-text-primary">
-          {name}
-        </div>
-        <div className="text-[11px] uppercase tracking-wider text-text-muted">
-          Invite panda →
-        </div>
-      </div>
+      <ServerIcon name={name} iconUrl={iconUrl} size={36} />
+      <div className="min-w-0 flex-1 truncate text-sm text-text-secondary group-hover:text-text-primary">{name}</div>
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-bg-elevated px-2 py-1 text-xs font-medium text-text-secondary group-hover:text-text-primary">
+        <Plus aria-hidden="true" size={13} />
+        Add
+      </span>
     </a>
   );
 }

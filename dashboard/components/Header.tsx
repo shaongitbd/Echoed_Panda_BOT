@@ -24,7 +24,7 @@ export async function Header(): Promise<JSX.Element> {
             Docs
           </Link>
           <Link
-            href="https://github.com/shaongitbd/panda"
+            href="https://github.com/shaongitbd/Echoed_Panda_BOT"
             className="hover:text-text-primary transition-colors duration-150"
           >
             GitHub

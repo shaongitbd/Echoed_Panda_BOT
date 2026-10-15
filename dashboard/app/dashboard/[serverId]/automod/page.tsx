@@ -22,7 +22,7 @@ export default async function AutomodPage({ params }: PageProps): Promise<JSX.El
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Auto-mod</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Auto-mod</h1>
         <p className="mt-2 text-text-secondary">
           Eight filters that delete offending messages and add a warning to the user's record.
           Each filter is independently toggleable.

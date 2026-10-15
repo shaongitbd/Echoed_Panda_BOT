@@ -29,7 +29,7 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Levels</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Levels</h1>
         <p className="mt-2 text-text-secondary">
           XP per message, role rewards, level-up announcements.
         </p>
@@ -180,9 +180,9 @@ export default async function LevelsPage({ params }: PageProps): Promise<JSX.Ele
           <AddRewardForm serverId={serverId} roles={roles} />
         </FormCard>
 
-        <div className="rounded-lg border border-[var(--border-subtle)] bg-bg-card">
+        <div className="rounded-2xl bg-bg-card">
           <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-5">
-            <h2 className="font-display text-2xl tracking-tight text-text-primary">
+            <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">
               Configured rewards
             </h2>
             <span className="rounded-sm bg-bg-elevated px-2 py-0.5 text-xs font-semibold text-text-muted">

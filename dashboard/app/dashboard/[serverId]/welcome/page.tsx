@@ -22,7 +22,7 @@ export default async function WelcomePage({ params }: PageProps): Promise<JSX.El
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Welcome</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Welcome</h1>
         <p className="mt-2 text-text-secondary">
           Greet new members and assign them a starter role automatically.
         </p>

@@ -101,7 +101,7 @@ export function RolePicker(props: Props): JSX.Element {
       ) : null}
 
       <div
-        className="flex w-full cursor-text items-center rounded border border-[var(--border-subtle)] bg-bg-input px-3 py-2 transition-colors duration-150 focus-within:border-accent/50"
+        className="flex w-full cursor-text items-center rounded-lg bg-bg-input px-3 py-2 shadow-[inset_0_0_0_1px_var(--border-subtle)] transition-shadow duration-150 hover:shadow-[inset_0_0_0_1px_var(--text-faint)] focus-within:shadow-[inset_0_0_0_2px_var(--accent)]"
         onClick={() => setOpen(true)}
       >
         {props.mode === 'single' && singleSel ? (
@@ -129,7 +129,7 @@ export function RolePicker(props: Props): JSX.Element {
       </div>
 
       {open ? (
-        <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded border border-[var(--border-subtle)] bg-bg-card shadow-xl">
+        <div className="absolute left-0 right-0 z-30 mt-1.5 max-h-72 overflow-y-auto rounded-xl bg-bg-float p-1">
           {filtered.length === 0 ? (
             <div className="px-3 py-3 text-xs text-text-muted">
               {roles.length === 0 ? 'No roles in this server.' : 'No roles match.'}
@@ -146,7 +146,7 @@ export function RolePicker(props: Props): JSX.Element {
                       role="option"
                       aria-selected={selected}
                       onClick={() => selectId(r.id)}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors duration-100 ${
+                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-100 ${
                         selected
                           ? 'bg-accent-muted text-text-primary'
                           : 'text-text-primary hover:bg-bg-hover'
@@ -154,7 +154,7 @@ export function RolePicker(props: Props): JSX.Element {
                     >
                       <ColorDot color={r.color} />
                       <span className="flex-1 truncate">{r.name}</span>
-                      {selected ? <span className="text-xs text-accent">selected</span> : null}
+                      {selected ? <span className="text-xs text-accent-text">selected</span> : null}
                     </button>
                   </li>
                 );
@@ -189,7 +189,7 @@ function Chip({
 }): JSX.Element {
   const label = role?.name ?? fallbackId.slice(0, 8) + '…';
   return (
-    <span className="inline-flex items-center gap-1.5 rounded bg-bg-input px-2 py-1 text-xs text-text-primary ring-1 ring-[var(--border-subtle)]">
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-bg-elevated px-2 py-1 text-xs text-text-primary">
       <ColorDot color={role?.color} />
       <span>{label}</span>
       <button

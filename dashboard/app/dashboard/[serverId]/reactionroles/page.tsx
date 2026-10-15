@@ -20,7 +20,7 @@ export default async function ReactionRolesPage({ params }: PageProps): Promise<
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Reaction roles</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Reaction roles</h1>
         <p className="mt-2 text-text-secondary">
           Posted reaction-role messages, each with its emoji → role bindings.
         </p>
@@ -39,9 +39,9 @@ export default async function ReactionRolesPage({ params }: PageProps): Promise<
 
       <div className="mt-6 space-y-4">
         {messages.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-bg-card p-12 text-center">
+          <div className="rounded-2xl bg-bg-card p-12 text-center">
             <div className="mb-4 text-5xl">🎭</div>
-            <h2 className="font-display text-3xl tracking-tight text-text-primary">
+            <h2 className="font-display text-xl font-semibold tracking-[-0.03em] text-text-primary">
               No reaction-role messages yet
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-text-secondary">
@@ -79,7 +79,7 @@ function ReactRoleMessage({
   const modeAction = changeMode.bind(null, serverId, listing.messageId);
 
   return (
-    <article className="rounded-lg border border-[var(--border-subtle)] bg-bg-card">
+    <article className="rounded-2xl bg-bg-card">
       {/* Header: message ID + channel + mode selector */}
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-subtle)] p-5">
         <div>

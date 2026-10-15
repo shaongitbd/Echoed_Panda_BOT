@@ -22,7 +22,7 @@ export default async function MusicPage({ params }: PageProps): Promise<JSX.Elem
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Music</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Music</h1>
         <p className="mt-2 text-text-secondary">
           Voice playback &mdash; YouTube, SoundCloud, direct URLs. Plays through the channel
           panda is in. Configuration here only controls who can manage playback; the queue and

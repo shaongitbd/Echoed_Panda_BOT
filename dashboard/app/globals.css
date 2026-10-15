@@ -3,7 +3,7 @@
    the document <head> for performance. An @import must come before every
    other rule, so it sits above the @tailwind directives (Next 16's
    Turbopack refuses to build otherwise). */
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geologica:wght@300..700&family=Unbounded:wght@500..700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -11,43 +11,48 @@
 
 /* ─── Design tokens ─────────────────────────────────────────────────
    Single source of truth. Aliased into Tailwind via tailwind.config.ts
-   so utility classes like `bg-bg-card` resolve here. Match the spec
-   we agreed on for panda — Echoed family palette, panda-themed
-   bamboo green for status. */
+   so utility classes like `bg-bg-card` resolve here.
+
+   These are echoed.gg's own tokens (Echoed_Landing_Page/assets/site.css),
+   so Panda reads as part of the same family: Geologica for text, Unbounded
+   for display, one red accent that means "do this", flat plates that are
+   told apart by stepping lighter — no borders, glows or shadows. */
 :root {
-  /* Surfaces step from near-black up. Shared brand palette with
-     tempvoice.xyz — same author, same family. The surface stack is
-     deliberately dark so the crimson accent has room to actually pop;
-     a warmer-grey base would mute it. */
-  --bg-base: #18181b;
-  --bg-card: #24252b;
-  --bg-elevated: #2b2c32;
-  --bg-hover: #35353a;
-  --bg-input: #1d1e22;
+  /* Surfaces, darkest first: the page (rail), a recessed field (panel),
+     a card (plate), a raised control (plate-hi), a menu/popover (float). */
+  --bg-base: #0b0c0f;
+  --bg-input: #13151a;
+  --bg-card: #1a1d23;
+  --bg-elevated: #21252c;
+  --bg-hover: #2a2e36;
+  --bg-float: #1f232a;
 
-  /* Text — pure white at the top of the hierarchy for crisper
-     contrast on the dark surface stack, then steps down to grays. */
-  --text-primary: #ffffff;
-  --text-secondary: #b5b6bb;
-  --text-muted: #6b6c74;
+  --text-primary: #e4e6eb;
+  --text-secondary: #c6c9d0;
+  --text-muted: #959ba6;
+  --text-faint: #7e848f;
 
-  /* Accent — crimson, shared with tempvoice. Used sparingly: primary
-     CTAs and a handful of emphatic words in headlines. Anything more
-     dilute drops to `--accent-muted`. */
-  --accent: #d53254;
-  --accent-hover: #e04766;
-  --accent-muted: rgba(213, 50, 84, 0.14);
+  /* The one accent. Fills (primary buttons, the active nav mark) use
+     --accent; red TEXT uses --accent-text, which is legible on the dark
+     surfaces where the fill red is not. */
+  --accent: #dc4a50;
+  --accent-hover: #e65e63;
+  --accent-press: #c43d43;
+  --accent-text: #f08a8c;
+  --accent-muted: rgba(220, 74, 80, 0.14);
+  --accent-tint: rgba(220, 74, 80, 0.07);
   --accent-fg: #ffffff;
 
-  /* Status — bamboo green for online/live, off-the-shelf reds/yellows
-     for danger/warning. */
-  --status-online: #4ade80;
-  --status-danger: #ef4444;
-  --status-warning: #f59e0b;
+  --status-online: #3cc47f;
+  --status-danger: #e2666a;
+  --status-warning: #e0ad45;
 
-  /* Borders — always low-contrast, never harsh lines. */
-  --border-subtle: rgba(255, 255, 255, 0.06);
+  /* Lines are rare: an inset edge on fields, a hairline where a list
+     needs one. Never a box around a card. */
+  --border-subtle: rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.12);
+
+  color-scheme: dark;
 }
 
 /* ─── Base resets ───────────────────────────────────────────────────
@@ -58,7 +63,10 @@ html,
 body {
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: var(--font-sans, 'Inter'), system-ui, sans-serif;
+  font-family: 'Geologica', 'Segoe UI', system-ui, sans-serif;
+  /* Geologica's body weight on echoed.gg — lighter than 400 on dark. */
+  font-weight: 350;
+  letter-spacing: -0.004em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

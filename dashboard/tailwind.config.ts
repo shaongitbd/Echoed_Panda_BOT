@@ -14,16 +14,21 @@ const config: Config = {
           elevated: 'var(--bg-elevated)',
           hover: 'var(--bg-hover)',
           input: 'var(--bg-input)',
+          float: 'var(--bg-float)',
         },
         text: {
           primary: 'var(--text-primary)',
           secondary: 'var(--text-secondary)',
           muted: 'var(--text-muted)',
+          faint: 'var(--text-faint)',
         },
         accent: {
           DEFAULT: 'var(--accent)',
           hover: 'var(--accent-hover)',
+          press: 'var(--accent-press)',
+          text: 'var(--accent-text)',
           muted: 'var(--accent-muted)',
+          tint: 'var(--accent-tint)',
           fg: 'var(--accent-fg)',
         },
         status: {
@@ -33,18 +38,19 @@ const config: Config = {
         },
       },
       fontFamily: {
-        // Bebas Neue for hero/section heads; Inter for everything else.
-        // JetBrains Mono only for code/IDs.
-        display: ['Bebas Neue', 'system-ui', 'sans-serif'],
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        // echoed.gg's faces: Unbounded for display (page titles, hero),
+        // Geologica for everything else. JetBrains Mono for commands/IDs.
+        display: ['Unbounded', 'Geologica', 'Segoe UI', 'sans-serif'],
+        sans: ['Geologica', 'Segoe UI', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
-        // Slight rounding — sharper than default. Matches tempvoice's
-        // crisp card edges.
+        // echoed.gg's radii: controls 8, fields 10, plates 16.
         sm: '6px',
         DEFAULT: '8px',
         lg: '10px',
+        xl: '12px',
+        '2xl': '16px',
       },
       transitionTimingFunction: {
         // 100-150ms transitions per the Echoed design language.

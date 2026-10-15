@@ -35,7 +35,7 @@ export default async function NotificationsPage({ params }: PageProps): Promise<
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">Notifications</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">Notifications</h1>
         <p className="mt-2 text-text-secondary">
           External-feed alerts. The bot polls every 5 minutes — new posts go to the channel you
           pick.
@@ -158,7 +158,7 @@ function SubList({
     return <div className="text-xs text-text-muted">{empty}</div>;
   }
   return (
-    <ul className="divide-y divide-[var(--border-subtle)] rounded border border-[var(--border-subtle)] bg-bg-input/30">
+    <ul className="divide-y divide-[var(--border-subtle)] rounded-xl bg-bg-input">
       {items.map((it) => (
         <li key={it.id} className="flex items-center justify-between gap-3 p-3">
           <div className="min-w-0 flex-1 text-sm">{it.left}</div>

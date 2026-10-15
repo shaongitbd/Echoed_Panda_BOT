@@ -113,7 +113,7 @@ function Field({
 }): JSX.Element {
   return (
     <div>
-      <div className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+      <div className="mb-2 block text-xs font-semibold uppercase tracking-[0.085em] text-text-muted">
         {label}
       </div>
       {children}

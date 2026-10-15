@@ -3,17 +3,18 @@
 import { useFormStatus } from 'react-dom';
 
 // Sticky save bar at the bottom of every config form. Uses Next.js's
-// useFormStatus to disable + show pending text while the server
-// action runs. Lives outside the form's normal flow visually, but
-// inside it logically — hence type="submit".
+// useFormStatus to disable + show pending text while the server action
+// runs. A raised plate (the float surface), no border and no blur — it is
+// told apart from the page by being lighter, like every surface here.
 export function SaveBar({ label = 'Save changes' }: { label?: string }): JSX.Element {
   const { pending } = useFormStatus();
   return (
-    <div className="sticky bottom-4 z-10 mt-8 flex justify-end rounded-lg border border-[var(--border-subtle)] bg-bg-card/95 p-3 backdrop-blur">
+    <div className="sticky bottom-4 z-10 mt-6 flex items-center justify-end gap-3 rounded-xl bg-bg-float p-2.5 pl-4">
+      <span className="mr-auto text-xs text-text-faint">Changes reach the bot within a minute.</span>
       <button
         type="submit"
         disabled={pending}
-        className="rounded bg-accent px-6 py-2.5 text-sm font-semibold text-accent-fg transition-colors duration-150 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-10 rounded-lg bg-accent px-5 text-sm font-semibold text-accent-fg transition-colors duration-150 hover:bg-accent-hover active:bg-accent-press disabled:pointer-events-none disabled:opacity-50"
       >
         {pending ? 'Saving…' : label}
       </button>

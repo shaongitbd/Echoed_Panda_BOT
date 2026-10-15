@@ -137,7 +137,7 @@ export function ChannelPicker(props: Props): JSX.Element {
 
       {/* Trigger / input. Click to open; type to filter. */}
       <div
-        className="flex w-full cursor-text items-center rounded border border-[var(--border-subtle)] bg-bg-input px-3 py-2 transition-colors duration-150 focus-within:border-accent/50"
+        className="flex w-full cursor-text items-center rounded-lg bg-bg-input px-3 py-2 shadow-[inset_0_0_0_1px_var(--border-subtle)] transition-shadow duration-150 hover:shadow-[inset_0_0_0_1px_var(--text-faint)] focus-within:shadow-[inset_0_0_0_2px_var(--accent)]"
         onClick={() => setOpen(true)}
       >
         {props.mode === 'single' && singleSel ? (
@@ -168,7 +168,7 @@ export function ChannelPicker(props: Props): JSX.Element {
 
       {/* Dropdown */}
       {open ? (
-        <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded border border-[var(--border-subtle)] bg-bg-card shadow-xl">
+        <div className="absolute left-0 right-0 z-30 mt-1.5 max-h-72 overflow-y-auto rounded-xl bg-bg-float p-1">
           {filtered.length === 0 ? (
             <div className="px-3 py-3 text-xs text-text-muted">
               {channels.length === 0
@@ -187,7 +187,7 @@ export function ChannelPicker(props: Props): JSX.Element {
                       role="option"
                       aria-selected={selected}
                       onClick={() => selectId(c.id)}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors duration-100 ${
+                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-100 ${
                         selected
                           ? 'bg-accent-muted text-text-primary'
                           : 'text-text-primary hover:bg-bg-hover'
@@ -197,7 +197,7 @@ export function ChannelPicker(props: Props): JSX.Element {
                         {TYPE_ICON[c.type] ?? '#'}
                       </span>
                       <span className="flex-1 truncate">{c.name}</span>
-                      {selected ? <span className="text-xs text-accent">selected</span> : null}
+                      {selected ? <span className="text-xs text-accent-text">selected</span> : null}
                     </button>
                   </li>
                 );
@@ -222,7 +222,7 @@ function Chip({
   const icon = channel ? TYPE_ICON[channel.type] ?? '#' : '#';
   const label = channel?.name ?? fallbackId.slice(0, 8) + '…';
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-bg-input px-2 py-1 text-xs text-text-primary ring-1 ring-[var(--border-subtle)]">
+    <span className="inline-flex items-center gap-1 rounded-md bg-bg-elevated px-2 py-1 text-xs text-text-primary">
       <span className="text-text-muted">{icon}</span>
       <span>{label}</span>
       <button
@@ -251,7 +251,7 @@ function SingleSummary({
 }): JSX.Element {
   const icon = channel ? TYPE_ICON[channel.type] ?? '#' : '#';
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-bg-input px-2 py-0.5 text-sm text-text-primary ring-1 ring-[var(--border-subtle)]">
+    <span className="inline-flex items-center gap-1 rounded-md bg-bg-elevated px-2 py-0.5 text-sm text-text-primary">
       <span className="text-text-muted">{icon}</span>
       <span>{channel?.name ?? fallbackId}</span>
       {onClear ? (

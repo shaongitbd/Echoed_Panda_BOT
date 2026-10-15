@@ -67,7 +67,7 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">AI moderation</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">AI moderation</h1>
         <p className="mt-2 max-w-3xl text-text-secondary">
           Panda reads each new message in the channels you choose, with a few messages before it for context, and
           judges it against that channel&apos;s rules using an AI model on <strong>your own OpenRouter key</strong>.
@@ -82,7 +82,7 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
       </div>
 
       {!ready ? (
-        <p className="mb-6 rounded border border-[var(--border-subtle)] bg-bg-card p-4 text-sm text-text-secondary">
+        <p className="mb-6 rounded-xl bg-bg-card p-4 text-sm text-text-secondary">
           {ERRORS.unavailable}
         </p>
       ) : null}
@@ -92,7 +92,7 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
         </p>
       ) : null}
       {saved ? (
-        <p role="status" className="mb-6 rounded border border-[var(--border-subtle)] bg-bg-card p-4 text-sm text-text-primary">
+        <p role="status" className="mb-6 rounded-xl bg-bg-card p-4 text-sm text-text-primary">
           {saved}
         </p>
       ) : null}
@@ -170,7 +170,7 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
 
       {/* ─── Channels ───────────────────────────────────────────── */}
       <div className="mb-6 mt-14">
-        <h2 className="font-display text-3xl tracking-tight text-text-primary">Channels</h2>
+        <h2 className="font-display text-xl font-semibold tracking-[-0.03em] text-text-primary">Channels</h2>
         <p className="mt-2 max-w-3xl text-text-secondary">
           The AI only judges channels listed here. Give each one its rules in plain words — e.g. &ldquo;Only programming
           talk. Memes and off-topic chat get deleted.&rdquo; Admins can also set them in the channel with{' '}

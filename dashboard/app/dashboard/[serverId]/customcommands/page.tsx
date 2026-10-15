@@ -26,7 +26,7 @@ export default async function CustomCommandsPage({ params }: PageProps): Promise
   return (
     <div>
       <div className="mb-10">
-        <h1 className="font-display text-5xl tracking-tight text-text-primary">
+        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.035em] text-text-primary sm:text-[32px]">
           Custom commands
         </h1>
         <p className="mt-2 text-text-secondary">
@@ -42,9 +42,9 @@ export default async function CustomCommandsPage({ params }: PageProps): Promise
         <AddCommandForm serverId={serverId} userId={userId} />
       </FormCard>
 
-      <div className="mt-6 rounded-lg border border-[var(--border-subtle)] bg-bg-card">
+      <div className="mt-6 rounded-2xl bg-bg-card">
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-5">
-          <h2 className="font-display text-2xl tracking-tight text-text-primary">
+          <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">
             Existing commands
           </h2>
           <span className="rounded-sm bg-bg-elevated px-2 py-0.5 text-xs font-semibold text-text-muted">
@@ -55,7 +55,7 @@ export default async function CustomCommandsPage({ params }: PageProps): Promise
         {commands.length === 0 ? (
           <div className="p-12 text-center">
             <div className="mb-4 text-5xl">💬</div>
-            <h3 className="font-display text-2xl tracking-tight text-text-primary">
+            <h3 className="text-lg font-semibold tracking-[-0.01em] text-text-primary">
               No custom commands yet
             </h3>
             <p className="mx-auto mt-2 max-w-md text-sm text-text-secondary">
