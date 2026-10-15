@@ -78,5 +78,11 @@ short — 60s typical).
 
 ## License
 
-MIT.
+**Source-available, not open source.** Copyright © 2026 Echoed Labs LLC.
+
+You may use, run and modify this code only to operate Panda on
+[Echoed](https://echoed.gg) or to develop bots and apps for Echoed. Any other
+use — including commercial use, or any use on or for another platform such as
+Discord — needs a separate paid license, and derivative works for other
+platforms are not allowed. See [LICENSE](LICENSE) for the full terms.
 "# Echoed_Panda_BOT" 

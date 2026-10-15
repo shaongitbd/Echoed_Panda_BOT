@@ -2,6 +2,7 @@
   "name": "panda-dashboard",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN ../LICENSE",
   "scripts": {
     "dev": "next dev -p 3030",
     "build": "next build && cp -r public .next/standalone/ 2>/dev/null || true && cp -r .next/static .next/standalone/.next/static",

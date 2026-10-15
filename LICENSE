@@ -1,0 +1,130 @@
+Panda Source-Available License
+Version 1.0, October 2026
+
+Copyright (c) 2026 Echoed Labs LLC, a Wyoming limited liability company.
+All rights reserved.
+
+This repository contains the source code of Panda, a bot and web dashboard
+built for the Echoed platform (https://echoed.gg), together with its
+documentation, assets and any other files in it (the "Software").
+
+The Software is SOURCE-AVAILABLE, NOT OPEN SOURCE. Its source is published so
+that the Echoed community can read it, audit it and help improve it. It is
+not licensed for any other purpose. By obtaining, copying, running or
+modifying the Software you agree to the terms below. If you do not agree, you
+may not use the Software in any way.
+
+1. DEFINITIONS
+
+   "Licensor" means Echoed Labs LLC and its successors and assigns.
+
+   "Echoed" means the Echoed communication platform operated by or on behalf
+   of the Licensor, including its websites, applications and APIs.
+
+   "Permitted Purpose" means only:
+     (a) operating, hosting, testing or improving Panda as a bot and dashboard
+         for servers on Echoed; and
+     (b) developing, testing or maintaining bots, integrations or other
+         applications that run on, or connect only to, Echoed.
+
+   "Derivative Work" means any work that is based on, derived from, or
+   incorporates the Software or any substantial part of it, including any
+   modification, translation, port, adaptation, or a work that reproduces
+   its code, structure, sequence and organization, or user interface.
+
+   "Other Platform" means any chat, community, communication, social or
+   gaming platform or service other than Echoed (including, without
+   limitation, Discord, Slack, Telegram, Guilded, Revolt, Matrix, Teams,
+   Twitch chat and any self-hosted or competing service).
+
+2. LIMITED GRANT
+
+   Subject to your continued compliance with this License, the Licensor
+   grants you a personal, worldwide, non-exclusive, non-transferable,
+   non-sublicensable, revocable, royalty-free license to view, copy, run and
+   modify the Software solely for the Permitted Purpose.
+
+3. RESTRICTIONS
+
+   Except as expressly permitted in Section 2, you may not, and may not allow
+   anyone else to:
+
+   (a) use the Software, or any Derivative Work, for any purpose other than
+       the Permitted Purpose;
+   (b) use, deploy, run, port, adapt or offer the Software, or any Derivative
+       Work, on or for any Other Platform, in whole or in part;
+   (c) create, publish or distribute any Derivative Work, except
+       modifications made and used solely for the Permitted Purpose;
+   (d) sell, license, sublicense, rent, lease, lend or otherwise commercially
+       exploit the Software or any Derivative Work, or provide it to third
+       parties as a hosted or managed service, except as part of operating
+       Panda on Echoed with the Licensor's permission;
+   (e) redistribute, publish or make available the Software or any Derivative
+       Work outside this repository and its forks on the same hosting service
+       made for the purpose of contributing back to it;
+   (f) remove, alter or obscure this License, or any copyright, trademark or
+       other notice in the Software; or
+   (g) use the Software, or any part of it, to train, fine-tune or evaluate
+       machine-learning models intended to reproduce or replace it.
+
+4. ANY OTHER USE REQUIRES A PAID LICENSE
+
+   Any use of the Software that is not the Permitted Purpose — including any
+   commercial use, any use on or for an Other Platform, and any Derivative
+   Work outside the Permitted Purpose — is not licensed under this License
+   and requires a separate, written, paid commercial license from the
+   Licensor. Such a license may be granted or refused at the Licensor's sole
+   discretion. To ask for one, contact the Licensor through
+   https://echoed.gg.
+
+5. CONTRIBUTIONS
+
+   Unless agreed otherwise in writing, by submitting a contribution (for
+   example a pull request, patch or issue containing code) to this
+   repository, you grant the Licensor a perpetual, worldwide, irrevocable,
+   royalty-free, transferable and sublicensable license to use, reproduce,
+   modify, distribute and license your contribution under any terms, and you
+   confirm that you have the right to grant it.
+
+6. TRADEMARKS
+
+   This License grants no rights to the names "Panda", "Echoed" or "Echoed
+   Labs", or to any logo or trademark of the Licensor, except as needed to
+   describe the origin of the Software.
+
+7. THIRD-PARTY COMPONENTS
+
+   Third-party libraries and files included with or used by the Software
+   remain under their own licenses. Nothing in this License restricts your
+   rights under those licenses for those components.
+
+8. TERMINATION
+
+   This License terminates automatically and immediately if you breach any of
+   its terms. On termination you must stop all use of the Software and of any
+   Derivative Work and destroy all copies in your possession or control. The
+   Licensor may also revoke this License for any person at any time by
+   notice. Sections 3, 4, 5, 6, 8, 9 and 10 survive termination.
+
+9. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT.
+
+10. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL THE LICENSOR OR
+   ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+   OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+11. GENERAL
+
+   This License is governed by the laws of the State of Wyoming, United
+   States, without regard to its conflict-of-laws rules. If any provision is
+   held unenforceable, the remaining provisions remain in full effect. The
+   Licensor's failure to enforce any provision is not a waiver of it. This
+   License is the entire agreement between you and the Licensor about the
+   Software, unless a separate written license says otherwise.
