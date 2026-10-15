@@ -16,8 +16,7 @@ export async function Header(): Promise<JSX.Element> {
           <PandaLogo />
         </Link>
         <nav className="hidden items-center gap-1 md:flex">
-          <Link href="/#features" className={link}>Features</Link>
-          <Link href="/#ai" className={link}>AI moderation</Link>
+          <Link href="/#tour" className={link}>Look around</Link>
           <Link href="/docs" className={link}>Docs</Link>
         </nav>
         <div className="ml-auto flex items-center gap-2">

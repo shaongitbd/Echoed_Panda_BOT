@@ -14,7 +14,7 @@ export function Footer(): JSX.Element {
           <Link href="/docs" className={link}>Docs</Link>
           <Link href="/privacy" className={link}>Privacy</Link>
           <Link href="/terms" className={link}>Terms</Link>
-          <a href="https://github.com/shaongitbd/Echoed_Panda_BOT" className={link}>Code on GitHub</a>
+          <a href="https://github.com/shaongitbd/Echoed_Panda_BOT/blob/main/LICENSE" className={link}>Source &amp; licence</a>
           <a href="https://echoed.gg" className={link}>Echoed</a>
         </nav>
       </div>

@@ -83,6 +83,12 @@ body {
   border-radius: 8px;
 }
 
+/* A channel opening in the homepage's server tour: a short settle, once. */
+@keyframes tourIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
 ::selection {
   background: var(--accent-muted);
   color: var(--text-primary);
