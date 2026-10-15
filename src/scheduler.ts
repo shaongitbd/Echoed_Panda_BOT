@@ -11,6 +11,7 @@ import { schedMsgTick } from './schedMsg/tick.js';
 import { qotdTick } from './qotd/tick.js';
 import { birthdayTick } from './birthday/tick.js';
 import { restoreLapsedLockdowns } from './antiRaid/detector.js';
+import { pruneTurns } from './ai/conversation.js';
 import { log } from './log.js';
 
 // How often we consider whether anything is due. Individual branches have
@@ -76,6 +77,9 @@ function buildBranches(
     // without this a server that tripped anti-raid once stays at the
     // elevated join bar forever.
     mk('lockdownRestore', 120_000, () => restoreLapsedLockdowns(api)),
+
+    // Housekeeping: !panda conversation turns past retention, in batches.
+    mk('aiConversationPrune', 600_000, () => pruneTurns()),
 
     // Third-party polls. Separate branches so one provider being slow or
     // unreachable doesn't hold up the others.

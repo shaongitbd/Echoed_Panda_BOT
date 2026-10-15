@@ -1091,6 +1091,39 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     name: 'ai_mod_actions recent index',
     sql: `CREATE INDEX IF NOT EXISTS ai_mod_actions_server_time ON panda.ai_mod_actions (server_id, created_at DESC)`,
   },
+  {
+    // A moderator's recent exchanges with `!panda` in one channel, so a
+    // follow-up can refer back ("ban #1", "time him out"). One row per
+    // exchange, scoped to server + channel + moderator; `people` holds the
+    // exact ids Panda's answer named, so a follow-up never maps a display
+    // name back to an account. Short-lived: read back for 30 minutes,
+    // deleted after 2 hours by the scheduler's `aiConversationPrune`.
+    name: 'ai_panda_turns table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.ai_panda_turns (
+        id          BIGSERIAL PRIMARY KEY,
+        server_id   TEXT NOT NULL,
+        channel_id  TEXT NOT NULL,
+        user_id     TEXT NOT NULL,
+        user_name   TEXT NOT NULL DEFAULT '',
+        request     TEXT NOT NULL,
+        answer      TEXT NOT NULL,
+        people      JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+  },
+  {
+    // The read: one moderator's newest turns in one channel.
+    name: 'ai_panda_turns conversation index',
+    sql: `CREATE INDEX IF NOT EXISTS ai_panda_turns_convo
+            ON panda.ai_panda_turns (server_id, channel_id, user_id, created_at DESC)`,
+  },
+  {
+    // The prune: oldest rows first.
+    name: 'ai_panda_turns age index',
+    sql: `CREATE INDEX IF NOT EXISTS ai_panda_turns_created ON panda.ai_panda_turns (created_at)`,
+  },
 ];
 
 // Arbitrary but fixed: every instance must pick the same number for the
