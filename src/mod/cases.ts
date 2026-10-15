@@ -157,3 +157,20 @@ export async function listCasesForUser(
   ]);
   return { cases: rows.rows.map(rowToCase), total: Number(count.rows[0]?.count ?? 0) };
 }
+
+/**
+ * The server's newest cases from the last `hours`, newest first — for the
+ * !panda agent's "what's been happening" questions. Walks the primary key
+ * (server_id, case_number) backwards, so it reads only the rows it returns.
+ */
+export async function listRecentCases(serverId: string, hours: number, limit = 30): Promise<ModCase[]> {
+  const cap = Math.min(Math.max(1, limit), 100);
+  const res = await pool.query<Row>(
+    `SELECT ${COLS} FROM panda.mod_cases
+      WHERE server_id = $1 AND created_at > NOW() - make_interval(hours => $2)
+      ORDER BY case_number DESC
+      LIMIT $3`,
+    [serverId, Math.max(1, Math.round(hours)), cap],
+  );
+  return res.rows.map(rowToCase);
+}

@@ -31,7 +31,15 @@ import { escapeMentions } from '../client/text.js';
 import { formatDuration, MAX_TIMEOUT_SECONDS } from '../mod/duration.js';
 import { isShielded } from '../mod/authority.js';
 import { countWarnings, listWarnings } from '../mod/warnings.js';
-import { listCasesForUser } from '../mod/cases.js';
+import { listCasesForUser, listRecentCases } from '../mod/cases.js';
+import { getBirthday, getBirthdayConfig, upcoming } from '../birthday/store.js';
+import { getLeaderboard, getUserRank, getUserXp } from '../levels/grant.js';
+import { getGuildConfig } from '../db/guildConfig.js';
+import { getQotdConfig } from '../qotd/store.js';
+import { getStarboardConfig } from '../starboard/store.js';
+import { getCountingConfig } from '../counting/store.js';
+import { listActive as listActiveGiveaways } from '../giveaways/store.js';
+import { listForServer as listSchedules } from '../schedMsg/store.js';
 import { log } from '../log.js';
 import { completeWithTools, type AgentMessage, type ToolCall, type ToolSpec } from './openrouter.js';
 import { claimDailyCheck } from './usage.js';
@@ -93,6 +101,8 @@ class Run {
   /** Message ids tools returned → where and by whom (rule 3). */
   readonly messages = new Map<string, { channelId: string; authorId: string }>();
   proposal: Proposal | null = null;
+  /** Every channel's name (for naming channels in Panda's own records — not for reading them). */
+  readonly allNames = new Map<string, string>();
   private readable: Map<string, string> | null = null;
   private lastProgress = '';
 
@@ -126,6 +136,7 @@ class Run {
     } catch (err) {
       log.warn({ err, serverId }, '!panda agent: listing channels failed');
     }
+    for (const c of listed) this.allNames.set(c.id, c.name);
     const text = listed.filter((c) => c.type === 'text' && this.input.aiChannels.has(c.id));
     const ok = new Set<string>();
     await eachLimited(text, 4, async (c) => {
@@ -285,8 +296,52 @@ const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: 'birthdays',
+    description:
+      'Panda\'s birthday list (members add theirs with "!birthday set MM-DD"): upcoming birthdays and how birthday ' +
+      'posts are set up. Covers the whole server.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { days: { type: 'number', description: 'How many days ahead (default 30, max 366).' } },
+    },
+  },
+  {
+    name: 'levels',
+    description: 'Panda\'s XP levels: the leaderboard, or one member\'s level and rank. Covers the whole server.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        user_id: { type: 'string', description: 'One member (an id from a tool result or the request); omit for the leaderboard.' },
+        top: { type: 'number', description: 'Leaderboard length (default 10, max 25).' },
+      },
+    },
+  },
+  {
+    name: 'recent_moderation',
+    description:
+      'Panda\'s moderation log (cases): warnings, timeouts, kicks, bans, purges — who, by whom, why, when. ' +
+      'Server-wide, or one member\'s history.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        hours: { type: 'number', description: 'How far back (default 168 = a week, max 720). Ignored with user_id.' },
+        user_id: { type: 'string', description: 'Only this member\'s cases (all time).' },
+      },
+    },
+  },
+  {
+    name: 'panda_setup',
+    description:
+      'How Panda is set up on this server: prefix, mod-log, welcome, auto-role, anti-raid, AI moderation, birthday ' +
+      'posts, question of the day, starboard, counting (with the current count), active giveaways and scheduled messages.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'member_info',
-    description: 'One member: account age, whether they are staff/protected, their warnings and past moderation cases.',
+    description: 'One member: account age, whether they are staff/protected, warnings, past moderation cases, level and birthday.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -345,6 +400,10 @@ async function runTool(run: Run, call: ToolCall): Promise<ToolResult> {
       case 'search_messages': return await searchTool(run, args);
       case 'read_messages': return await readTool(run, args);
       case 'member_info': return await memberTool(run, args);
+      case 'birthdays': return await birthdaysTool(run, args);
+      case 'levels': return await levelsTool(run, args);
+      case 'recent_moderation': return await moderationTool(run, args);
+      case 'panda_setup': return await setupTool(run);
       case 'propose_actions': return await proposeTool(run, args);
       default: return { error: `There is no tool called ${call.name}.` };
     }
@@ -493,23 +552,159 @@ async function memberTool(run: Run, args: Record<string, unknown>): Promise<Tool
   if (!run.users.has(userId)) return { error: 'Use a user id from an earlier tool result or the request.' };
   const { serverId } = run.ctx;
   await run.progress(`🔎 Checking ${run.users.get(userId)}…`);
-  const [profile, staff, warnings, warningList, cases] = await Promise.all([
+  const [profile, staff, warnings, warningList, cases, xp, rank, birthday] = await Promise.all([
     run.svc.api.getMemberProfile(serverId, userId).catch(() => null),
     isShielded(run.svc.api, run.svc.perms, serverId, userId).catch(() => false),
     countWarnings(serverId, userId).catch(() => 0),
     listWarnings(serverId, userId, 5).catch(() => []),
     listCasesForUser(serverId, userId, 5).catch(() => ({ cases: [], total: 0 })),
+    getUserXp(serverId, userId).catch(() => null),
+    getUserRank(serverId, userId).catch(() => null),
+    getBirthday(serverId, userId).catch(() => null),
   ]);
   return {
     user_id: userId,
     name: profile?.displayName || profile?.username || run.users.get(userId),
     account_age_days: profile ? Math.floor(profile.accountAgeSeconds / 86_400) : null,
     staff_or_protected: staff,
+    level: xp ? { level: xp.level, total_xp: xp.totalXp, rank } : null,
+    birthday: birthday ? `${MONTHS[birthday.month - 1]} ${birthday.day}` : null,
     warnings: { total: warnings, recent: warningList.map((w) => ({ reason: w.reason ?? '', at: ago(w.createdAt.getTime()) })) },
     moderation_cases: {
       total: cases.total,
       recent: cases.cases.map((c) => ({ action: c.action, reason: c.reason ?? '', at: ago(c.createdAt.getTime()) })),
     },
+  };
+}
+
+// ── Panda's own records (not chat messages — they cover the whole server) ──
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Display names for ids from Panda's records; each one becomes someone the agent may refer to. */
+async function names(run: Run, ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const found = await resolveUsers(run.svc.api, run.ctx.serverId, unique).catch(() => new Map<string, string>());
+  for (const id of unique) run.remember(id, found.get(id) ?? run.users.get(id) ?? 'unknown');
+  return found;
+}
+
+const channelLabel = (run: Run, id: string | null): string | null => (id ? `#${run.allNames.get(id) ?? 'deleted-channel'}` : null);
+
+async function birthdaysTool(run: Run, args: Record<string, unknown>): Promise<ToolResult> {
+  await run.progress('🔎 Checking birthdays…');
+  await run.channels(); // fills allNames
+  const days = num(args.days, 30, 1, 366);
+  const now = new Date();
+  const [list, cfg] = await Promise.all([
+    upcoming(run.ctx.serverId, now.getUTCMonth() + 1, now.getUTCDate(), 400),
+    getBirthdayConfig(run.ctx.serverId),
+  ]);
+  const soon = list.filter((b) => b.daysAway <= days).slice(0, 40);
+  const who = await names(run, soon.map((b) => b.userId));
+  return {
+    today_utc: now.toISOString().slice(0, 10),
+    members_with_a_birthday_saved: list.length,
+    later_than_that: list.filter((b) => b.daysAway > days).length,
+    upcoming: soon.map((b) => ({
+      user_id: b.userId,
+      name: who.get(b.userId) ?? 'unknown',
+      date: `${MONTHS[b.month - 1]} ${b.day}`,
+      in_days: b.daysAway,
+    })),
+    birthday_posts: cfg.enabled
+      ? { channel: channelLabel(run, cfg.channelId), time_utc: cfg.dailyTime, gives_a_role: cfg.roleId !== null }
+      : 'off',
+    how_members_add_theirs: `${run.ctx.prefix}birthday set MM-DD`,
+  };
+}
+
+async function levelsTool(run: Run, args: Record<string, unknown>): Promise<ToolResult> {
+  const { serverId } = run.ctx;
+  const userId = str(args.user_id, 64);
+  if (userId) {
+    if (!run.users.has(userId)) return { error: 'Use a user id from an earlier tool result or the request.' };
+    await run.progress(`🔎 Checking ${run.users.get(userId)}'s level…`);
+    const [xp, rank] = await Promise.all([getUserXp(serverId, userId), getUserRank(serverId, userId)]);
+    return xp
+      ? { user_id: userId, name: run.users.get(userId), level: xp.level, total_xp: xp.totalXp, rank }
+      : { user_id: userId, name: run.users.get(userId), note: 'No XP yet.' };
+  }
+  await run.progress('🔎 Checking the leaderboard…');
+  const board = await getLeaderboard(serverId, num(args.top, 10, 1, 25));
+  const who = await names(run, board.map((e) => e.userId));
+  return {
+    leaderboard: board.map((e) => ({ rank: e.rank, user_id: e.userId, name: who.get(e.userId) ?? 'unknown', level: e.level, total_xp: e.totalXp })),
+  };
+}
+
+async function moderationTool(run: Run, args: Record<string, unknown>): Promise<ToolResult> {
+  const { serverId } = run.ctx;
+  await run.channels(); // fills allNames
+  const userId = str(args.user_id, 64);
+  if (userId && !run.users.has(userId)) return { error: 'Use a user id from an earlier tool result or the request.' };
+  await run.progress(userId ? `🔎 Checking ${run.users.get(userId)}'s record…` : '🔎 Checking the moderation log…');
+  const hours = num(args.hours, 168, 1, MAX_LOOKBACK_HOURS);
+  const cases = userId
+    ? (await listCasesForUser(serverId, userId, 30)).cases
+    : await listRecentCases(serverId, hours, 40);
+  const who = await names(run, cases.flatMap((c) => [c.targetId ?? '', c.actorId]));
+  return {
+    ...(userId ? { member: run.users.get(userId) } : { period_hours: hours }),
+    cases: cases.map((c) => ({
+      case: c.caseNumber,
+      action: c.action,
+      ...(c.targetId ? { member: who.get(c.targetId) ?? 'unknown', member_id: c.targetId } : {}),
+      by: c.actorId === run.svc.botUserId ? 'Panda (automatic)' : who.get(c.actorId) ?? 'unknown',
+      ...(c.targetChannelId ? { channel: channelLabel(run, c.targetChannelId) } : {}),
+      reason: c.reason ?? '',
+      ...(c.extra ? { detail: c.extra } : {}),
+      at: ago(c.createdAt.getTime()),
+    })),
+  };
+}
+
+async function setupTool(run: Run): Promise<ToolResult> {
+  const { serverId } = run.ctx;
+  await run.progress('🔎 Checking how Panda is set up…');
+  const readable = await run.channels();
+  const [guild, bday, qotd, star, counting, giveaways, schedules] = await Promise.all([
+    getGuildConfig(serverId),
+    getBirthdayConfig(serverId),
+    getQotdConfig(serverId),
+    getStarboardConfig(serverId),
+    getCountingConfig(serverId),
+    listActiveGiveaways(serverId).catch(() => []),
+    listSchedules(serverId).catch(() => []),
+  ]);
+  const ai = run.input.aiChannels;
+  return {
+    prefix: guild.prefix ?? run.ctx.prefix,
+    mod_log: channelLabel(run, guild.modlogChannel) ?? 'not set',
+    welcome: guild.welcomeChannel ? { channel: channelLabel(run, guild.welcomeChannel), message: guild.welcomeMessage ?? 'default' } : 'off',
+    auto_role: guild.autoroleId ? 'on' : 'off',
+    anti_raid: guild.antiRaidEnabled ? `on (${guild.antiRaidThreshold} joins in ${guild.antiRaidWindowSeconds}s)` : 'off',
+    ai_moderation: ai.all
+      ? `every channel, except ones switched off (I can read: ${[...readable.values()].map((n) => `#${n}`).join(', ') || 'none'})`
+      : `${[...readable.values()].map((n) => `#${n}`).join(', ') || 'no channels'} (the ones you can read)`,
+    birthday_posts: bday.enabled ? `${channelLabel(run, bday.channelId)} at ${bday.dailyTime} UTC` : 'off',
+    question_of_the_day: qotd.enabled ? `${channelLabel(run, qotd.channelId)} at ${qotd.dailyTime} UTC` : 'off',
+    starboard: star.enabled ? `${channelLabel(run, star.channelId)}, ${star.threshold} × ${star.emoji}` : 'off',
+    counting: counting.enabled
+      ? `${channelLabel(run, counting.channelId)} — at ${counting.currentCount}, best ${counting.highScore}${counting.resetOnFail ? ', resets on a mistake' : ''}`
+      : 'off',
+    active_giveaways: giveaways.slice(0, 10).map((g) => ({
+      prize: g.prize.slice(0, 100),
+      winners: g.winnerCount,
+      channel: channelLabel(run, g.channelId),
+      ends: `in ${formatDuration(Math.max(60, Math.round((g.endAt.getTime() - Date.now()) / 1000)))}`,
+    })),
+    scheduled_messages: schedules.slice(0, 10).map((s) => ({
+      channel: channelLabel(run, s.channelId),
+      next: `in ${formatDuration(Math.max(60, Math.round((s.nextRunAt.getTime() - Date.now()) / 1000)))}`,
+      repeats: s.kind,
+      text: s.message.slice(0, 120),
+    })),
   };
 }
 
@@ -610,8 +805,14 @@ function systemPrompt(run: Run, channelName: string, readable: string[]): string
     'You are Panda, the moderation assistant bot in an Echoed chat server. A moderator is talking to you in',
     `#${channelName}. Now: ${new Date().toISOString()}.`,
     '',
-    `You can only see the channels where the owner switched AI moderation on: ${readable.length > 0 ? readable.map((n) => `#${n}`).join(', ') : 'none'}.`,
-    'Never imply you checked anything else; if the question needs another channel, say it isn\'t AI-moderated.',
+    `Chat MESSAGES: you can only read channels where the owner switched AI moderation on: ${readable.length > 0 ? readable.map((n) => `#${n}`).join(', ') : 'none'}.`,
+    'Never imply you read messages anywhere else; if a question needs another channel\'s messages, say it isn\'t AI-moderated.',
+    '',
+    'Panda\'s OWN RECORDS cover the whole server and are not chat messages — use them first when the question is',
+    'about them: birthdays (who has one coming up), levels (XP leaderboard, someone\'s level), recent_moderation',
+    '(who was warned/timed out/kicked/banned, by whom, why), panda_setup (how Panda is configured: mod-log,',
+    'welcome, counting, starboard, QOTD, giveaways, scheduled messages), member_info (one person, everything).',
+    'Don\'t search chat for something Panda keeps a record of.',
     'Names can be written in fancy Unicode (𝐧𝟑𝐛𝐮𝐥𝐚); "plain" fields give the plain form (n3bula) to match on,',
     'and search_messages can find someone by name.',
     '',

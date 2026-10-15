@@ -86,7 +86,8 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
           Moderators can also talk to it with <code>!panda</code> — <code>!panda who spams the most here?</code>,{' '}
           <code>!panda what happened in #general last night?</code>, or replying to a message with{' '}
           <code>!panda delete everything this person posted today</code>. Panda looks through the channels that
-          moderator can read, checks people&apos;s history, and answers; anything it would do is shown first and waits
+          moderator can read (only AI-moderated ones), plus Panda&apos;s own records — birthdays, levels, the moderation
+          log, how Panda is set up — and answers; anything it would do is shown first and waits
           for their ✅. To follow up, they just reply to Panda&apos;s answer, like &ldquo;time out #1 for a day&rdquo;.
           Each question uses a few AI checks (one per step Panda takes, up to 7).
         </p>
