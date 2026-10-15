@@ -128,11 +128,16 @@ function buildTrack(
 ): Track {
   let downloadPromise: Promise<string> | null = null;
   let downloadedPath: string | null = null;
+  // The gain that brings this file to the target loudness, measured once
+  // when it lands on disk (see measureGainDb) — so a prefetched track is
+  // measured during the previous one.
+  let gainDb = 0;
 
   function ensureDownloaded(): Promise<string> {
     if (!downloadPromise) {
       downloadPromise = download()
-        .then((path) => {
+        .then(async (path) => {
+          gainDb = await measureGainDb(path);
           downloadedPath = path;
           return path;
         })
@@ -158,7 +163,7 @@ function buildTrack(
     },
     open: async () => {
       const path = await ensureDownloaded();
-      return openPcmFromFile(path);
+      return openPcmFromFile(path, gainDb);
     },
     cleanup: async () => {
       // Snapshot then reset state so a follow-up open() (e.g.
@@ -473,23 +478,73 @@ async function httpDownload(url: string): Promise<string> {
 // FFmpeg pipeline
 // =============================================================================
 
+const TARGET_LUFS = -14;
+// Highest true peak the gain may push a track to. Headroom below 0 dBTP
+// keeps the downstream Opus encode from clipping between samples.
+const PEAK_CEILING_DBTP = -1.5;
+// Never boost a quiet track by more than this — past it, its own noise
+// floor comes up with it.
+const MAX_BOOST_DB = 12;
+const MEASURE_TIMEOUT_MS = 60_000;
+
+// Measure a file's integrated loudness (EBU R128) and true peak, and return
+// the single gain that brings it to TARGET_LUFS without its peak passing
+// PEAK_CEILING_DBTP. One decode pass, ~1–3 s for a song; it runs when the
+// download finishes, so for every queued track after the first it happens
+// while the previous one is playing. Any failure means 0 dB — the track
+// plays as published rather than not at all.
+async function measureGainDb(filePath: string): Promise<number> {
+  const startedAt = Date.now();
+  const stderr = await new Promise<string | null>((resolve) => {
+    // framelog=verbose: the per-frame readings go to a level we don't
+    // print; the summary is still logged at info.
+    const ff = spawn(
+      'ffmpeg',
+      ['-hide_banner', '-nostats', '-i', filePath, '-vn', '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    let err = '';
+    ff.stderr.on('data', (chunk) => {
+      err += String(chunk);
+      if (err.length > 64_000) err = err.slice(-16_000); // only the summary matters
+    });
+    const timer = setTimeout(() => ff.kill('SIGKILL'), MEASURE_TIMEOUT_MS);
+    ff.on('error', () => { clearTimeout(timer); resolve(null); });
+    ff.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? err : null); });
+  });
+  if (!stderr) {
+    log.warn({ filePath }, 'Loudness measurement failed — playing without gain');
+    return 0;
+  }
+  const summary = stderr.slice(stderr.lastIndexOf('Summary:'));
+  const integrated = Number(/I:\s+(-?[\d.]+) LUFS/.exec(summary)?.[1]);
+  const truePeak = Number(/Peak:\s+(-?[\d.]+) dBFS/.exec(summary)?.[1]);
+  // Silence measures as -70 LUFS (the gate floor); nothing to normalise.
+  if (!Number.isFinite(integrated) || integrated <= -69) return 0;
+  let gain = TARGET_LUFS - integrated;
+  if (Number.isFinite(truePeak)) gain = Math.min(gain, PEAK_CEILING_DBTP - truePeak);
+  gain = Math.min(gain, MAX_BOOST_DB);
+  log.info(
+    { filePath, integrated, truePeak, gainDb: Number(gain.toFixed(2)), ms: Date.now() - startedAt },
+    'Loudness measured',
+  );
+  return gain;
+}
+
 // Read a local audio file and emit 48kHz s16le stereo PCM. ffmpeg
 // auto-detects the input format. No HTTP, no reconnect, no segmenting
 // — just file → pcm.
 //
-// `loudnorm` normalizes to -14 LUFS (the streaming-platform standard
-// used by Spotify, YouTube, Apple Music). Source tracks vary wildly
-// in loudness — a quiet podcast vs. a mastered modern pop song can
-// differ by 15+ dB — and without normalization the user has to chase
-// !volume up and down per track. With it, everything sits at a
-// consistent perceived level and the player's volume control adjusts
-// from a sane baseline.
-//
-// Single-pass `loudnorm` is approximate (proper two-pass measures the
-// file first) but fast and good enough for streaming. `tp=-1.5` keeps
-// true-peak under -1.5 dBTP to avoid inter-sample clipping on the
-// LiveKit Opus encoder downstream.
-function openPcmFromFile(filePath: string): { pcm: Readable; close: () => void } {
+// Loudness: every track is brought to -14 LUFS (the streaming-platform
+// standard used by Spotify, YouTube, Apple Music) so members are not
+// chasing !volume between a quiet podcast and a mastered pop song — but
+// by ONE fixed gain per track (`gainDb`, measured by measureGainDb), not
+// by single-pass `loudnorm`. That filter was used here before; in one
+// pass it can only guess, so it rides the level continuously like an
+// automatic gain control — squashing the difference between quiet and
+// loud passages and dulling every drum hit. A constant gain keeps the
+// music's own dynamics exactly as mastered.
+function openPcmFromFile(filePath: string, gainDb: number): { pcm: Readable; close: () => void } {
   const ff = spawn(
     'ffmpeg',
     [
@@ -499,8 +554,7 @@ function openPcmFromFile(filePath: string): { pcm: Readable; close: () => void }
       '-i',
       filePath,
       '-vn',
-      '-af',
-      'loudnorm=I=-14:LRA=11:TP=-1.5',
+      ...(gainDb !== 0 ? ['-af', `volume=${gainDb.toFixed(2)}dB`] : []),
       '-f',
       's16le',
       '-acodec',
