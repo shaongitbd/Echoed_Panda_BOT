@@ -27,6 +27,8 @@ export interface AiServerSettings {
   model: string | null;
   dailyCheckCap: number;
   maxKickbanPerHour: number;
+  /** The owner let `!panda` change settings (admins only, previewed and confirmed). */
+  allowConfig: boolean;
 }
 
 export interface AiChannelRule {
@@ -66,8 +68,9 @@ async function loadServer(serverId: string): Promise<ServerEntry['value']> {
     model: string | null;
     daily_check_cap: number;
     max_kickban_per_hour: number;
+    allow_config: boolean;
   }>(
-    `SELECT enabled, api_key_sealed, api_key_hint, model, daily_check_cap, max_kickban_per_hour
+    `SELECT enabled, api_key_sealed, api_key_hint, model, daily_check_cap, max_kickban_per_hour, allow_config
        FROM panda.ai_mod_settings WHERE server_id = $1`,
     [serverId],
   );
@@ -81,6 +84,7 @@ async function loadServer(serverId: string): Promise<ServerEntry['value']> {
           model: row.model,
           dailyCheckCap: row.daily_check_cap,
           maxKickbanPerHour: row.max_kickban_per_hour,
+          allowConfig: row.allow_config,
         },
         sealedKey: row.api_key_sealed,
       }

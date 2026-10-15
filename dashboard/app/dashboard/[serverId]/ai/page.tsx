@@ -2,7 +2,7 @@ import { getServerChannels } from '@/lib/botApi';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { ModelPicker } from '@/components/ModelPicker';
 import { secretBoxReady } from '@/lib/secretBox';
-import { ALL_CHANNELS, checksToday, getAiSettings, listAiChannels, type AiAction } from '@/lib/queries/aiModeration';
+import { ALL_CHANNELS, checksToday, getAiSettings, listAiChannels, listConfigChanges, type AiAction } from '@/lib/queries/aiModeration';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
 import { ChannelPicker } from '@/components/ChannelPicker';
 import { Toggle } from '@/components/Toggle';
@@ -55,12 +55,13 @@ function first(v: string | string[] | undefined): string | undefined {
 export default async function AiModerationPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
   const query = await searchParams;
-  const [settings, channels, rules, used, guild] = await Promise.all([
+  const [settings, channels, rules, used, guild, changes] = await Promise.all([
     getAiSettings(serverId),
     getServerChannels(serverId),
     listAiChannels(serverId),
     checksToday(serverId),
     getGuildConfig(serverId),
+    listConfigChanges(serverId),
   ]);
   // Where a flag actually goes — named, not "the mod-log". Flags only ever
   // post to the mod-log channel (never a public fallback).
@@ -158,6 +159,12 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
           >
             <input id="maxKickbanPerHour" name="maxKickbanPerHour" type="number" min={0} max={100} defaultValue={settings.maxKickbanPerHour} className={inputClassName} />
           </Field>
+          <Toggle
+            name="allowConfig"
+            label="Let admins set up Panda through !panda"
+            description="People with Manage Server can ask in plain words — “set up a welcome channel”, “turn on counting in #numbers”. Panda shows every change as before → after and waits for their ✅; changes are posted to the mod-log and sent to you. It can create text channels and roles (with no permissions), but never touches AI settings, moderator roles, permissions, or deletes anything."
+            defaultChecked={settings.allowConfig}
+          />
         </FormCard>
         <SaveBar />
       </form>
@@ -275,6 +282,26 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
           </div>
         ))}
       </div>
+
+      {/* ─── Changes made through !panda ───────────────────────────── */}
+      {changes.length > 0 ? (
+        <div className="mt-14">
+          <h2 className="font-display text-xl font-semibold tracking-[-0.03em] text-text-primary">Changes made through !panda</h2>
+          <p className="mt-2 max-w-3xl text-text-secondary">The latest settings admins changed by asking Panda. Each was confirmed by the person who asked.</p>
+          <ul className="mt-5 divide-y divide-[var(--border-subtle)] rounded-2xl bg-bg-card">
+            {changes.map((c, i) => (
+              <li key={i} className="flex flex-col gap-1 px-5 py-3 text-sm sm:flex-row sm:items-baseline sm:gap-4">
+                <span className="shrink-0 text-xs tabular-nums text-text-faint">{c.at.toISOString().slice(0, 16).replace('T', ' ')} UTC</span>
+                <span className="min-w-0 text-text-secondary">
+                  <span className="font-semibold text-text-primary">{c.actorName || 'someone'}</span> — {c.setting.replace(/_/g, ' ')}:{' '}
+                  {c.before !== null ? <span className="text-text-muted">{c.before} → </span> : null}
+                  <span className="text-text-primary">{c.after}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

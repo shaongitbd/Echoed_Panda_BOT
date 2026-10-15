@@ -16,6 +16,8 @@ export interface AiSettingsView {
   model: string | null;
   dailyCheckCap: number;
   maxKickbanPerHour: number;
+  /** Admins may change Panda's settings through !panda (previewed, confirmed, announced). */
+  allowConfig: boolean;
 }
 
 export interface AiChannelView {
@@ -35,6 +37,7 @@ const DEFAULTS: AiSettingsView = {
   model: null,
   dailyCheckCap: 2000,
   maxKickbanPerHour: 5,
+  allowConfig: false,
 };
 
 export async function getAiSettings(serverId: string): Promise<AiSettingsView> {
@@ -44,8 +47,9 @@ export async function getAiSettings(serverId: string): Promise<AiSettingsView> {
     model: string | null;
     daily_check_cap: number;
     max_kickban_per_hour: number;
+    allow_config: boolean;
   }>(
-    `SELECT enabled, api_key_hint, model, daily_check_cap, max_kickban_per_hour
+    `SELECT enabled, api_key_hint, model, daily_check_cap, max_kickban_per_hour, allow_config
        FROM ai_mod_settings WHERE server_id = $1`,
     [serverId],
   );
@@ -57,7 +61,27 @@ export async function getAiSettings(serverId: string): Promise<AiSettingsView> {
     model: r.model,
     dailyCheckCap: r.daily_check_cap,
     maxKickbanPerHour: r.max_kickban_per_hour,
+    allowConfig: r.allow_config,
   };
+}
+
+export interface ConfigChangeView {
+  actorName: string;
+  setting: string;
+  before: string | null;
+  after: string | null;
+  at: Date;
+}
+
+/** The latest settings changes made through !panda (panda.ai_config_changes). */
+export async function listConfigChanges(serverId: string, limit = 20): Promise<ConfigChangeView[]> {
+  const res = await pool.query<{ actor_name: string; setting: string; before_value: string | null; after_value: string | null; created_at: Date }>(
+    `SELECT actor_name, setting, before_value, after_value, created_at
+       FROM ai_config_changes WHERE server_id = $1
+      ORDER BY created_at DESC LIMIT $2`,
+    [serverId, limit],
+  );
+  return res.rows.map((r) => ({ actorName: r.actor_name, setting: r.setting, before: r.before_value, after: r.after_value, at: r.created_at }));
 }
 
 export async function checksToday(serverId: string): Promise<number> {
@@ -74,7 +98,7 @@ export async function checksToday(serverId: string): Promise<number> {
  */
 export async function saveAiSettings(
   serverId: string,
-  input: { enabled: boolean; model: string | null; dailyCheckCap: number; maxKickbanPerHour: number },
+  input: { enabled: boolean; model: string | null; dailyCheckCap: number; maxKickbanPerHour: number; allowConfig: boolean },
   apiKey: string | null | undefined,
 ): Promise<void> {
   const keyCols =
@@ -86,17 +110,18 @@ export async function saveAiSettings(
 
   await pool.query(
     `INSERT INTO ai_mod_settings (server_id, enabled, model, daily_check_cap, max_kickban_per_hour,
-                                  api_key_sealed, api_key_hint, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                                  api_key_sealed, api_key_hint, allow_config, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $9, NOW())
      ON CONFLICT (server_id) DO UPDATE SET
        enabled = EXCLUDED.enabled,
        model = EXCLUDED.model,
        daily_check_cap = EXCLUDED.daily_check_cap,
        max_kickban_per_hour = EXCLUDED.max_kickban_per_hour,
+       allow_config = EXCLUDED.allow_config,
        api_key_sealed = CASE WHEN $8 THEN EXCLUDED.api_key_sealed ELSE ai_mod_settings.api_key_sealed END,
        api_key_hint   = CASE WHEN $8 THEN EXCLUDED.api_key_hint   ELSE ai_mod_settings.api_key_hint END,
        updated_at = NOW()`,
-    [serverId, input.enabled, input.model, input.dailyCheckCap, input.maxKickbanPerHour, keyCols.sealed, keyCols.hint, keyCols.touch],
+    [serverId, input.enabled, input.model, input.dailyCheckCap, input.maxKickbanPerHour, keyCols.sealed, keyCols.hint, keyCols.touch, input.allowConfig],
   );
 }
 

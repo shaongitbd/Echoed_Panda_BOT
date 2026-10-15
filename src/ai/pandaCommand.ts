@@ -48,6 +48,7 @@ import { checksToday, claimDailyCheck } from './usage.js';
 import { isAnswerTo, recallTurns, rememberTurn } from './conversation.js';
 import { performAction, type ActionRequest } from './executor.js';
 import { describeRequest, runAgent, type Proposal } from './agent.js';
+import { announceChanges, applyPlan, changesInLastHour, describePlan, overHourlyCap, type ConfigPlan } from './configTools.js';
 
 const CONFIRM = '✅';
 const CANCEL = '❌';
@@ -70,6 +71,7 @@ function helpText(prefix: string): string {
     '**Panda AI moderation**',
     `\`${prefix}panda <anything>\` — ask in plain words: "who spams the most here?", "what happened in #general last night?", "delete this guy's messages from today and time him out". I look things up and answer; for an action I show a preview and wait for your ✅.`,
     `To follow up, just reply to my answer — "time out #1 for a day" — no \`${prefix}panda\` needed.`,
+    `Admins can also set Panda up in plain words — "make #staff-log the mod-log", "turn on counting in a new #counting channel" — if the server owner allowed it on the dashboard. Every change is previewed, needs your ✅, and is posted to the mod-log.`,
     `\`${prefix}panda context <rules>\` — set this channel's rules for the AI (\`${prefix}panda context\` shows them, \`clear\` removes them).`,
     `\`${prefix}panda on\` / \`off\` — AI moderation in this channel. \`${prefix}panda on all\` / \`off all\` — in every channel (a channel switched off stays off). \`${prefix}panda status\` — how it's set up.`,
     'The server owner adds the OpenRouter key and model at https://panda.echoed.gg.',
@@ -229,7 +231,9 @@ export async function handlePandaFollowUp(
 }
 
 async function handleRequest(ctx: CommandContext, svc: Services, text?: string): Promise<void> {
-  if (!(await isModerator(ctx, svc))) {
+  // Manage Server counts as staff here even without moderation permissions.
+  const isAdmin = (await svc.perms.check(ctx.serverId, ctx.senderId, 'MANAGE_SERVER')) === 'granted';
+  if (!isAdmin && !(await isModerator(ctx, svc))) {
     return reply(ctx, svc, 'Only moderators can ask me to moderate.');
   }
   const creds = await getAiCredentials(ctx.serverId);
@@ -239,11 +243,11 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
   }
   const request = (text ?? argumentText(ctx, 1)).slice(0, MAX_REQUEST_CHARS);
   if (!request) return reply(ctx, svc, helpText(ctx.prefix));
-  // The agent reads only AI-moderated channels — nothing to do without one.
+  // Messages are read only from AI-moderated channels (the agent enforces
+  // it); Panda's own records and setup work without any.
   const aiChannels = await getAiChannelScope(ctx.serverId);
-  if (!aiChannels.any) {
-    return reply(ctx, svc, `AI moderation isn't on in any channel yet, so I have nothing to look at. An admin can switch it on here with \`${ctx.prefix}panda on\`, or per channel on the dashboard.`);
-  }
+  // Settings changes: the owner's switch AND this person's Manage Server.
+  const configAllowed = settings.allowConfig && isAdmin;
   if (!(await claimDailyCheck(ctx.serverId, settings.dailyCheckCap))) {
     return reply(ctx, svc, "Today's AI check limit for this server is used up. The owner can raise it on the dashboard.");
   }
@@ -279,6 +283,7 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
     dailyCap: settings.dailyCheckCap,
     sampleSize: rule?.historySize || 8,
     aiChannels,
+    configAllowed,
     history,
     replied,
     onProgress: edit,
@@ -296,6 +301,7 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
   await rememberTurn({ ...convoKey(ctx), userName: ctx.senderName }, { request, answer: outcome.answer, people: outcome.people }, answerId);
 
   if (outcome.proposal) await postPreview(ctx, svc, request, outcome.proposal, outcome.channelNames, outcome.people);
+  if (outcome.configPlan && configAllowed) await postConfigPreview(ctx, svc, request, outcome.configPlan, outcome.people);
 }
 
 // ── The preview ────────────────────────────────────────────────────────────
@@ -305,7 +311,11 @@ interface Pending {
   channelId: string;
   /** The backend's id of the moderator who asked — the only one who can confirm. */
   invokerId: string;
+  invokerName: string;
+  /** Moderation actions, or a settings plan (never both in one preview). */
   requests: ActionRequest[];
+  config: ConfigPlan | null;
+  request: string;
   expiresAt: number;
 }
 
@@ -357,7 +367,10 @@ async function postPreview(
     serverId: ctx.serverId,
     channelId: ctx.channelId,
     invokerId: ctx.senderId,
+    invokerName,
     requests: proposal.requests,
+    config: null,
+    request,
     expiresAt: Date.now() + CONFIRM_TTL_MS,
   });
   setTimeout(() => void expire(svc, previewId), CONFIRM_TTL_MS).unref();
@@ -365,6 +378,95 @@ async function postPreview(
   await svc.api.addReaction(ctx.serverId, previewId, CANCEL).catch(() => undefined);
   // Replying to the preview ("make it two days") is a follow-up too.
   await rememberTurn({ ...convoKey(ctx), userName: ctx.senderName }, { request, answer: lines.join('\n'), people }, previewId);
+}
+
+/**
+ * A settings preview: every change as before → after, creations listed,
+ * a bold warning when member text was read on the way here, and who will
+ * be told. Nothing is written until the same admin confirms.
+ */
+async function postConfigPreview(
+  ctx: CommandContext,
+  svc: Services,
+  request: string,
+  plan: ConfigPlan,
+  people: Map<string, string>,
+): Promise<void> {
+  const size = plan.creates.length + plan.changes.length;
+  if (overHourlyCap(size, await changesInLastHour(ctx.serverId))) {
+    await send(ctx, svc, 'That would go over the limit of settings changes through me in an hour. Try again later, or use the dashboard.');
+    return;
+  }
+  const invokerName = await resolveUser(svc.api, ctx.serverId, ctx.senderId);
+  const lines = ['**I’ll change this:**', ...describePlan(plan)];
+  if (plan.tainted) {
+    lines.push('', '⚠️ **I read members’ messages while working on this.** Only confirm if these are exactly the changes you asked for.');
+  }
+  lines.push(
+    '',
+    `React ${CONFIRM} to apply or ${CANCEL} to cancel. Only **${invokerName}** can confirm; this expires in 2 minutes.`,
+    'Changes are posted to the mod-log and sent to the server owner.',
+  );
+
+  let previewId: string;
+  try {
+    const sent = await svc.api.sendMessage({
+      serverId: ctx.serverId,
+      channelId: ctx.channelId,
+      replyToId: ctx.messageId,
+      content: '',
+      embeds: [buildEmbed({ title: 'Confirm settings changes', description: lines.join('\n').slice(0, 4000), color: COLORS.WARNING, timestamp: null })],
+    });
+    previewId = sent.messageId;
+  } catch (err) {
+    log.warn({ err, serverId: ctx.serverId }, '!panda settings preview failed');
+    return;
+  }
+  pending.set(previewId, {
+    serverId: ctx.serverId,
+    channelId: ctx.channelId,
+    invokerId: ctx.senderId,
+    invokerName,
+    requests: [],
+    config: plan,
+    request,
+    expiresAt: Date.now() + CONFIRM_TTL_MS,
+  });
+  setTimeout(() => void expire(svc, previewId), CONFIRM_TTL_MS).unref();
+  await svc.api.addReaction(ctx.serverId, previewId, CONFIRM).catch(() => undefined);
+  await svc.api.addReaction(ctx.serverId, previewId, CANCEL).catch(() => undefined);
+  await rememberTurn({ ...convoKey(ctx), userName: ctx.senderName }, { request, answer: lines.join('\n'), people }, previewId);
+}
+
+/**
+ * Apply a confirmed settings plan — only if, at THIS moment, the owner's
+ * switch is still on and the admin still has Manage Server.
+ */
+async function applyConfig(svc: Services, p: Pending, previewId: string): Promise<void> {
+  const [settings, verdict] = await Promise.all([
+    getAiSettings(p.serverId),
+    svc.perms.check(p.serverId, p.invokerId, 'MANAGE_SERVER'),
+  ]);
+  if (!settings?.allowConfig) {
+    await finish(svc, p.serverId, previewId, 'Not applied — changing settings through !panda was switched off.', COLORS.MUTED);
+    return;
+  }
+  if (verdict !== 'granted') {
+    await finish(svc, p.serverId, previewId, verdict === 'unavailable'
+      ? "Not applied — I couldn't verify your permissions just now. Try again in a moment."
+      : 'Not applied — you no longer have Manage Server.', COLORS.MUTED);
+    return;
+  }
+  const plan = p.config!;
+  if (overHourlyCap(plan.creates.length + plan.changes.length, await changesInLastHour(p.serverId))) {
+    await finish(svc, p.serverId, previewId, 'Not applied — that would go over the hourly limit for settings changes.', COLORS.MUTED);
+    return;
+  }
+  const actor = { id: p.invokerId, name: p.invokerName };
+  const { lines, applied } = await applyPlan(svc, p.serverId, actor, plan, p.request);
+  await finish(svc, p.serverId, previewId, lines.join('\n') || 'Nothing changed.', applied.length > 0 ? COLORS.ONLINE : COLORS.MUTED);
+  const where = (await svc.api.listChannels(p.serverId).catch(() => [])).find((c) => c.id === p.channelId)?.name ?? 'a channel';
+  await announceChanges(svc, p.serverId, actor, where, applied);
 }
 
 // ── Confirmation ───────────────────────────────────────────────────────────
@@ -387,6 +489,7 @@ export async function handlePandaReaction(svc: Services, data: ReactionEventData
     await finish(svc, p.serverId, data.messageId, 'Cancelled — nothing was done.', COLORS.MUTED);
     return;
   }
+  if (p.config) return applyConfig(svc, p, data.messageId);
   const actor = { kind: 'moderator' as const, userId: p.invokerId };
   const results: string[] = [];
   for (const r of p.requests) {

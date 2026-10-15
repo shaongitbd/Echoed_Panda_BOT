@@ -1125,6 +1125,34 @@ const STATEMENTS: ReadonlyArray<{ name: string; sql: string }> = [
     sql: `CREATE INDEX IF NOT EXISTS ai_panda_turns_created ON panda.ai_panda_turns (created_at)`,
   },
   {
+    // The owner's switch for letting `!panda` change settings (admins only,
+    // previewed and confirmed). Off unless the owner turns it on.
+    name: 'ai_mod_settings allow_config column',
+    sql: `ALTER TABLE panda.ai_mod_settings ADD COLUMN IF NOT EXISTS allow_config BOOLEAN NOT NULL DEFAULT FALSE`,
+  },
+  {
+    // Every setting `!panda` changed: who, what, from what, to what, and the
+    // request that led to it. Read by the dashboard and the hourly cap.
+    name: 'ai_config_changes table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS panda.ai_config_changes (
+        id           BIGSERIAL PRIMARY KEY,
+        server_id    TEXT NOT NULL,
+        actor_id     TEXT NOT NULL,
+        actor_name   TEXT NOT NULL DEFAULT '',
+        setting      TEXT NOT NULL,
+        before_value TEXT,
+        after_value  TEXT,
+        request      TEXT NOT NULL DEFAULT '',
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+  },
+  {
+    name: 'ai_config_changes recent index',
+    sql: `CREATE INDEX IF NOT EXISTS ai_config_changes_server_time ON panda.ai_config_changes (server_id, created_at DESC)`,
+  },
+  {
     // The message Panda answered with, so a moderator can reply to it in
     // plain words — no `!panda` — and it reads as a follow-up.
     name: 'ai_panda_turns reply message column',

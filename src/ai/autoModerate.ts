@@ -28,6 +28,7 @@ import {
 } from './settings.js';
 import { claimDailyCheck, recentAiKickbans, recordAiAction } from './usage.js';
 import { performAction } from './executor.js';
+import { defangLinks } from './safety.js';
 
 // ── Recent messages per channel (the context window) ─────────────────────
 // Kept in memory from the message stream, so judging a message costs no
@@ -129,7 +130,7 @@ function readVerdict(json: unknown): Verdict | null {
 export function sanitizeReason(raw: unknown, fallback = 'Broke this channel’s rules.'): string {
   const text = typeof raw === 'string' ? raw : '';
   return (
-    text
+    defangLinks(text)
       .replace(/[\r\n]+/g, ' ')
       .replace(/<[@#][!&]?[a-zA-Z0-9_-]*>/g, '[mention]')
       .replace(/@/g, '@​') // breaks @everyone / @here and any @name

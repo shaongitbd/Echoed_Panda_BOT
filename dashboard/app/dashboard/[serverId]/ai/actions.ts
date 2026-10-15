@@ -69,6 +69,7 @@ export async function saveAiSettingsAction(serverId: string, formData: FormData)
       model,
       dailyCheckCap: parseBoundedInt(formData.get('dailyCheckCap'), 2000, 0, 100_000),
       maxKickbanPerHour: parseBoundedInt(formData.get('maxKickbanPerHour'), 5, 0, 100),
+      allowConfig: parseBool(formData.get('allowConfig')),
     },
     apiKey,
   );
