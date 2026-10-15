@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { listForServer } from '@/lib/queries/keywords';
 import { getServerChannels } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
@@ -10,6 +11,7 @@ interface PageProps {
 
 export default async function KeywordsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [rules, channels] = await Promise.all([
     listForServer(serverId),
     getServerChannels(serverId),

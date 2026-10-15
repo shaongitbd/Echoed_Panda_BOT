@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getServerChannels } from '@/lib/botApi';
 import { getQotd, listQotdQuestions, MAX_QUESTION_LEN } from '@/lib/queries/community';
 import { FormCard, Field, PageHeader, inputClassName, textareaClassName } from '@/components/FormCard';
@@ -22,6 +23,7 @@ const ERRORS: Record<string, string> = {
 
 export default async function QotdPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const query = await searchParams;
   const [cfg, questions, channels] = await Promise.all([
     getQotd(serverId),

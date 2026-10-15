@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field, inputClassName } from '@/components/FormCard';
@@ -11,6 +12,7 @@ interface PageProps {
 
 export default async function GeneralPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [config, channels] = await Promise.all([
     getGuildConfig(serverId),
     getServerChannels(serverId),

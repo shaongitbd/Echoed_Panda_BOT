@@ -51,12 +51,27 @@ function bufferKey(serverId: string, channelId: string): string {
   return `${serverId}:${channelId}`;
 }
 
+/**
+ * Channels kept in memory at once. With "every channel" on across the fleet
+ * this would otherwise only ever grow; past the cap, the channel that went
+ * longest without a message is dropped (it warms again from history if it
+ * speaks). ~21 × 600 chars each, so the cap bounds this at tens of MB.
+ */
+const MAX_BUFFERED_CHANNELS = 3_000;
+
 function remember(serverId: string, channelId: string, m: Remembered): void {
   const key = bufferKey(serverId, channelId);
   const buf = buffers.get(key) ?? [];
   if (!buf.some((x) => x.id === m.id)) buf.push(m);
   if (buf.length > BUFFER_SIZE) buf.splice(0, buf.length - BUFFER_SIZE);
+  // Re-insert so Map order is least-recently-active first.
+  buffers.delete(key);
   buffers.set(key, buf);
+  while (buffers.size > MAX_BUFFERED_CHANNELS) {
+    const oldest = buffers.keys().next().value as string;
+    buffers.delete(oldest);
+    warmed.delete(oldest);
+  }
 }
 
 async function warm(svc: Services, serverId: string, channelId: string): Promise<void> {

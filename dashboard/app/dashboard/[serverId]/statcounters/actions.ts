@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { addCounter, removeCounter, type StatKind } from '@/lib/queries/statCounters';
 import { requireOwner, parseChannelId, parseTrimmedString } from '@/lib/forms';
+import { getServerChannels } from '@/lib/botApi';
 
 export interface AddResult {
   ok: boolean;
@@ -20,6 +21,10 @@ export async function addStatCounter(serverId: string, formData: FormData): Prom
 
   if (!channelId) return { ok: false, error: 'Channel is required.' };
   if (!kind) return { ok: false, error: 'Kind must be members or channels.' };
+  // Only a channel of THIS server.
+  if (!(await getServerChannels(serverId)).some((c) => c.id === channelId)) {
+    return { ok: false, error: "That channel isn't in this server." };
+  }
 
   // Format defaults to a sensible per-kind label. Saves the admin
   // typing for the most common case while still accepting custom
@@ -34,6 +39,6 @@ export async function addStatCounter(serverId: string, formData: FormData): Prom
 
 export async function removeStatCounter(serverId: string, channelId: string): Promise<void> {
   await requireOwner(serverId);
-  await removeCounter(channelId);
+  await removeCounter(serverId, channelId);
   revalidatePath(`/dashboard/${serverId}/statcounters`);
 }

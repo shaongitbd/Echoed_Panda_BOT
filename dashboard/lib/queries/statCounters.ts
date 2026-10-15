@@ -47,18 +47,23 @@ export async function addCounter(input: {
   format: string;
 }): Promise<void> {
   await pool.query(
+    // As in the bot's src/stats/store.ts: channel_id is the conflict key, so
+    // the guard stops an owner of one server taking over a counter on
+    // another server's channel (the row would keep the victim's server_id
+    // but take the caller's format, and the bot would rename their channel).
     `INSERT INTO stat_counters (server_id, channel_id, kind, format)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (channel_id) DO UPDATE
-       SET kind = EXCLUDED.kind, format = EXCLUDED.format, updated_at = now()`,
+       SET kind = EXCLUDED.kind, format = EXCLUDED.format, updated_at = now()
+     WHERE stat_counters.server_id = EXCLUDED.server_id`,
     [input.serverId, input.channelId, input.kind, input.format],
   );
 }
 
-export async function removeCounter(channelId: string): Promise<boolean> {
+export async function removeCounter(serverId: string, channelId: string): Promise<boolean> {
   const res = await pool.query(
-    `DELETE FROM stat_counters WHERE channel_id = $1`,
-    [channelId],
+    `DELETE FROM stat_counters WHERE channel_id = $1 AND server_id = $2`,
+    [channelId, serverId],
   );
   return (res.rowCount ?? 0) > 0;
 }

@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getServerChannels } from '@/lib/botApi';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { ModelPicker } from '@/components/ModelPicker';
@@ -54,6 +55,7 @@ function first(v: string | string[] | undefined): string | undefined {
 
 export default async function AiModerationPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const query = await searchParams;
   const [settings, channels, rules, used, guild, changes] = await Promise.all([
     getAiSettings(serverId),

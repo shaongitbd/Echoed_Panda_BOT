@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { getBirthdays, MAX_BIRTHDAY_MESSAGE } from '@/lib/queries/community';
 import { FormCard, Field, PageHeader, inputClassName, textareaClassName } from '@/components/FormCard';
@@ -23,6 +24,7 @@ const ERRORS: Record<string, string> = {
 
 export default async function BirthdaysPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const query = await searchParams;
   const [cfg, channels, roles] = await Promise.all([
     getBirthdays(serverId),

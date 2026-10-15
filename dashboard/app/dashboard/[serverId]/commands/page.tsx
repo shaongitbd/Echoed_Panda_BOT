@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { requireOwner } from '@/lib/forms';
 import { listCommandRules, type CommandRule } from '@/lib/queries/commandSettings';
 import { listCommands } from '@/lib/queries/customCommands';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
@@ -91,6 +92,7 @@ function Row({
 
 export default async function CommandsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [rules, customCommands, guild] = await Promise.all([
     listCommandRules(serverId),
     listCommands(serverId),

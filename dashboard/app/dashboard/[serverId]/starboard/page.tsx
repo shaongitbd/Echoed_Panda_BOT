@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getServerChannels } from '@/lib/botApi';
 import { getStarboard } from '@/lib/queries/community';
 import { FormCard, Field, PageHeader, inputClassName } from '@/components/FormCard';
@@ -20,6 +21,7 @@ const ERRORS: Record<string, string> = {
 
 export default async function StarboardPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const query = await searchParams;
   const [cfg, channels] = await Promise.all([getStarboard(serverId), getServerChannels(serverId)]);
 

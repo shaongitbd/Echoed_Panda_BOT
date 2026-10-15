@@ -45,10 +45,10 @@ import {
   setAiChannelEnabled,
 } from './settings.js';
 import { checksToday, claimDailyCheck } from './usage.js';
-import { isAnswerTo, recallTurns, rememberTurn } from './conversation.js';
+import { isAnswerTo, recallTurns, rememberTurn, turnsInLastHour } from './conversation.js';
 import { performAction, type ActionRequest } from './executor.js';
 import { describeRequest, runAgent, type Proposal } from './agent.js';
-import { announceChanges, applyPlan, changesInLastHour, describePlan, overHourlyCap, type ConfigPlan } from './configTools.js';
+import { announceChanges, applyPlan, changesInLastHour, describePlan, overHourlyCap, planTouchesRoles, type ConfigPlan } from './configTools.js';
 
 const CONFIRM = '✅';
 const CANCEL = '❌';
@@ -143,6 +143,15 @@ async function handleContext(ctx: CommandContext, svc: Services): Promise<void> 
 async function handleToggle(ctx: CommandContext, svc: Services, on: boolean): Promise<void> {
   if (!(await requireAdmin(ctx, svc))) return;
   const everywhere = ctx.args[1]?.toLowerCase() === 'all';
+  // Every channel on sends every channel's messages to OpenRouter — the
+  // owner's call (as on the dashboard, which only the owner can use).
+  // Turning it off only ever narrows that, so any admin may.
+  if (everywhere && on) {
+    const info = await svc.api.getServerInfo(ctx.serverId).catch(() => null);
+    if (!info?.ownerId || info.ownerId !== ctx.senderId) {
+      return reply(ctx, svc, 'Only the server owner can turn AI moderation on for every channel (it sends every channel\'s messages to the AI). They can do it here or on the dashboard.');
+    }
+  }
   await setAiChannelEnabled(ctx.serverId, everywhere ? ALL_CHANNELS : ctx.channelId, on);
   if (everywhere && !on) {
     return reply(ctx, svc, 'AI moderation is **off** for every channel. Channels switched on one by one stay on.');
@@ -222,6 +231,9 @@ export async function handlePandaFollowUp(
   if (!msg.replyToId) return;
   const text = msg.rawContent.trim();
   if (!text) return;
+  // Most servers don't use AI moderation: stop at the cached setting before
+  // touching the database for every reply.
+  if (!(await getAiSettings(msg.serverId))?.enabled) return;
   // A reply that's a command is the dispatcher's, not a follow-up.
   const prefix = (await getGuildConfig(msg.serverId)).prefix ?? config.defaultPrefix;
   if (text.startsWith(prefix)) return;
@@ -248,10 +260,43 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
   const aiChannels = await getAiChannelScope(ctx.serverId);
   // Settings changes: the owner's switch AND this person's Manage Server.
   const configAllowed = settings.allowConfig && isAdmin;
+  // The moderation record: the same bar as !modlogs / !case.
+  const recordsAllowed = isAdmin
+    || (await checkModerator(svc.api, svc.perms, ctx.serverId, ctx.senderId, 'KICK_MEMBERS')) === 'granted';
+  // Cost limits per person (the daily cap is per server): one question at a
+  // time, and MAX_QUESTIONS_PER_HOUR an hour.
+  const runKey = `${ctx.serverId}:${ctx.senderId}`;
+  if (running.has(runKey)) {
+    return reply(ctx, svc, "I'm still working on your last question — give me a moment.");
+  }
+  if ((await turnsInLastHour(ctx.serverId, ctx.senderId)) >= MAX_QUESTIONS_PER_HOUR) {
+    return reply(ctx, svc, `That's ${MAX_QUESTIONS_PER_HOUR} questions in the last hour — please wait a bit before asking more.`);
+  }
   if (!(await claimDailyCheck(ctx.serverId, settings.dailyCheckCap))) {
     return reply(ctx, svc, "Today's AI check limit for this server is used up. The owner can raise it on the dashboard.");
   }
+  running.add(runKey);
+  try {
+    await answerRequest(ctx, svc, request, creds, settings.dailyCheckCap, aiChannels, configAllowed, recordsAllowed);
+  } finally {
+    running.delete(runKey);
+  }
+}
 
+/** Questions running right now, by server:person — at most one each; entries leave when the question ends. */
+const running = new Set<string>();
+const MAX_QUESTIONS_PER_HOUR = 30;
+
+async function answerRequest(
+  ctx: CommandContext,
+  svc: Services,
+  request: string,
+  creds: { apiKey: string; model: string },
+  dailyCap: number,
+  aiChannels: Awaited<ReturnType<typeof getAiChannelScope>>,
+  configAllowed: boolean,
+  recordsAllowed: boolean,
+): Promise<void> {
   // The replied-to message, if it's in this channel (a follow-up replies to
   // Panda's own answer — the agent leaves that one out).
   let replied: ChannelMessage | null = null;
@@ -280,10 +325,11 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
     ctx,
     request,
     creds,
-    dailyCap: settings.dailyCheckCap,
+    dailyCap,
     sampleSize: rule?.historySize || 8,
     aiChannels,
     configAllowed,
+    recordsAllowed,
     history,
     replied,
     onProgress: edit,
@@ -458,6 +504,10 @@ async function applyConfig(svc: Services, p: Pending, previewId: string): Promis
     return;
   }
   const plan = p.config!;
+  if (planTouchesRoles(plan) && (await svc.perms.check(p.serverId, p.invokerId, 'MANAGE_ROLES')) !== 'granted') {
+    await finish(svc, p.serverId, previewId, 'Not applied — creating or handing out roles needs Manage Roles, which you no longer have.', COLORS.MUTED);
+    return;
+  }
   if (overHourlyCap(plan.creates.length + plan.changes.length, await changesInLastHour(p.serverId))) {
     await finish(svc, p.serverId, previewId, 'Not applied — that would go over the hourly limit for settings changes.', COLORS.MUTED);
     return;

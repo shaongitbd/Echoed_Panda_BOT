@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { requireOwner } from '@/lib/forms';
 import { notFound } from 'next/navigation';
 import { getCommandRule, listCommandRules, MAX_COOLDOWN_SECONDS } from '@/lib/queries/commandSettings';
 import { listCommands } from '@/lib/queries/customCommands';
@@ -19,6 +20,7 @@ interface PageProps {
 
 export default async function CommandRulePage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const { scope } = await searchParams;
   if (!scope) notFound();
 

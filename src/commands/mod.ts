@@ -62,11 +62,15 @@ export async function canActOn(
   } else if (targetId === svc.botUserId) {
     refusal = `I'm not going to ${verb} myself.`;
   } else {
-    const [targetIsAdmin, callerIsAdmin] = await Promise.all([
-      svc.perms.has(ctx.serverId, targetId, 'MANAGE_SERVER'),
-      svc.perms.has(ctx.serverId, ctx.senderId, 'MANAGE_SERVER'),
+    const [target, caller] = await Promise.all([
+      svc.perms.check(ctx.serverId, targetId, 'MANAGE_SERVER'),
+      svc.perms.check(ctx.serverId, ctx.senderId, 'MANAGE_SERVER'),
     ]);
-    if (targetIsAdmin && !callerIsAdmin) {
+    const callerIsAdmin = caller === 'granted';
+    if (target === 'unavailable' || caller === 'unavailable') {
+      // Fail closed: if we can't tell whether the target is an admin, don't act.
+      refusal = "I couldn't verify permissions just now — try again in a moment.";
+    } else if (target === 'granted' && !callerIsAdmin) {
       refusal = `You can't ${verb} someone who manages this server.`;
     } else {
       // Protected and moderator roles (see mod/authority.ts).

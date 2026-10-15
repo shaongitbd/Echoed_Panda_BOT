@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getAutomodConfig } from '@/lib/queries/automodConfig';
 import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
@@ -12,6 +13,7 @@ interface PageProps {
 
 export default async function AutomodPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [config, channels, roles] = await Promise.all([
     getAutomodConfig(serverId),
     getServerChannels(serverId),

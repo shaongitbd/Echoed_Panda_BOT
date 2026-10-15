@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getLevelSettings } from '@/lib/queries/levelSettings';
 import { listRewards } from '@/lib/queries/levelRewards';
 import { getServerChannels, getServerRoles } from '@/lib/botApi';
@@ -15,6 +16,7 @@ interface PageProps {
 
 export default async function LevelsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [settings, rewards, channels, roles] = await Promise.all([
     getLevelSettings(serverId),
     listRewards(serverId),

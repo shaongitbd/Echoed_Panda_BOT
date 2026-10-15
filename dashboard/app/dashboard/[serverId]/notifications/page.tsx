@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import {
   listRedditSubs,
   listTwitchSubs,
@@ -24,6 +25,7 @@ const TWITCH_CONFIGURED =
 
 export default async function NotificationsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [reddit, twitch, youtube, channels] = await Promise.all([
     listRedditSubs(serverId),
     listTwitchSubs(serverId),

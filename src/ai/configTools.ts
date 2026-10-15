@@ -30,7 +30,7 @@ import { containsMention, escapeMentions } from '../client/text.js';
 import { nextDailyRun, parseDailyTime } from '../util/parse.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
-import { hasLink } from './safety.js';
+import { defangLinks, hasLink } from './safety.js';
 
 const MAX_CHANGES_PER_HOUR = 30;
 const MAX_CREATES = 10;
@@ -294,6 +294,8 @@ export async function planConfig(
   rawCreates: unknown,
   rawChanges: unknown,
   tainted: boolean,
+  /** The asker has Manage Roles — needed to create roles or make Panda hand one out. */
+  canManageRoles: boolean,
 ): Promise<{ plan: ConfigPlan; problems: string[] }> {
   const problems: string[] = [];
   const creates: CreateSpec[] = [];
@@ -318,6 +320,7 @@ export async function planConfig(
         private: c.private === true,
       });
     } else {
+      if (!canManageRoles) { problems.push('Creating a role needs the Manage Roles permission.'); continue; }
       const n = name.replace(/^@/, '').slice(0, 50);
       if (!n || /^(everyone|here)$/i.test(n) || containsMention(n)) { problems.push(`"${name.slice(0, 40)}" isn't a usable role name.`); continue; }
       if ([...dir.roles.values()].some((r) => r.toLowerCase() === n.toLowerCase()) || newRoles.has(n.toLowerCase())) {
@@ -338,6 +341,8 @@ export async function planConfig(
     const key = typeof r.setting === 'string' ? r.setting : '';
     const def = SETTINGS[key];
     if (!def) { problems.push(`"${key.slice(0, 40)}" isn't a setting I can change.`); continue; }
+    // Choosing a role Panda hands out is granting its permissions.
+    if (def.kind === 'role' && !canManageRoles) { problems.push(`${def.label}: needs the Manage Roles permission.`); continue; }
     const parsed = parseValue(def, r.value, dir, newChannels, newRoles);
     if ('error' in parsed) { problems.push(`${def.label}: ${parsed.error}`); continue; }
     pending.set(key, parsed.value);
@@ -444,12 +449,14 @@ function parseValue(
 function display(def: SettingDef, value: Value | { ref: string } | undefined, dir: ServerDirectory): string {
   if (value && typeof value === 'object') return value.ref.startsWith('channel:') ? `#${value.ref.slice(8)} (new)` : `@${value.ref.slice(5)} (new)`;
   if (value === null || value === undefined || value === '') return 'not set';
+  // Shown in the preview, the mod-log and the owner's DM: names escaped, links
+  // defanged — the value itself is stored as typed.
   switch (def.kind) {
     case 'bool': return value ? 'on' : 'off';
-    case 'channel': return `#${dir.channels.get(String(value)) ?? 'deleted-channel'}`;
-    case 'role': return `@${dir.roles.get(String(value)) ?? 'deleted-role'}`;
-    case 'text': return `“${escapeMentions(String(value)).replace(/\n/g, ' ⏎ ')}”`;
-    default: return String(value);
+    case 'channel': return `#${escapeMentions(dir.channels.get(String(value)) ?? 'deleted-channel')}`;
+    case 'role': return `@${escapeMentions(dir.roles.get(String(value)) ?? 'deleted-role')}`;
+    case 'text': return `“${escapeMentions(defangLinks(String(value))).replace(/\n/g, ' ⏎ ')}”`;
+    default: return escapeMentions(String(value));
   }
 }
 
@@ -457,9 +464,15 @@ function display(def: SettingDef, value: Value | { ref: string } | undefined, di
 export function describePlan(plan: ConfigPlan): string[] {
   const lines: string[] = [];
   for (const c of plan.creates) {
-    lines.push(c.type === 'text_channel'
-      ? `• Create text channel **#${c.name}**${c.private ? ' (private)' : ''}`
-      : `• Create role **@${escapeMentions(c.name)}** (no permissions)`);
+    if (c.type === 'text_channel') {
+      // The topic is shown too — nothing that gets written is hidden from the preview.
+      const topic = c.description
+        ? ` — topic “${escapeMentions(defangLinks(c.description))}”${hasLink(c.description) ? '  ⚠️ contains a link — check it' : ''}`
+        : '';
+      lines.push(`• Create text channel **#${c.name}**${c.private ? ' (private)' : ''}${topic}`);
+    } else {
+      lines.push(`• Create role **@${escapeMentions(c.name)}** (no permissions)`);
+    }
   }
   for (const ch of plan.changes) {
     const def = SETTINGS[ch.key]!;
@@ -480,6 +493,11 @@ export async function changesInLastHour(serverId: string): Promise<number> {
 
 export function overHourlyCap(planSize: number, done: number): boolean {
   return done + planSize > MAX_CHANGES_PER_HOUR;
+}
+
+/** The plan creates a role or sets a role Panda hands out — both need Manage Roles. */
+export function planTouchesRoles(plan: ConfigPlan): boolean {
+  return plan.creates.some((c) => c.type === 'role') || plan.changes.some((c) => SETTINGS[c.key]!.kind === 'role');
 }
 
 /**
@@ -507,7 +525,7 @@ export async function applyPlan(
         created.set(`channel:${c.name}`, res.channel.id);
         dir.channels.set(res.channel.id, c.name);
         lines.push(`✓ created #${c.name}`);
-        applied.push(`Created text channel #${c.name}`);
+        applied.push(`Created text channel #${c.name}${c.description ? ` — topic “${escapeMentions(defangLinks(c.description))}”` : ''}`);
         await record(serverId, actor, 'create_text_channel', null, `#${c.name}`, request);
       } else {
         // No permissions, ever — a role made here can't grant anything.

@@ -9,6 +9,7 @@ import {
   setBirthdayConfig,
 } from '../birthday/store.js';
 import { parseChannelId, parseRoleId, parseDailyTime, nextDailyRun } from '../util/parse.js';
+import { roleGrantRefusal } from '../mod/authority.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { resolveChannel, resolveUsers } from '../client/names.js';
 
@@ -167,6 +168,11 @@ export const handleBirthday: Handler = async (ctx, svc) => {
     const roleId = parseRoleId(ctx.args[1]);
     if (!roleId) {
       await reply(ctx, svc, `Usage: \`${ctx.prefix}birthday role <@role|none>\`.`);
+      return;
+    }
+    const refusal = await roleGrantRefusal(svc, ctx.serverId, ctx.senderId, roleId);
+    if (refusal) {
+      await reply(ctx, svc, refusal);
       return;
     }
     await setBirthdayConfig(ctx.serverId, { roleId });

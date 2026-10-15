@@ -53,7 +53,9 @@ export async function addAutoReact(input: AutoReact): Promise<void> {
   await pool.query(
     `INSERT INTO panda.auto_react (server_id, channel_id, emoji, created_by)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (channel_id, emoji) DO UPDATE SET created_by = EXCLUDED.created_by`,
+     ON CONFLICT (channel_id, emoji) DO UPDATE SET created_by = EXCLUDED.created_by
+     -- Never another server's row (the key has no server_id).
+     WHERE panda.auto_react.server_id = EXCLUDED.server_id`,
     [input.serverId, input.channelId, input.emoji, input.createdBy],
   );
   cacheByChannel.delete(cacheKey(input.serverId, input.channelId));

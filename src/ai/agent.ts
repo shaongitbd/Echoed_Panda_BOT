@@ -86,6 +86,12 @@ export interface AgentInput {
    * Only then does the agent even get the propose_settings tool.
    */
   configAllowed: boolean;
+  /**
+   * The asker may read the moderation record (warnings, cases) — the same bar
+   * as `!modlogs` / `!case`: Kick Members or a moderator role. Without it,
+   * recent_moderation isn't offered and member_info leaves the record out.
+   */
+  recordsAllowed: boolean;
   history: Turn[];
   replied: ChannelMessage | null;
   /** A short "what I'm doing" line while the agent works. */
@@ -139,9 +145,11 @@ class Run {
   }
 
   async progress(text: string): Promise<void> {
-    if (text === this.lastProgress) return;
-    this.lastProgress = text;
-    await this.input.onProgress(text).catch(() => undefined);
+    // Progress lines carry member names ("Checking <name>…") — never let one ping.
+    const safe = escapeMentions(text);
+    if (safe === this.lastProgress) return;
+    this.lastProgress = safe;
+    await this.input.onProgress(safe).catch(() => undefined);
   }
 
   /**
@@ -473,7 +481,9 @@ async function runTool(run: Run, call: ToolCall): Promise<ToolResult> {
       case 'member_info': return await memberTool(run, args);
       case 'birthdays': return await birthdaysTool(run, args);
       case 'levels': return await levelsTool(run, args);
-      case 'recent_moderation': return await moderationTool(run, args);
+      case 'recent_moderation':
+        if (!run.input.recordsAllowed) return { error: 'The moderation record needs Kick Members or a moderator role.' };
+        return await moderationTool(run, args);
       case 'panda_setup': return await setupTool(run);
       case 'propose_settings': return await proposeSettingsTool(run, args);
       case 'propose_actions': return await proposeTool(run, args);
@@ -627,9 +637,9 @@ async function memberTool(run: Run, args: Record<string, unknown>): Promise<Tool
   const [profile, staff, warnings, warningList, cases, xp, rank, birthday] = await Promise.all([
     run.svc.api.getMemberProfile(serverId, userId).catch(() => null),
     isShielded(run.svc.api, run.svc.perms, serverId, userId).catch(() => false),
-    countWarnings(serverId, userId).catch(() => 0),
-    listWarnings(serverId, userId, 5).catch(() => []),
-    listCasesForUser(serverId, userId, 5).catch(() => ({ cases: [], total: 0 })),
+    run.input.recordsAllowed ? countWarnings(serverId, userId).catch(() => 0) : 0,
+    run.input.recordsAllowed ? listWarnings(serverId, userId, 5).catch(() => []) : [],
+    run.input.recordsAllowed ? listCasesForUser(serverId, userId, 5).catch(() => ({ cases: [], total: 0 })) : { cases: [], total: 0 },
     getUserXp(serverId, userId).catch(() => null),
     getUserRank(serverId, userId).catch(() => null),
     getBirthday(serverId, userId).catch(() => null),
@@ -641,11 +651,16 @@ async function memberTool(run: Run, args: Record<string, unknown>): Promise<Tool
     staff_or_protected: staff,
     level: xp ? { level: xp.level, total_xp: xp.totalXp, rank } : null,
     birthday: birthday ? `${MONTHS[birthday.month - 1]} ${birthday.day}` : null,
-    warnings: { total: warnings, recent: warningList.map((w) => ({ reason: w.reason ?? '', at: ago(w.createdAt.getTime()) })) },
-    moderation_cases: {
-      total: cases.total,
-      recent: cases.cases.map((c) => ({ action: c.action, reason: c.reason ?? '', at: ago(c.createdAt.getTime()) })),
-    },
+    ...(run.input.recordsAllowed ? {} : { record: 'Warnings and moderation cases need Kick Members or a moderator role.' }),
+    ...(run.input.recordsAllowed
+      ? {
+          warnings: { total: warnings, recent: warningList.map((w) => ({ reason: w.reason ?? '', at: ago(w.createdAt.getTime()) })) },
+          moderation_cases: {
+            total: cases.total,
+            recent: cases.cases.map((c) => ({ action: c.action, reason: c.reason ?? '', at: ago(c.createdAt.getTime()) })),
+          },
+        }
+      : {}),
   };
 }
 
@@ -765,8 +780,9 @@ async function setupTool(run: Run): Promise<ToolResult> {
     counting: counting.enabled
       ? `${channelLabel(run, counting.channelId)} — at ${counting.currentCount}, best ${counting.highScore}${counting.resetOnFail ? ', resets on a mistake' : ''}`
       : 'off',
+    // Text from channels this asker can't read stays out (rule 1).
     active_giveaways: giveaways.slice(0, 10).map((g) => ({
-      prize: g.prize.slice(0, 100),
+      prize: readable.has(g.channelId) ? g.prize.slice(0, 100) : '(in a channel you can\'t read here)',
       winners: g.winnerCount,
       channel: channelLabel(run, g.channelId),
       ends: `in ${formatDuration(Math.max(60, Math.round((g.endAt.getTime() - Date.now()) / 1000)))}`,
@@ -775,7 +791,7 @@ async function setupTool(run: Run): Promise<ToolResult> {
       channel: channelLabel(run, s.channelId),
       next: `in ${formatDuration(Math.max(60, Math.round((s.nextRunAt.getTime() - Date.now()) / 1000)))}`,
       repeats: s.kind,
-      text: s.message.slice(0, 120),
+      text: readable.has(s.channelId) ? s.message.slice(0, 120) : '(in a channel you can\'t read here)',
     })),
   };
 }
@@ -784,8 +800,11 @@ async function proposeSettingsTool(run: Run, args: Record<string, unknown>): Pro
   // Defence in depth: the tool isn't offered without this, but never trust that.
   if (!run.input.configAllowed) return { error: 'Changing settings is not allowed here.' };
   await run.progress('🔎 Preparing the changes…');
-  const dir = await loadDirectory(run.svc, run.ctx.serverId);
-  const { plan, problems } = await planConfig(run.ctx.serverId, dir, args.create, args.changes, run.tainted);
+  const [dir, roles] = await Promise.all([
+    loadDirectory(run.svc, run.ctx.serverId),
+    run.svc.perms.check(run.ctx.serverId, run.ctx.senderId, 'MANAGE_ROLES'),
+  ]);
+  const { plan, problems } = await planConfig(run.ctx.serverId, dir, args.create, args.changes, run.tainted, roles === 'granted');
   run.configPlan = plan.creates.length + plan.changes.length > 0 ? plan : null;
   return {
     prepared: describePlan(plan),
@@ -872,7 +891,8 @@ async function proposeTool(run: Run, args: Record<string, unknown>): Promise<Too
 
 /** "Delete **6** messages from **kai_77** in #general" — for the preview and the model. */
 export async function describeRequest(svc: Services, r: ActionRequest, channelNames: Map<string, string>): Promise<string> {
-  const name = `**${await resolveUser(svc.api, r.serverId, r.targetId)}**`;
+  // Names are member-chosen; the "I can't" list is posted as plain text, so escape them.
+  const name = `**${escapeMentions(await resolveUser(svc.api, r.serverId, r.targetId))}**`;
   switch (r.action) {
     case 'delete': {
       const n = r.messageIds?.length ?? 0;
@@ -1005,6 +1025,12 @@ export async function runAgent(input: AgentInput): Promise<AgentOutcome> {
     ].join('\n'),
   });
 
+  // What this asker may use: the record only for those who could read it by
+  // command; settings only when allowed (rules 6 and the input's comments).
+  const tools = [
+    ...TOOLS.filter((t) => input.recordsAllowed || t.name !== 'recent_moderation'),
+    ...(input.configAllowed ? [settingsTool()] : []),
+  ];
   let answer = '';
   let failure: string | null = null;
   let nudged = false;
@@ -1015,11 +1041,12 @@ export async function runAgent(input: AgentInput): Promise<AgentOutcome> {
     }
     // The last step — or the step after an empty reply — must answer in words.
     const mustAnswer = step === MAX_STEPS - 1 || nudged;
+    trimOldToolResults(messages);
     const res = await completeWithTools({
       apiKey: input.creds.apiKey,
       model: input.creds.model,
       messages,
-      tools: input.configAllowed ? [...TOOLS, settingsTool()] : TOOLS,
+      tools,
       toolChoice: mustAnswer ? 'none' : 'auto',
       // Room for reasoning models, which think before they write.
       maxTokens: 4_000,
@@ -1067,6 +1094,26 @@ export async function runAgent(input: AgentInput): Promise<AgentOutcome> {
   };
 }
 
+/**
+ * Every step resends the whole conversation, so without this a question's
+ * cost grows with the square of its steps. Past PROMPT_BUDGET characters,
+ * older tool results (all but the latest two) are cut to a stub — the model
+ * already wrote down what mattered in its later calls.
+ */
+const PROMPT_BUDGET = 80_000;
+function trimOldToolResults(messages: AgentMessage[]): void {
+  let total = messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  if (total <= PROMPT_BUDGET) return;
+  const toolIdx = messages.flatMap((m, i) => (m.role === 'tool' ? [i] : []));
+  for (const i of toolIdx.slice(0, -2)) {
+    const m = messages[i] as { role: 'tool'; tool_call_id: string; content: string };
+    if (m.content.length <= 1_500) continue;
+    total -= m.content.length - 1_500;
+    m.content = `${m.content.slice(0, 1_500)}…(older result trimmed — call the tool again if you need it)`;
+    if (total <= PROMPT_BUDGET) return;
+  }
+}
+
 /** Who this answer named, for follow-ups: numbered ranks first, then any other name it used. */
 function peopleNamed(run: Run, text: string): Map<string, string> {
   const out = new Map<string, string>();
@@ -1103,7 +1150,10 @@ function cleanAnswer(text: string, run: Run): string {
   if (msgIds.length > 0 || userIds.length > 0) {
     const anyId = [...msgIds, ...userIds.map(esc)].join('|');
     // "(m46, m50, m54)" / "(u-kai)" — a bracket holding nothing but ids goes.
-    out = out.replace(new RegExp(`\\s*\\((?:\\s*(?:${anyId})\\s*[,;/]?\\s*)+\\)`, 'g'), '');
+    // Linear on purpose: the old `\s*(?:id)\s*[,;/]?\s*` repeated group
+    // backtracked exponentially on "( id  id  id … " with no ")" — 12 ids
+    // took 24 s, and a steered model could hang the whole bot with it.
+    out = out.replace(new RegExp(`\\((?:[\\s,;/]|${anyId})+\\)`, 'g'), '');
     for (const id of userIds) out = out.replace(new RegExp(`(?<![\\w-])${esc(id)}(?![\\w-])`, 'g'), run.users.get(id) ?? '');
     if (msgIds.length > 0) out = out.replace(new RegExp(`(?<![\\w-])(?:${msgIds.join('|')})(?![\\w-])`, 'g'), '');
   }

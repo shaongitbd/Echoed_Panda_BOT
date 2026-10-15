@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getLogConfig, LOG_EVENTS } from '@/lib/queries/logConfig';
 import { getServerChannels } from '@/lib/botApi';
 import { FormCard, Field } from '@/components/FormCard';
@@ -12,6 +13,7 @@ interface PageProps {
 
 export default async function LoggingPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [config, channels] = await Promise.all([getLogConfig(serverId), getServerChannels(serverId)]);
   const action = saveLogging.bind(null, serverId);
   const eventToggles = (group: 'messages' | 'members') =>

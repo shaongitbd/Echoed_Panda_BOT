@@ -75,8 +75,9 @@ export async function getSession(): Promise<Session | null> {
   if (!cookie) return null;
   const session = decode(cookie.value);
   if (!session) return null;
-  // We don't auto-refresh here — the page can detect an expired token
-  // and redirect to /login. Refresh tokens are post-MVP polish.
+  // An expired session is no session (expiresAt is unix seconds). No
+  // refresh here — callers send the user to /login.
+  if (session.expiresAt && session.expiresAt * 1000 < Date.now()) return null;
   return session;
 }
 

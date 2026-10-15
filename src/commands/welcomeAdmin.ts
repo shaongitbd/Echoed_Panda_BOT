@@ -2,6 +2,7 @@ import type { Handler, Services } from './index.js';
 import type { CommandContext } from '../types.js';
 import { getGuildConfig, setGuildConfig } from '../db/guildConfig.js';
 import { containsMention, escapeMentions } from '../client/text.js';
+import { roleGrantRefusal } from '../mod/authority.js';
 
 const CHANNEL_MENTION_RE = /^<#(?<id>[a-zA-Z0-9_-]+)>$/;
 const ROLE_MENTION_RE = /^<@&(?<id>[a-zA-Z0-9_-]+)>$/;
@@ -159,6 +160,13 @@ export const handleAutoRole: Handler = async (ctx, svc) => {
         replyToId: ctx.messageId,
         content: `Couldn't parse \`${ctx.args[0]}\` as a role.`,
       });
+      return;
+    }
+    // Every new member gets this role, so choosing it is handing out its
+    // permissions: it takes Manage Roles, and never a moderator/protected role.
+    const refusal = await roleGrantRefusal(svc, ctx.serverId, ctx.senderId, roleId);
+    if (refusal) {
+      await svc.api.sendMessage({ serverId: ctx.serverId, channelId: ctx.channelId, replyToId: ctx.messageId, content: refusal });
       return;
     }
   }

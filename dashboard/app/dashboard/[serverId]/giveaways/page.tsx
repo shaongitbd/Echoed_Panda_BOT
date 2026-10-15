@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { listActive, listRecentEnded, type Giveaway } from '@/lib/queries/giveaways';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { getServerChannels, getServerRoles, type BotChannel } from '@/lib/botApi';
@@ -13,6 +14,7 @@ interface PageProps {
 
 export default async function GiveawaysPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [active, recent, channels, roles, config] = await Promise.all([
     listActive(serverId),
     listRecentEnded(serverId),

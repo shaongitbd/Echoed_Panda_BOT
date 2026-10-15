@@ -30,7 +30,8 @@ export async function addAutoReact(input: {
   await pool.query(
     `INSERT INTO auto_react (server_id, channel_id, emoji, created_by)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (channel_id, emoji) DO UPDATE SET created_by = EXCLUDED.created_by`,
+     ON CONFLICT (channel_id, emoji) DO UPDATE SET created_by = EXCLUDED.created_by
+     WHERE auto_react.server_id = EXCLUDED.server_id`,
     [input.serverId, input.channelId, input.emoji, input.createdBy],
   );
 }

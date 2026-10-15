@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { listReactionRoles, type ReactRoleListing } from '@/lib/queries/reactionRoles';
 import { getServerChannels, getServerRoles, type BotChannel, type BotRole } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
@@ -9,6 +10,7 @@ interface PageProps {
 
 export default async function ReactionRolesPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [messages, channels, roles] = await Promise.all([
     listReactionRoles(serverId),
     getServerChannels(serverId),

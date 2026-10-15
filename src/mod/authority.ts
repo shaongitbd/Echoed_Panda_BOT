@@ -76,3 +76,26 @@ export async function isShielded(
   if (admin !== 'denied') return true; // granted, or unknown → leave alone
   return (await roleProtection(api, serverId, userId, false)) !== null;
 }
+
+/**
+ * Why `userId` may not make Panda hand out `roleId` automatically (auto-role,
+ * birthday role, level rewards), or null. Choosing such a role is granting
+ * its permissions to whoever qualifies — so it takes Manage Roles (as
+ * reaction roles already do), never a moderator or protected role, and a
+ * permission lookup that doesn't answer refuses.
+ */
+export async function roleGrantRefusal(
+  svc: { perms: PermissionService },
+  serverId: string,
+  userId: string,
+  roleId: string,
+): Promise<string | null> {
+  const verdict = await svc.perms.check(serverId, userId, 'MANAGE_ROLES');
+  if (verdict === 'unavailable') return "I couldn't verify your permissions just now — try again in a moment.";
+  if (verdict !== 'granted') return 'Giving a role out automatically needs the **Manage Roles** permission.';
+  const cfg = await getGuildConfig(serverId);
+  if (cfg.modRoleIds.includes(roleId) || cfg.protectedRoleIds.includes(roleId)) {
+    return "That's a moderator or protected role — I won't hand it out automatically.";
+  }
+  return null;
+}

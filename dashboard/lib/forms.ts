@@ -2,20 +2,29 @@
 // don't drift on parsing rules across pages — and so adding a new
 // page stays a 5-line job.
 
+import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { getSession } from './auth';
 import { fetchUserinfo } from './echoed';
+
+/**
+ * The user's Echoed profile (with owned_servers), fetched once per request
+ * however many checks ask — the layout and the page both check ownership.
+ */
+export const userinfoForRequest = cache(fetchUserinfo);
 
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{8,}$/;
 const CHANNEL_MENTION_RE = /^<#([a-zA-Z0-9_-]+)>$/;
 const ROLE_MENTION_RE = /^<@&([a-zA-Z0-9_-]+)>$/;
 
-// Re-verify the user owns the target server. Every server action calls
-// this — never trust the URL/form data alone.
+// Re-verify the user owns the target server. Every server action AND every
+// page calls this — never trust the URL/form data alone, and never rely on
+// the layout's check: on client navigation Next.js can render a page
+// without re-running its layout, so a layout check alone can be skipped.
 export async function requireOwner(serverId: string): Promise<void> {
   const session = await getSession();
   if (!session) redirect('/login');
-  const user = await fetchUserinfo(session.accessToken);
+  const user = await userinfoForRequest(session.accessToken);
   const owns = (user.owned_servers ?? []).some((s) => s.id === serverId);
   if (!owns) redirect('/dashboard');
 }

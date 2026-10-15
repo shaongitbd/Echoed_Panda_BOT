@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { requireOwner } from '@/lib/forms';
 import { listCommands } from '@/lib/queries/customCommands';
 import { FormCard } from '@/components/FormCard';
 import { getSession } from '@/lib/auth';
@@ -12,6 +13,7 @@ interface PageProps {
 
 export default async function CustomCommandsPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const session = await getSession();
   if (!session) redirect('/login');
 

@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { listForServer, type ScheduledMessage } from '@/lib/queries/scheduledMessages';
 import { getServerChannels, type BotChannel } from '@/lib/botApi';
 import { FormCard } from '@/components/FormCard';
@@ -10,6 +11,7 @@ interface PageProps {
 
 export default async function SchedulesPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [items, channels] = await Promise.all([
     listForServer(serverId),
     getServerChannels(serverId),

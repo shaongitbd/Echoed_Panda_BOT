@@ -52,9 +52,13 @@ export function openApiKey(serverId: string, sealed: string): string | null {
   if (parts.length !== 4 || parts[0] !== VERSION) return null;
   try {
     const [, ivB64, tagB64, ctB64] = parts as [string, string, string, string];
-    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'));
+    // Pin the tag length: GCM otherwise accepts a truncated tag, which weakens
+    // the integrity check on a stored key.
+    const tag = Buffer.from(tagB64, 'base64');
+    if (tag.length !== 16) return null;
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'), { authTagLength: 16 });
     decipher.setAAD(Buffer.from(serverId, 'utf8'));
-    decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+    decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(Buffer.from(ctB64, 'base64')), decipher.final()]).toString('utf8');
   } catch {
     return null;

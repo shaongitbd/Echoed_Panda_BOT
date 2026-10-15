@@ -14,6 +14,7 @@ import {
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { resolveRole, resolveRoles } from '../client/names.js';
 import { containsMention, escapeMentions } from '../client/text.js';
+import { roleGrantRefusal } from '../mod/authority.js';
 
 // ─── Mention parsing ────────────────────────────────────────────────────
 
@@ -223,6 +224,12 @@ export const handleAddLevelRole: Handler = async (ctx, svc) => {
       replyToId: ctx.messageId,
       content: `Usage: \`${ctx.prefix}addlevelrole <level> <@role>\` (level 1-1000).`,
     });
+    return;
+  }
+
+  const refusal = await roleGrantRefusal(svc, ctx.serverId, ctx.senderId, roleId);
+  if (refusal) {
+    await svc.api.sendMessage({ serverId: ctx.serverId, channelId: ctx.channelId, replyToId: ctx.messageId, content: refusal });
     return;
   }
 

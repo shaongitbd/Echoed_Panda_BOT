@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { requireOwner } from '@/lib/forms';
 import { ArrowRight } from 'lucide-react';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { getLevelSettings } from '@/lib/queries/levelSettings';
@@ -17,6 +18,7 @@ interface PageProps {
 // tile opens the page that owns it. Read-only; edits happen on those pages.
 export default async function OverviewPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [guild, levels, status, channels, roles] = await Promise.all([
     getGuildConfig(serverId),
     getLevelSettings(serverId),

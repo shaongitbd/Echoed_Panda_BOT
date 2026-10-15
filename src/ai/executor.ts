@@ -82,11 +82,16 @@ export async function refusalFor(svc: Services, actor: Actor, req: ActionRequest
 
     if (MEMBER_ACTIONS.has(req.action)) {
       if (targetId === actor.userId) return "You can't do that to yourself.";
-      const [targetIsAdmin, actorIsAdmin] = await Promise.all([
-        svc.perms.has(serverId, targetId, 'MANAGE_SERVER'),
-        svc.perms.has(serverId, actor.userId, 'MANAGE_SERVER'),
+      const [target, self] = await Promise.all([
+        svc.perms.check(serverId, targetId, 'MANAGE_SERVER'),
+        svc.perms.check(serverId, actor.userId, 'MANAGE_SERVER'),
       ]);
-      if (targetIsAdmin && !actorIsAdmin) return "You can't act on someone who manages this server.";
+      // Fail closed: if we can't tell whether the target is an admin, don't act.
+      if (target === 'unavailable' || self === 'unavailable') {
+        return "I couldn't verify permissions just now — try again in a moment.";
+      }
+      const actorIsAdmin = self === 'granted';
+      if (target === 'granted' && !actorIsAdmin) return "You can't act on someone who manages this server.";
       const blocked = await roleProtection(svc.api, serverId, targetId, actorIsAdmin);
       if (blocked) return blocked;
     }

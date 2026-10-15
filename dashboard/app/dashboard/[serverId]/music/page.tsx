@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { getServerChannels, getServerRoles } from '@/lib/botApi';
 import { FormCard, Field } from '@/components/FormCard';
@@ -12,6 +13,7 @@ interface PageProps {
 
 export default async function MusicPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [config, channels, roles] = await Promise.all([
     getGuildConfig(serverId),
     getServerChannels(serverId),

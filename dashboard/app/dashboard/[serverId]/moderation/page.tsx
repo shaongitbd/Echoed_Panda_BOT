@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
 import { listEscalations, formatDuration, MAX_RULES } from '@/lib/queries/escalation';
 import { getServerChannels, getServerRoles } from '@/lib/botApi';
@@ -14,6 +15,7 @@ interface PageProps {
 
 export default async function ModerationPage({ params }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const [config, channels, roles, escalations] = await Promise.all([
     getGuildConfig(serverId),
     getServerChannels(serverId),

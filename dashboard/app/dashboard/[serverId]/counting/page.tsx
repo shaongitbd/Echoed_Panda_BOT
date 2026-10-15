@@ -1,3 +1,4 @@
+import { requireOwner } from '@/lib/forms';
 import { getServerChannels } from '@/lib/botApi';
 import { getCounting } from '@/lib/queries/community';
 import { FormCard, Field, PageHeader } from '@/components/FormCard';
@@ -19,6 +20,7 @@ const ERRORS: Record<string, string> = {
 
 export default async function CountingPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
+  await requireOwner(serverId);
   const query = await searchParams;
   const [cfg, channels] = await Promise.all([getCounting(serverId), getServerChannels(serverId)]);
   const reset = query.saved === 'reset';

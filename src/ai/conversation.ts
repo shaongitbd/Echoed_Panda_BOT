@@ -98,6 +98,25 @@ export async function rememberTurn(
 }
 
 /**
+ * How many questions this person asked `!panda` in this server in the last
+ * hour (any channel) — the per-person rate limit. Fails open to 0 only on a
+ * database error, which the daily cap still bounds.
+ */
+export async function turnsInLastHour(serverId: string, userId: string): Promise<number> {
+  try {
+    const res = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM panda.ai_panda_turns
+        WHERE server_id = $1 AND user_id = $2 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [serverId, userId],
+    );
+    return Number(res.rows[0]?.n ?? 0);
+  } catch (err) {
+    log.warn({ err, serverId }, '!panda: rate-limit lookup failed');
+    return 0;
+  }
+}
+
+/**
  * Is `messageId` an answer Panda gave THIS moderator in THIS channel within
  * the follow-up window? Only then does their plain-text reply to it count as
  * a request. Never throws (false on error).

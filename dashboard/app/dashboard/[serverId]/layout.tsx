@@ -3,7 +3,7 @@ import { DashboardTopBar } from '@/components/DashboardTopBar';
 import { ServerSidebar } from '@/components/ServerSidebar';
 import { SettingsSearch } from '@/components/SettingsSearch';
 import { getSession } from '@/lib/auth';
-import { fetchUserinfo } from '@/lib/echoed';
+import { userinfoForRequest } from '@/lib/forms';
 import { getModuleStatus } from '@/lib/queries/moduleStatus';
 
 // Per-server config layout. Validates that the logged-in user owns
@@ -23,7 +23,7 @@ export default async function ServerLayout({ children, params }: LayoutProps): P
 
   let user;
   try {
-    user = await fetchUserinfo(session.accessToken);
+    user = await userinfoForRequest(session.accessToken);
   } catch {
     redirect('/login');
   }
