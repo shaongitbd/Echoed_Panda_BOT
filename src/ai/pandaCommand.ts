@@ -6,6 +6,10 @@
 //                             to point at it. Panda answers with a preview of
 //                             exactly what it will do; nothing happens until
 //                             the same moderator reacts ✅.
+//   !panda <question>         "who spams the most here", "who posted the most
+//                             today", "who said 'free nitro' this week" — a
+//                             REPORT: Panda counts this channel's matching
+//                             messages per author and answers. Read-only.
 //   !panda context [text|clear]   this channel's rules for the AI (Manage Server)
 //   !panda on | off               AI moderation in this channel (Manage Server)
 //   !panda status                 how this channel is set up, today's usage
@@ -25,6 +29,12 @@
 //   4. WHAT may happen: values from a fixed vocabulary, shown in a preview,
 //      confirmed by the moderator, and re-checked against THAT moderator's
 //      permissions by the executor at execution time.
+//   5. REPORTS never act. Panda selects the messages (rule 3), the model at
+//      most judges them, and Panda's own code counts per author and writes
+//      the answer — the model never writes text the moderator reads as a
+//      finding. Injected text can skew a judged count (the reply says it's
+//      AI-judged), but a report has no path to an action: acting on its
+//      result is a separate request through rules 1–4.
 
 import type { Handler, Services } from '../commands/index.js';
 import type { CommandContext, ReactionEventData } from '../types.js';
@@ -33,6 +43,7 @@ import type { Permission } from '../auth/permissions.js';
 import { checkModerator } from '../mod/authority.js';
 import { buildEmbed, COLORS } from '../client/embeds.js';
 import { resolveUser } from '../client/names.js';
+import { escapeMentions } from '../client/text.js';
 import { formatDuration, MAX_TIMEOUT_SECONDS } from '../mod/duration.js';
 import { log } from '../log.js';
 import { completeJson } from './openrouter.js';
@@ -55,6 +66,8 @@ const CONFIRM_TTL_MS = 2 * 60_000;
 const MAX_LOOKBACK_MS = 30 * 24 * 60 * 60_000;
 const DEFAULT_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
 const MAX_SCAN_PAGES = 20; // × 100 messages
+/** Most people one report lists. */
+const MAX_REPORT_ROWS = 25;
 /** Most messages the model is asked to judge for one request. */
 const MAX_CLASSIFY = 200;
 const CLASSIFY_BATCH = 40;
@@ -76,6 +89,7 @@ function helpText(prefix: string): string {
   return [
     '**Panda AI moderation**',
     `\`${prefix}panda <request>\` — ask in plain words; reply to a message to point at it. I show what I'll do and wait for your ✅.`,
+    `\`${prefix}panda <question>\` — "who spams the most here?", "who posted the most today?", "who said 'free nitro' this week?" I count this channel's messages per person and tell you; nothing is done to anyone.`,
     `\`${prefix}panda context <rules>\` — set this channel's rules for the AI (\`${prefix}panda context\` shows them, \`clear\` removes them).`,
     `\`${prefix}panda on\` / \`off\` — AI moderation in this channel. \`${prefix}panda status\` — how it's set up.`,
     'The server owner adds the OpenRouter key and model at https://panda.echoed.gg.',
@@ -203,8 +217,10 @@ function argumentText(ctx: CommandContext, skip: number): string {
 const PLAN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['understood', 'can_do', 'refusal', 'target_user_id', 'messages', 'member_actions'],
+  required: ['kind', 'understood', 'can_do', 'refusal', 'target_user_id', 'messages', 'member_actions', 'report_top'],
   properties: {
+    kind: { type: 'string', enum: ['moderate', 'report'] },
+    report_top: { type: 'integer', minimum: 0, maximum: MAX_REPORT_ROWS },
     understood: { type: 'string', maxLength: 200 },
     can_do: { type: 'boolean' },
     refusal: { type: 'string', maxLength: 200 },
@@ -251,9 +267,17 @@ const PLANNER_PROMPT = [
   '',
   'target_user_id must be "" or EXACTLY one of the ids in "allowed_targets". Never invent or copy other ids.',
   'Include only actions the moderator explicitly asked for. If the request is unclear, not possible with the',
-  'schema, or not a moderation request, set can_do=false and explain briefly in "refusal".',
+  'schema, or neither a moderation request nor a report, set can_do=false and explain briefly in "refusal".',
   '',
-  'messages: include=true only if the moderator wants messages deleted. scope "target_only" = only the target\'s',
+  'kind: "moderate" when the moderator wants something done (delete, warn, timeout, kick, ban). "report" when',
+  'they ask a question about this channel\'s messages that is answered by counting messages per author: "who',
+  'spams the most", "who posted the most today", "who sent the message saying X", "has @user posted links this',
+  'week". For a report: describe the messages to count in "messages" (include=true; max_count 0), leave',
+  'member_actions empty, and set report_top to how many people to list (the number asked for, else 10). For',
+  '"moderate", report_top is 0. A request to both find and punish someone ("ban whoever spams most") is not',
+  'possible in one step: make it a report and say in "understood" that they can act once they see it.',
+  '',
+  'messages: for "moderate", include=true only if the moderator wants messages deleted. scope "target_only" = only the target\'s',
   'messages; "everyone" = anyone\'s (e.g. "clear the spam from the last 10 minutes"). For explicit times use',
   'from_iso / to_iso (ISO 8601, UTC; "now" is given); for "the last N minutes/hours" use since_minutes. Leave',
   'unused fields "" or 0. contains: a literal phrase the messages must contain, only if the moderator gave one.',
@@ -266,6 +290,9 @@ const PLANNER_PROMPT = [
 ].join('\n');
 
 interface Plan {
+  kind: 'moderate' | 'report';
+  /** Report rows to show. */
+  reportTop: number;
   understood: string;
   canDo: boolean;
   refusal: string;
@@ -307,6 +334,8 @@ function readPlan(json: unknown, allowedTargets: ReadonlySet<string>): Plan | nu
     }
   }
   return {
+    kind: o.kind === 'report' ? 'report' : 'moderate',
+    reportTop: int(o.report_top, 0, MAX_REPORT_ROWS) || 10,
     understood: sanitizeReason(o.understood, 'your request'),
     canDo: o.can_do,
     refusal: sanitizeReason(o.refusal, "I can't do that."),
@@ -404,12 +433,13 @@ async function handleRequest(ctx: CommandContext, svc: Services): Promise<void> 
   const plan = readPlan(result.json, new Set(allowed.keys()));
   if (!plan) return reply(ctx, svc, "I couldn't work that out — try saying it more simply.");
   if (!plan.canDo) return reply(ctx, svc, plan.refusal || "I can't do that.");
+  if (plan.kind === 'report') return handleReport(ctx, svc, plan, creds, settings.dailyCheckCap);
 
   // ── Build the concrete requests ──
   const requests: ActionRequest[] = [];
   const notes: string[] = [];
   if (!plan.messages.include && plan.memberActions.length === 0) {
-    return reply(ctx, svc, `**You asked:** ${plan.understood}\nThere's nothing for me to do there — I can delete messages, warn, time out, kick or ban.`);
+    return reply(ctx, svc, `**You asked:** ${plan.understood}\nThere's nothing for me to do there — I can delete messages, warn, time out, kick or ban, or count messages per person if you ask me a question.`);
   }
   const needsTarget = plan.memberActions.length > 0 || (plan.messages.include && plan.messages.scope === 'target_only');
   if (needsTarget && !plan.targetId) {
@@ -417,7 +447,8 @@ async function handleRequest(ctx: CommandContext, svc: Services): Promise<void> 
   }
 
   if (plan.messages.include) {
-    const selected = await selectMessages(svc, ctx, plan, creds, settings.dailyCheckCap, notes);
+    const max = Math.min(plan.messages.maxCount || 100, MAX_DELETE);
+    const { messages: selected } = await selectMessages(svc, ctx, plan, creds, settings.dailyCheckCap, notes, max);
     if (selected.length > 0) {
       // Grouped per author, so the mod-log and the checks name the right person.
       const byAuthor = new Map<string, string[]>();
@@ -519,6 +550,15 @@ function sentAt(m: ChannelMessage): number {
   return Date.parse(m.timestamp ?? m.createdAt ?? '') || 0;
 }
 
+interface Selection {
+  messages: ChannelMessage[];
+  /** The window actually searched. */
+  fromMs: number;
+  toMs: number;
+  /** Members' messages in the window that were looked at, before any filter. */
+  read: number;
+}
+
 async function selectMessages(
   svc: Services,
   ctx: CommandContext,
@@ -526,15 +566,16 @@ async function selectMessages(
   creds: { apiKey: string; model: string },
   dailyCap: number,
   notes: string[],
-): Promise<ChannelMessage[]> {
+  max: number,
+): Promise<Selection> {
   const now = Date.now();
   const toMs = Math.min(parseIso(plan.messages.toIso) ?? now, now);
   let fromMs = parseIso(plan.messages.fromIso)
     ?? (plan.messages.sinceMinutes > 0 ? now - plan.messages.sinceMinutes * 60_000 : now - DEFAULT_LOOKBACK_MS);
   fromMs = Math.max(fromMs, now - MAX_LOOKBACK_MS);
-  if (fromMs >= toMs) return [];
+  if (fromMs >= toMs) return { messages: [], fromMs, toMs, read: 0 };
 
-  const max = Math.min(plan.messages.maxCount || 100, MAX_DELETE);
+  let read = 0;
   const phrase = plan.messages.contains.toLowerCase();
   const out: ChannelMessage[] = [];
   const seen = new Set<string>();
@@ -558,6 +599,7 @@ async function selectMessages(
       seen.add(m.id);
       if (!m.author?.id || m.author.id === svc.botUserId) continue;
       if (m.id === ctx.messageId) continue; // the command itself
+      read++;
       if (plan.messages.scope === 'target_only' && m.author.id !== plan.targetId) continue;
       if (phrase && !m.content.toLowerCase().includes(phrase)) continue;
       out.push(m);
@@ -570,7 +612,7 @@ async function selectMessages(
   }
   if (!reachedStart) notes.push(`I looked through the last ${MAX_SCAN_PAGES * 100} messages only.`);
 
-  if (!plan.messages.criterion) return out.slice(0, max);
+  if (!plan.messages.criterion) return { messages: out.slice(0, max), fromMs, toMs, read };
 
   // A judgement call: the model picks among the messages already selected.
   const candidates = out.slice(0, MAX_CLASSIFY);
@@ -589,7 +631,126 @@ async function selectMessages(
     }
     for (const idx of matches) if (batch[idx]) picked.push(batch[idx]!);
   }
-  return picked.slice(0, max);
+  return { messages: picked.slice(0, max), fromMs, toMs, read };
+}
+
+// ── Reports (rule 5) ───────────────────────────────────────────────────────
+
+async function handleReport(
+  ctx: CommandContext,
+  svc: Services,
+  plan: Plan,
+  creds: { apiKey: string; model: string },
+  dailyCap: number,
+): Promise<void> {
+  if (plan.messages.scope === 'target_only' && !plan.targetId) {
+    return reply(ctx, svc, 'Who do you mean? Reply to one of their messages or @mention them.');
+  }
+  const notes: string[] = [];
+  const sel = await selectMessages(svc, ctx, plan, creds, dailyCap, notes, Number.MAX_SAFE_INTEGER);
+  const judged = plan.messages.criterion !== '';
+  const where = `in this channel, ${describeWindow(sel.fromMs, sel.toMs)}`;
+
+  if (sel.messages.length === 0) {
+    const lines = [`**You asked:** ${plan.understood}`, `No messages matched ${where} (${sel.read} read).`];
+    if (notes.length > 0) lines.push('', ...notes);
+    return reply(ctx, svc, lines.join('\n'));
+  }
+
+  // Panda's own count — nothing below comes from the model.
+  const rows = tallyByAuthor(sel.messages).slice(0, plan.reportTop);
+  const authors = new Set(sel.messages.map((m) => m.author!.id)).size;
+  const lines = [
+    `**You asked:** ${plan.understood}`,
+    `**${sel.messages.length}** matching message${sel.messages.length === 1 ? '' : 's'} from **${authors}** ${authors === 1 ? 'person' : 'people'} ${where} (${sel.read} read).`,
+    '',
+  ];
+  const showExample = judged || plan.messages.contains !== '';
+  rows.forEach((r, i) => {
+    const extra = [
+      r.repeats > 0 ? `${r.repeats} repeated` : '',
+      `last ${ago(r.lastAt)}`,
+    ].filter(Boolean).join(' · ');
+    lines.push(`${i + 1}. **${escapeMarkdown(r.name)}** — ${r.count} message${r.count === 1 ? '' : 's'} · ${extra}`);
+    // What was counted, so a judged answer can be checked at a glance.
+    if (showExample) lines.push(`   “${escapeMentions(excerpt(r.example))}”`);
+  });
+  if (authors > rows.length) lines.push(`…and ${authors - rows.length} more.`);
+  lines.push('');
+  if (judged) lines.push(`Which messages counted as “${escapeMentions(plan.messages.criterion)}” was judged by the AI — check before acting on it.`);
+  lines.push(`Nothing was done to anyone. To act, reply to one of their messages with \`${ctx.prefix}panda …\`.`);
+  if (notes.length > 0) lines.push('', ...notes);
+
+  // Keep under a message's length: drop rows from the end, never the notes.
+  let text = lines.join('\n');
+  while (text.length > 3800 && rows.length > 1) {
+    rows.pop();
+    const cut = lines.findIndex((l) => l.startsWith(`${rows.length + 1}. `));
+    if (cut < 0) break;
+    lines.splice(cut, showExample ? 2 : 1);
+    text = lines.join('\n');
+  }
+  return reply(ctx, svc, text);
+}
+
+interface ReportRow {
+  name: string;
+  count: number;
+  /** Messages identical (case/space-insensitive) to another of theirs in the set. */
+  repeats: number;
+  lastAt: number;
+  example: string;
+}
+
+/** Most messages first; ties go to whoever posted most recently. */
+function tallyByAuthor(messages: ChannelMessage[]): ReportRow[] {
+  const byAuthor = new Map<string, { row: ReportRow; seen: Map<string, number> }>();
+  for (const m of messages) {
+    const id = m.author!.id;
+    let entry = byAuthor.get(id);
+    if (!entry) {
+      entry = { row: { name: m.author!.name || 'unknown', count: 0, repeats: 0, lastAt: 0, example: '' }, seen: new Map() };
+      byAuthor.set(id, entry);
+    }
+    const { row, seen } = entry;
+    row.count++;
+    const t = sentAt(m);
+    if (t >= row.lastAt) {
+      row.lastAt = t;
+      if (m.content.trim()) row.example = m.content;
+    }
+    const key = m.content.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (key) {
+      const n = (seen.get(key) ?? 0) + 1;
+      seen.set(key, n);
+      // The first copy isn't a repeat; every copy after it is.
+      if (n > 1) row.repeats++;
+    }
+  }
+  return [...byAuthor.values()]
+    .map((e) => e.row)
+    .sort((a, b) => b.count - a.count || b.lastAt - a.lastAt);
+}
+
+function describeWindow(fromMs: number, toMs: number): string {
+  const now = Date.now();
+  if (now - toMs < 60_000) return `the last ${formatDuration(Math.round((now - fromMs) / 1000))}`;
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+  return `${day(fromMs)} to ${day(toMs)} UTC`;
+}
+
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? 'just now' : `${formatDuration(s).split(' ')[0]} ago`;
+}
+
+function excerpt(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 90 ? `${flat.slice(0, 89)}…` : flat;
+}
+
+function escapeMarkdown(text: string): string {
+  return escapeMentions(text).replace(/([*_`~|\\])/g, '\\$1');
 }
 
 const CLASSIFY_SCHEMA = {
