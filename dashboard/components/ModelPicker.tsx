@@ -177,7 +177,7 @@ export function ModelPicker({ name, initial }: { name: string; initial: string |
               {formatContext(selected.contextLength) ? ` · ${formatContext(selected.contextLength)} context` : ''}
             </>
           ) : load.state === 'ready' ? (
-            <span className="text-status-warning"> · OpenRouter doesn&apos;t list this model with structured outputs any more — pick another.</span>
+            <span className="text-status-warning"> · OpenRouter doesn&apos;t list this model with structured outputs and tool calling (Panda needs both) — pick another.</span>
           ) : null}
         </p>
       ) : null}

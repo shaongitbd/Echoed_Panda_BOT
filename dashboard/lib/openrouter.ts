@@ -66,10 +66,14 @@ async function fetchStructuredModels(): Promise<ModelOption[]> {
       }[];
     };
     const models: ModelOption[] = (body.data ?? [])
-      // `structured_outputs` = enforces a JSON schema. (`response_format`
-      // alone can mean plain JSON mode, which the bot's strict schema
-      // request would be refused on.)
-      .filter((m) => m.id && (m.supported_parameters ?? []).includes('structured_outputs'))
+      // `structured_outputs` = enforces a JSON schema (automatic moderation;
+      // `response_format` alone can mean plain JSON mode, which the bot's
+      // strict schema request would be refused on). `tools` = function
+      // calling, which the !panda agent works with.
+      .filter((m) => {
+        const p = m.supported_parameters ?? [];
+        return m.id && p.includes('structured_outputs') && p.includes('tools');
+      })
       .map((m) => ({
         id: m.id!,
         name: m.name ?? m.id!,

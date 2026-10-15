@@ -25,7 +25,7 @@ const ERRORS: Record<string, string> = {
   'key-invalid': 'OpenRouter rejected that key. Nothing was saved.',
   'key-unreachable': "Couldn't reach OpenRouter to check the key. Nothing was saved — try again in a moment.",
   model: "That isn't a model id — pick one from the list (it looks like provider/model-name). Nothing was saved.",
-  'model-unsupported': "OpenRouter doesn't list that model as able to give structured (JSON-schema) answers, which Panda needs — pick one from the list. Nothing was saved.",
+  'model-unsupported': "OpenRouter doesn't list that model with structured (JSON-schema) answers and tool calling, which Panda needs — pick one from the list. Nothing was saved.",
   'needs-key': 'To turn AI moderation on, save an OpenRouter key and pick a model.',
   channel: "That channel couldn't be used. Pick a text channel in this server.",
   context: 'Channel rules are limited to 2,000 characters.',
@@ -79,13 +79,12 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
         <p className="mt-2 max-w-3xl text-text-secondary">
           Panda reads each new message in the channels you choose, with a few messages before it for context, and
           judges it against that channel&apos;s rules using an AI model on <strong>your own OpenRouter key</strong>.
-          Moderators can also ask it for things in plain words with <code>!panda</code>, e.g. replying to a message with{' '}
-          <code>!panda delete everything this person posted in the last hour</code> — Panda shows exactly what it will
-          do and waits for their ✅. They can ask it questions too — <code>!panda who spams the most here?</code> — and
-          Panda reads the last few days across the channels that moderator can see, judges each person on their own
-          recent messages (as many as the channel&apos;s &ldquo;messages read&rdquo; setting) and ranks them, without
-          doing anything to anyone. To follow up, they just reply to Panda&apos;s answer in plain words, like
-          &ldquo;time out #1 for a day&rdquo;.
+          Moderators can also talk to it with <code>!panda</code> — <code>!panda who spams the most here?</code>,{' '}
+          <code>!panda what happened in #general last night?</code>, or replying to a message with{' '}
+          <code>!panda delete everything this person posted today</code>. Panda looks through the channels that
+          moderator can read, checks people&apos;s history, and answers; anything it would do is shown first and waits
+          for their ✅. To follow up, they just reply to Panda&apos;s answer, like &ldquo;time out #1 for a day&rdquo;.
+          Each question uses a few AI checks (one per step Panda takes, up to 7).
         </p>
         <p className="mt-2 max-w-3xl text-sm text-text-muted">
           Messages in AI-moderated channels are sent to OpenRouter and the model provider you pick. Staff, moderator
