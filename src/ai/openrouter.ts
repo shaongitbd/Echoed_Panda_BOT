@@ -122,7 +122,16 @@ export interface ToolSpec {
 }
 
 export type ToolTurnResult =
-  | { ok: true; content: string; toolCalls: ToolCall[] }
+  | {
+      ok: true;
+      /** Empty with no toolCalls = the model said nothing (see finishReason). */
+      content: string;
+      toolCalls: ToolCall[];
+      /** "stop", "length" (ran out of tokens), "tool_calls", … */
+      finishReason: string;
+      /** Characters of hidden reasoning the model produced — a reasoning model can spend its whole budget there. */
+      reasoningChars: number;
+    }
   | { ok: false; error: string; status?: number };
 
 /**
@@ -175,8 +184,10 @@ export async function completeWithTools(input: {
   }
   let body: {
     choices?: {
+      finish_reason?: string | null;
       message?: {
         content?: string | null;
+        reasoning?: string | null;
         tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
       };
     }[];
@@ -186,15 +197,18 @@ export async function completeWithTools(input: {
   } catch {
     return { ok: false, error: 'OpenRouter returned an unreadable response.' };
   }
-  const message = body.choices?.[0]?.message;
+  const choice = body.choices?.[0];
+  const message = choice?.message;
   const toolCalls: ToolCall[] = (message?.tool_calls ?? [])
     .filter((c) => c.id && c.function?.name)
     .map((c) => ({ id: c.id!, name: c.function!.name!, arguments: c.function!.arguments ?? '{}' }));
   const content = typeof message?.content === 'string' ? message.content : '';
+  const finishReason = choice?.finish_reason ?? '';
+  const reasoningChars = typeof message?.reasoning === 'string' ? message.reasoning.length : 0;
   if (toolCalls.length === 0 && !content.trim()) {
-    return { ok: false, error: 'The model returned an empty answer.' };
+    log.warn({ model: input.model, finishReason, reasoningChars }, 'AI agent step came back empty');
   }
-  return { ok: true, content, toolCalls };
+  return { ok: true, content, toolCalls, finishReason, reasoningChars };
 }
 
 function describeHttpError(status: number, detail: string): string {

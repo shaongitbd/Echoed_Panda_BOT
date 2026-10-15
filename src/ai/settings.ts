@@ -147,6 +147,16 @@ export async function getAiChannelRule(serverId: string, channelId: string): Pro
 }
 
 /**
+ * Channels with AI moderation switched on — the only ones whose messages
+ * may be sent to the model (the dashboard promises the owner exactly that).
+ */
+export async function listAiEnabledChannels(serverId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const [id, rule] of await loadChannels(serverId)) if (rule.enabled) out.add(id);
+  return out;
+}
+
+/**
  * Set a channel's rules text (the `!panda context` command). Creates the
  * channel's row with safe defaults — flag + delete only — when it has none.
  */

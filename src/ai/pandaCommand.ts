@@ -38,6 +38,7 @@ import {
   getAiChannelRule,
   getAiCredentials,
   getAiSettings,
+  listAiEnabledChannels,
   MAX_CONTEXT_CHARS,
   setAiChannelContext,
   setAiChannelEnabled,
@@ -233,6 +234,11 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
   }
   const request = (text ?? argumentText(ctx, 1)).slice(0, MAX_REQUEST_CHARS);
   if (!request) return reply(ctx, svc, helpText(ctx.prefix));
+  // The agent reads only AI-moderated channels — nothing to do without one.
+  const aiChannels = await listAiEnabledChannels(ctx.serverId);
+  if (aiChannels.size === 0) {
+    return reply(ctx, svc, `AI moderation isn't on in any channel yet, so I have nothing to look at. An admin can switch it on here with \`${ctx.prefix}panda on\`, or per channel on the dashboard.`);
+  }
   if (!(await claimDailyCheck(ctx.serverId, settings.dailyCheckCap))) {
     return reply(ctx, svc, "Today's AI check limit for this server is used up. The owner can raise it on the dashboard.");
   }
@@ -267,6 +273,7 @@ async function handleRequest(ctx: CommandContext, svc: Services, text?: string):
     creds,
     dailyCap: settings.dailyCheckCap,
     sampleSize: rule?.historySize || 8,
+    aiChannels,
     history,
     replied,
     onProgress: edit,
