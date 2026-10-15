@@ -1,6 +1,6 @@
 import { getServerChannels } from '@/lib/botApi';
 import { getGuildConfig } from '@/lib/queries/guildConfig';
-import { listStructuredModels } from '@/lib/openrouter';
+import { ModelPicker } from '@/components/ModelPicker';
 import { secretBoxReady } from '@/lib/secretBox';
 import { checksToday, getAiSettings, listAiChannels, type AiAction } from '@/lib/queries/aiModeration';
 import { FormCard, Field, inputClassName, textareaClassName } from '@/components/FormCard';
@@ -53,11 +53,10 @@ function first(v: string | string[] | undefined): string | undefined {
 export default async function AiModerationPage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { serverId } = await params;
   const query = await searchParams;
-  const [settings, channels, rules, models, used, guild] = await Promise.all([
+  const [settings, channels, rules, used, guild] = await Promise.all([
     getAiSettings(serverId),
     getServerChannels(serverId),
     listAiChannels(serverId),
-    listStructuredModels(),
     checksToday(serverId),
     getGuildConfig(serverId),
   ]);
@@ -134,30 +133,8 @@ export default async function AiModerationPage({ params, searchParams }: PagePro
             />
           </Field>
           {settings.keyHint ? <Toggle name="removeKey" label="Remove the saved key" /> : null}
-          <Field
-            label="Model"
-            name="model"
-            hint={
-              models.length > 0
-                ? `${models.length} models that answer in a fixed JSON format (Panda requires it). Price is per million input tokens; each message check is roughly 1–2 thousand tokens.`
-                : "Couldn't load OpenRouter's model list just now — type a model id (e.g. provider/model-name)."
-            }
-          >
-            <input
-              id="model"
-              name="model"
-              list="ai-models"
-              defaultValue={settings.model ?? ''}
-              placeholder="Start typing a model name…"
-              className={inputClassName}
-            />
-            <datalist id="ai-models">
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {`${m.name}${m.promptPerMillion !== null ? ` — $${m.promptPerMillion.toFixed(2)}/M` : ''}`}
-                </option>
-              ))}
-            </datalist>
+          <Field label="Model" name="model">
+            <ModelPicker name="model" initial={settings.model} />
           </Field>
           <Field
             label="Daily check limit"

@@ -24,42 +24,60 @@ export async function checkOpenRouterKey(apiKey: string): Promise<KeyCheck> {
   }
 }
 
-export interface ModelOption {
-  id: string;
-  name: string;
-  /** USD per million prompt tokens, when OpenRouter publishes it. */
-  promptPerMillion: number | null;
-}
+export type { ModelOption } from './modelSearch';
+import type { ModelOption } from './modelSearch';
 
 let modelCache: { at: number; models: ModelOption[] } | null = null;
+let inFlight: Promise<ModelOption[]> | null = null;
 const MODEL_TTL_MS = 60 * 60_000;
+
+/** OpenRouter's per-token price string → USD per million; routers say "-1". */
+function perMillion(raw: string | undefined): number | null {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n * 1_000_000 : null;
+}
 
 /**
  * Models that can answer in a fixed JSON schema — the bot requires it (it
  * routes with require_parameters), so anything else would fail every call.
- * Empty on failure; the page then accepts a typed model id.
+ * Held for an hour, one fetch at a time. Empty on failure; the page then
+ * accepts a typed model id.
  */
 export async function listStructuredModels(): Promise<ModelOption[]> {
   if (modelCache && Date.now() - modelCache.at < MODEL_TTL_MS) return modelCache.models;
+  inFlight ??= fetchStructuredModels().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function fetchStructuredModels(): Promise<ModelOption[]> {
   try {
     const res = await fetch(`${BASE}/models`, { cache: 'no-store', signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return modelCache?.models ?? [];
     const body = (await res.json()) as {
-      data?: { id?: string; name?: string; supported_parameters?: string[]; pricing?: { prompt?: string } }[];
+      data?: {
+        id?: string;
+        name?: string;
+        created?: number;
+        context_length?: number;
+        supported_parameters?: string[];
+        pricing?: { prompt?: string; completion?: string };
+      }[];
     };
-    const models = (body.data ?? [])
+    const models: ModelOption[] = (body.data ?? [])
       // `structured_outputs` = enforces a JSON schema. (`response_format`
       // alone can mean plain JSON mode, which the bot's strict schema
       // request would be refused on.)
       .filter((m) => m.id && (m.supported_parameters ?? []).includes('structured_outputs'))
-      .map((m) => {
-        const perToken = Number(m.pricing?.prompt);
-        return {
-          id: m.id!,
-          name: m.name ?? m.id!,
-          promptPerMillion: Number.isFinite(perToken) ? perToken * 1_000_000 : null,
-        };
-      })
+      .map((m) => ({
+        id: m.id!,
+        name: m.name ?? m.id!,
+        promptPerMillion: perMillion(m.pricing?.prompt),
+        completionPerMillion: perMillion(m.pricing?.completion),
+        contextLength: m.context_length && m.context_length > 0 ? m.context_length : null,
+        created: m.created ?? 0,
+      }))
       .sort((a, b) => a.id.localeCompare(b.id));
     modelCache = { at: Date.now(), models };
     return models;
