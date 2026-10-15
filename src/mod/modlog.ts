@@ -60,7 +60,10 @@ export function renderModlogEntry(c: ModCase): string {
       ? `<#${c.targetChannelId}>`
       : 'channel';
   lines.push(`${EMOJI[c.action]} **${VERB[c.action]}** ${targetText} · Case #${c.caseNumber}`);
-  if (c.extra) lines.push(`Duration: ${c.extra}`);
+  // `extra` is a duration only for timeouts; elsewhere it's already a
+  // labelled line ("6 messages in #general", "Filter: spam", the anti-raid
+  // note) — prefixing "Duration:" to those read as nonsense.
+  if (c.extra) lines.push(c.action === 'timeout' ? `Duration: ${c.extra}` : c.extra);
   lines.push(`Moderator: <@${c.actorId}>`);
   // The reason is free text from a moderator — it must not be able to
   // ping through the bot.
