@@ -39,7 +39,17 @@ export type Permission =
   | 'MANAGE_THREADS'
   | 'READ_EVENTS'
   | 'CREATE_EVENTS'
-  | 'MANAGE_EVENTS';
+  | 'MANAGE_EVENTS'
+  | 'BYPASS_SLOWMODE'
+  // Split out of broader permissions on Echoed (Oct 2026, migration 060).
+  | 'MENTION_EVERYONE'
+  | 'MODERATE_MEMBERS'
+  | 'VIEW_AUDIT_LOG'
+  | 'MANAGE_WEBHOOKS'
+  | 'MANAGE_EXPRESSIONS'
+  | 'MANAGE_NICKNAMES'
+  | 'CHANGE_NICKNAME'
+  | 'PIN_MESSAGES';
 
 const TTL_MS = 60_000; // One minute. PERMISSION_UPDATE socket events evict.
 

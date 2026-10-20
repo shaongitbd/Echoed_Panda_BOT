@@ -141,7 +141,7 @@ const CAPABILITIES: ReadonlyArray<{ perm: Permission; label: string; without: st
   // Moderation
   { perm: 'KICK_MEMBERS',         label: 'Kick Members',         without: 'no kicks, and anti-raid auto-kick is disabled' },
   { perm: 'BAN_MEMBERS',          label: 'Ban Members',          without: 'no bans' },
-  { perm: 'MUTE_MEMBERS',         label: 'Mute Members',         without: "I can't timeout / untimeout members" },
+  { perm: 'MODERATE_MEMBERS',     label: 'Timeout Members',      without: "I can't timeout / untimeout members" },
   { perm: 'MANAGE_SERVER',        label: 'Manage Server',        without: "I can't engage raid lockdown" },
   // Voice (music)
   { perm: 'CONNECT',              label: 'Connect to Voice',     without: "I can't join voice to play music" },

@@ -195,6 +195,7 @@ async function isModerator(ctx: CommandContext, svc: Services): Promise<boolean>
   const checks: [Permission, string | undefined][] = [
     ['MANAGE_MESSAGES', ctx.channelId],
     ['MUTE_MEMBERS', undefined],
+    ['MODERATE_MEMBERS', undefined],
     ['KICK_MEMBERS', undefined],
     ['BAN_MEMBERS', undefined],
   ];

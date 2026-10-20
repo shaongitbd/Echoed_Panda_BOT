@@ -50,7 +50,7 @@ export type ActionOutcome = { ok: true; summary: string } | { ok: false; error: 
 const PERMISSION: Record<Exclude<AiAction, 'flag'>, { perm: Permission; label: string }> = {
   delete: { perm: 'MANAGE_MESSAGES', label: 'Manage Messages' },
   warn: { perm: 'KICK_MEMBERS', label: 'Kick Members' },
-  timeout: { perm: 'MUTE_MEMBERS', label: 'Mute Members' },
+  timeout: { perm: 'MODERATE_MEMBERS', label: 'Timeout Members' },
   kick: { perm: 'KICK_MEMBERS', label: 'Kick Members' },
   ban: { perm: 'BAN_MEMBERS', label: 'Ban Members' },
 };

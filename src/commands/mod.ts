@@ -269,8 +269,11 @@ export const handleUnban: Handler = async (ctx, svc) => {
 
 // ─── timeout / untimeout ────────────────────────────────────────────────
 
+// Timeout Members, as on Discord — and what Echoed's timeout endpoint checks.
+// It was split out of Mute Members; Echoed reports it for anyone holding Mute
+// until migration 060 has given them the bit, so no moderator loses this.
 export const handleTimeout: Handler = async (ctx, svc) => {
-  if (!(await requirePerm(ctx, svc, 'MUTE_MEMBERS', 'Mute Members'))) return;
+  if (!(await requirePerm(ctx, svc, 'MODERATE_MEMBERS', 'Timeout Members'))) return;
 
   const targetId = parseUserId(ctx.args[0]);
   const durArg = ctx.args[1];
@@ -326,7 +329,7 @@ export const handleTimeout: Handler = async (ctx, svc) => {
 };
 
 export const handleUntimeout: Handler = async (ctx, svc) => {
-  if (!(await requirePerm(ctx, svc, 'MUTE_MEMBERS', 'Mute Members'))) return;
+  if (!(await requirePerm(ctx, svc, 'MODERATE_MEMBERS', 'Timeout Members'))) return;
 
   const targetId = parseUserId(ctx.args[0]);
   if (!targetId) {
